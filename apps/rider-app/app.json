@@ -1,0 +1,29 @@
+{
+  "expo": {
+    "name": "PassWaala Rider",
+    "slug": "passwala-rider",
+    "scheme": "passwalarider",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "platforms": ["ios", "android", "web"],
+    "web": {
+      "bundler": "metro",
+      "output": "single",
+      "favicon": "./public/favicon.svg",
+      "name": "PassWaala Rider",
+      "shortName": "PW Rider",
+      "description": "Accept deliveries and track earnings on PassWaala",
+      "themeColor": "#0B7A4B",
+      "backgroundColor": "#F5F6F8",
+      "display": "standalone",
+      "orientation": "portrait",
+      "scope": "/",
+      "startUrl": "/"
+    },
+    "ios": { "supportsTablet": true },
+    "android": {
+      "package": "com.passwala.rider"
+    }
+  }
+}

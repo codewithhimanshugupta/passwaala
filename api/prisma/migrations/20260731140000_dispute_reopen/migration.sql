@@ -1,0 +1,1 @@
+ALTER TABLE "OrderDispute" ADD COLUMN "reopenCount" INTEGER NOT NULL DEFAULT 0;

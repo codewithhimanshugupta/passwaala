@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" fill="#1E293B"/>
+  <radialGradient id="hl" cx="38%" cy="32%" r="55%">
+    <stop offset="0%" stop-color="rgba(255,255,255,0.10)"/>
+    <stop offset="100%" stop-color="rgba(255,255,255,0)"/>
+  </radialGradient>
+  <rect width="512" height="512" fill="url(#hl)"/>
+  <text x="256" y="330" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="200" font-weight="900" fill="#FFFFFF" letter-spacing="-8">PW</text>
+  <circle cx="392" cy="150" r="26" fill="#2563EB"/>
+</svg>

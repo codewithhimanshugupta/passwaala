@@ -1,0 +1,32 @@
+{
+  "expo": {
+    "name": "PassWaala Admin",
+    "slug": "passwala-admin",
+    "scheme": "passwalaadmin",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "platforms": ["ios", "android", "web"],
+    "web": {
+      "bundler": "metro",
+      "output": "single",
+      "favicon": "./public/favicon.svg",
+      "name": "PassWaala Admin",
+      "shortName": "PW Admin",
+      "description": "PassWaala operations & partner console",
+      "themeColor": "#1E293B",
+      "backgroundColor": "#F8FAFC",
+      "display": "standalone",
+      "orientation": "portrait",
+      "scope": "/",
+      "startUrl": "/"
+    },
+    "ios": { "supportsTablet": true },
+    "android": {
+      "package": "com.passwala.admin"
+    },
+    "extra": {
+      "webDevPort": 8084
+    }
+  }
+}

@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+
+    <!-- Viewport: mobile-first, prevent user-scaling (app-like) -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no, viewport-fit=cover" />
+
+    <!-- Primary meta -->
+    <title>PassWaala</title>
+    <meta name="description" content="Order from your favourite local shops" />
+    <meta name="theme-color" content="#0B7A4B" />
+
+    <!-- PWA install hints -->
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="PassWaala" />
+    <meta name="application-name" content="PassWaala" />
+    <meta name="msapplication-TileColor" content="#0B7A4B" />
+
+    <!-- Canonical web-app manifest (Expo generates one, we enhance it in app.json) -->
+    <link rel="manifest" href="/manifest.json" />
+
+    <!-- Icons -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/icons/icon-192.svg" />
+
+    <!-- Splash background colour so the blank-page flash matches the app surface -->
+    <style>
+      html, body {
+        margin: 0;
+        padding: 0;
+        background-color: #F5F6F8;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- React Native Web mounts here -->
+    <div id="root"></div>
+
+    <!-- Register service worker after page load so it never blocks first paint -->
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function () {
+          navigator.serviceWorker
+            .register('/service-worker.js', { scope: '/' })
+            .catch(function (err) {
+              console.warn('[PassWaala SW] registration failed:', err);
+            });
+        });
+      }
+    </script>
+  </body>
+</html>

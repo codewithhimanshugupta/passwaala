@@ -1,0 +1,1 @@
+ALTER TABLE "ServiceableCity" ADD COLUMN "deliveryRadiusMeters" INTEGER NOT NULL DEFAULT 15000;

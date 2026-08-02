@@ -1,0 +1,1 @@
+ALTER TABLE "Shop" ADD COLUMN "selfPickupEnabled" BOOLEAN NOT NULL DEFAULT true;

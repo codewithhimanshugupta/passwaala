@@ -1,0 +1,22 @@
+{
+  "name": "passwaala",
+  "version": "0.1.0",
+  "private": true,
+  "description": "PassWaala — Your Local Business Network (hyperlocal multi-shop marketplace)",
+  "workspaces": [
+    "packages/*",
+    "api",
+    "apps/*"
+  ],
+  "scripts": {
+    "db:up": "docker compose up -d db",
+    "db:down": "docker compose down",
+    "db:logs": "docker compose logs -f db",
+    "shared:build": "npm run build --workspace @passwaala/shared",
+    "api:dev": "npm run start:dev --workspace @passwaala/api",
+    "api:test": "npm run test --workspace @passwaala/api"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

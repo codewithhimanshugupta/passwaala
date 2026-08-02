@@ -1,0 +1,65 @@
+name: CI
+
+# Runs on every push and pull request.
+# Merges are blocked on green — enable this as a required status check via
+# branch protection in the repo settings (Settings → Branches → Branch protection
+# rules → "Require status checks to pass before merging" → select "build-and-test").
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-test:
+    name: build-and-test
+    runs-on: ubuntu-latest
+
+    # Postgres + PostGIS service container — the SAME image used for local dev,
+    # so CI and local behaviour match. Health-checked so steps wait until ready.
+    services:
+      db:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_USER: passwaala
+          POSTGRES_PASSWORD: dev
+          POSTGRES_DB: passwaala_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U passwala -d passwala_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # Point the API + Prisma at the service container above.
+      DATABASE_URL: postgresql://passwaala:dev@localhost:5432/passwaala_test?schema=public
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build shared types
+        run: npm run shared:build
+
+      - name: Prisma generate
+        working-directory: api
+        run: npm run prisma:generate
+
+      - name: Prisma migrate (deploy)
+        working-directory: api
+        run: npm run prisma:migrate:deploy
+
+      - name: Build API
+        run: npm run build --workspace @passwaala/api
+
+      - name: Run API tests
+        run: npm run api:test
