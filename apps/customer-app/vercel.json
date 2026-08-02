@@ -1,7 +1,7 @@
 {
-  "buildCommand": "cd ../.. && npm install && npm run build --workspace @passwaala/shared && npm run build --workspace @passwaala/api-client && cd apps/customer-app && npx expo export --platform web",
+  "buildCommand": null,
   "outputDirectory": "dist",
-  "installCommand": "echo skip",
+  "installCommand": null,
   "framework": null,
   "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
 }

@@ -75,9 +75,10 @@ export class AuthService {
       expiresAt: Date.now() + AuthService.OTP_TTL_MS,
     });
 
-    if (process.env.NODE_ENV !== 'production') {
-      this.logger.debug(`OTP for ${normalized} [${appType}]: ${code} (dev only — mock sender)`);
-    }
+    // OTP delivery: no SMS provider wired yet, so we log the code. In production
+    // this is a TEMPORARY testing measure — replace with a real SMS/WhatsApp
+    // sender (MSG91/Twilio) before public launch, and drop this log.
+    this.logger.log(`OTP for ${normalized} [${appType}]: ${code}`);
     return { sent: true };
   }
 
