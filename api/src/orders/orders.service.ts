@@ -441,6 +441,13 @@ export class OrdersService {
       orderId,
       status: order.status as OrderStatus,
     });
+    // Background push: shop must verify the payment claim (action required).
+    void this.pushToShopOwner(order.shopId, {
+      title: '💳 Payment claimed',
+      body: 'A customer says they paid — tap to verify and start preparing.',
+      tag: `pay-${orderId}`,
+      url: '/',
+    });
     return updated;
   }
 

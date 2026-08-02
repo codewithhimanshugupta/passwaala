@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotImplementedException, OnApplicationBootstrap, OnModuleDestroy } from '@nestjs/common';
 import { DeliveryMode, OrderStatus } from '@passwaala/shared';
 import { PrismaService } from '../prisma/prisma.service';
+import { WebPushService } from '../notifications/web-push.service';
 
 /** A geo-coded point (lat/lng). Used for both single-point and two-point tasks. */
 export interface GeoPoint {
@@ -70,7 +71,10 @@ export class DispatchService implements OnApplicationBootstrap, OnModuleDestroy 
 
   private sweepTimer: ReturnType<typeof setInterval> | null = null;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly webPush: WebPushService,
+  ) {}
 
   onApplicationBootstrap(): void {
     // Skip the background sweep under tests — they drive tick()/offerNext directly
@@ -190,6 +194,13 @@ export class DispatchService implements OnApplicationBootstrap, OnModuleDestroy 
             dispatchTriedRiderIds: { push: chosen.userId },
             dispatchRadiusMeters: radius,
           },
+        });
+        // Background push so the rider is alerted with the app closed / locked.
+        void this.webPush.sendToUser(chosen.userId, {
+          title: '🛵 New delivery job!',
+          body: 'A delivery near you is ready. Tap to accept.',
+          tag: `job-${orderId}`,
+          url: '/',
         });
         return chosen.userId;
       }
