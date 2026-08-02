@@ -10,6 +10,14 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { UserRole } from '@passwaala/shared';
+
+/** Minimal shape of an uploaded file (subset of Express.Multer.File we use). */
+interface UploadedFileShape {
+  filename: string;
+  originalname: string;
+  mimetype: string;
+  size: number;
+}
 import { Roles } from '../common/roles.decorator';
 
 /** Absolute path to the local uploads dir (configurable via UPLOADS_DIR). */
@@ -57,7 +65,7 @@ export class UploadController {
       },
     }),
   )
-  uploadImage(@UploadedFile() file?: Express.Multer.File): { url: string; filename: string } {
+  uploadImage(@UploadedFile() file?: UploadedFileShape): { url: string; filename: string } {
     if (!file) {
       throw new BadRequestException('No file uploaded (field name must be "file")');
     }
