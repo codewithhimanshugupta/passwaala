@@ -285,7 +285,10 @@ export function OrderTrackingScreen({
     if (!link) return;
     try {
       if (Platform.OS === 'web') {
-        window.open(link, '_blank');
+        // Navigate the current tab to the upi: scheme so the OS shows its UPI
+        // app picker. window.open(_blank) opens a dead tab and lets some apps
+        // (e.g. WhatsApp Pay) hijack the intent — location.href is reliable.
+        window.location.href = link;
       } else {
         await Linking.openURL(link);
       }
