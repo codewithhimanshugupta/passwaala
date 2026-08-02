@@ -32,7 +32,7 @@ const headTags = `  <link rel="manifest" href="/manifest.json" />
 const swScript = `  <script>
   (function () {
     if (!('serviceWorker' in navigator)) return;
-    var API = ${JSON.stringify(process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000')};
+    var API = ${JSON.stringify(process.env.EXPO_PUBLIC_API_URL || 'https://passwaala.onrender.com')};
     var TOKEN_KEY = ${JSON.stringify(tokenKey)};
     function urlB64ToUint8Array(b64) {
       var pad = '='.repeat((4 - (b64.length % 4)) % 4);
