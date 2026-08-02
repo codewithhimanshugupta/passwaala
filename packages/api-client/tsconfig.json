@@ -14,8 +14,7 @@
     "skipLibCheck": true,
     "noImplicitOverride": true,
     "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "moduleResolution": "node"
+    "noUnusedParameters": true
   },
   "include": ["src/**/*.ts"],
   "exclude": ["node_modules", "dist"]
