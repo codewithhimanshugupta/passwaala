@@ -326,7 +326,15 @@ export class AutomationService {
           select: { id: true, status: true },
         });
 
-        if (staleMins >= 60 && !existingDispute?.status?.includes('PENALT')) {
+        // Penalty applies ONCE per order — guard on a prior RIDER_DELIVERY_PENALTY
+        // automation log for this order (the dispute status was never a reliable
+        // marker, so the penalty used to re-fire every sweep).
+        const alreadyPenalized = await this.prisma.automationLog.findFirst({
+          where: { orderId: order.id, action: 'RIDER_DELIVERY_PENALTY' },
+          select: { id: true },
+        });
+
+        if (staleMins >= 60 && !alreadyPenalized) {
           // ≥60 min: penalty + dispute message
           const penalty = order.adjustedTotalPaise ?? order.originalTotalPaise;
           await this.prisma.riderProfile.update({
@@ -346,15 +354,21 @@ export class AutomationService {
           await this.log({ action: 'RIDER_DELIVERY_PENALTY', detail: msg, orderId: order.id, shopId: order.shopId, riderUserId: order.riderId as string });
 
         } else if (staleMins >= 45 && staleMins < 60) {
-          // ≥45 min: escalate existing dispute or reopen
-          const msg = `🔴 ESCALATION: Order ${ref} still not delivered after 45 min. Rider unresponsive.`;
-          if (existingDispute) {
-            if (existingDispute.status === 'RESOLVED') {
-              await this.prisma.orderDispute.update({ where: { id: existingDispute.id }, data: { status: 'OPEN', reopenCount: { increment: 1 } } });
+          // ≥45 min: escalate ONCE (guard on a prior escalation log for this order).
+          const alreadyEscalated = await this.prisma.automationLog.findFirst({
+            where: { orderId: order.id, action: 'RIDER_DELIVERY_ESCALATED' },
+            select: { id: true },
+          });
+          if (!alreadyEscalated) {
+            const msg = `🔴 ESCALATION: Order ${ref} still not delivered after 45 min. Rider unresponsive.`;
+            if (existingDispute) {
+              if (existingDispute.status === 'RESOLVED') {
+                await this.prisma.orderDispute.update({ where: { id: existingDispute.id }, data: { status: 'OPEN', reopenCount: { increment: 1 } } });
+              }
+              await this.prisma.disputeMessage.create({ data: { disputeId: existingDispute.id, senderId: order.riderId as string, senderRole: 'SYSTEM', body: msg } });
             }
-            await this.prisma.disputeMessage.create({ data: { disputeId: existingDispute.id, senderId: order.riderId as string, senderRole: 'SYSTEM', body: msg } });
+            await this.log({ action: 'RIDER_DELIVERY_ESCALATED', detail: msg, orderId: order.id, shopId: order.shopId, riderUserId: order.riderId as string });
           }
-          await this.log({ action: 'RIDER_DELIVERY_ESCALATED', detail: msg, orderId: order.id, shopId: order.shopId, riderUserId: order.riderId as string });
 
         } else if (staleMins >= 30 && staleMins < 45 && !existingDispute) {
           // ≥30 min: open new dispute for admin
