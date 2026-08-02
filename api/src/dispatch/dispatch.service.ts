@@ -66,7 +66,7 @@ export class DispatchService implements OnApplicationBootstrap, OnModuleDestroy 
   /** A rider may hold at most this many active orders. */
   private static readonly MAX_ACTIVE_ORDERS = 2;
   /** How often the backstop sweep runs (ms). */
-  private static readonly SWEEP_MS = 3000;
+  private static readonly SWEEP_MS = 15000;
 
   private sweepTimer: ReturnType<typeof setInterval> | null = null;
 

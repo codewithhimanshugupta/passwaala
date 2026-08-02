@@ -56,6 +56,9 @@ async function bootstrap(): Promise<void> {
       return cb(null, false);
     },
     credentials: true,
+    // Cache preflight for 24h so browsers stop sending an OPTIONS before every
+    // request (halves round-trips — big win on a slow/free-tier backend).
+    maxAge: 86400,
   });
 
   const port = Number(process.env.PORT ?? 3000);
