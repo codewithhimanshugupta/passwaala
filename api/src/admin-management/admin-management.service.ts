@@ -37,7 +37,7 @@ export class AdminManagementService {
     });
     // Resolve each invite's user by phone (invite carries phone/email, not a FK
     // to the invited user — the invitedByOwnerId FK is the owner, not the admin).
-    const result = [];
+    const result: Array<Record<string, unknown>> = [];
     for (const inv of invites) {
       const user = inv.phone
         ? await this.prisma.user.findUnique({

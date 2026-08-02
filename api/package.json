@@ -5,7 +5,7 @@
   "description": "PassWaala API — NestJS modular monolith (auth, shops, products, orders, notifications, realtime, ledger, dispatch)",
   "main": "dist/main.js",
   "scripts": {
-    "build": "cd .. && npm install && cd api && tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json",
     "start": "node -r dotenv/config dist/main.js dotenv_config_path=.env",
     "start:dev": "nest start --watch",
     "start:prod": "node dist/main.js",
