@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Modal,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -47,6 +48,7 @@ function formatRs(paise: number): string {
 export function TaskboardScreen() {
   const [data, setData] = useState<Taskboard | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
   const [revertTarget, setRevertTarget] = useState<AutoLog | null>(null);
@@ -69,6 +71,11 @@ export function TaskboardScreen() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try { await load(); } finally { setRefreshing(false); }
+  }, [load]);
 
   function flash(msg: string) {
     setBanner(msg);
@@ -135,7 +142,10 @@ export function TaskboardScreen() {
         <View style={styles.banner}><Text style={styles.bannerText}>{banner}</Text></View>
       ) : null}
 
-      <ScrollView contentContainerStyle={styles.body}>
+      <ScrollView
+        contentContainerStyle={styles.body}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      >
         {/* Header */}
         <View style={styles.headerRow}>
           <View>

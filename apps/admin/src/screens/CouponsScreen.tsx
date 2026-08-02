@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Switch,
@@ -188,6 +189,7 @@ function CouponForm({
 export function CouponsScreen() {
   const [coupons, setCoupons] = useState<Coupon[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [forbidden, setForbidden] = useState(false);
   const [showAll, setShowAll] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -207,6 +209,11 @@ export function CouponsScreen() {
   }, [showAll]);
 
   useEffect(() => { void load(); }, [load]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try { await load(); } finally { setRefreshing(false); }
+  }, [load]);
 
   function flash(msg: string) { setBanner(msg); setTimeout(() => setBanner(null), 3000); }
 
@@ -269,7 +276,10 @@ export function CouponsScreen() {
     <View style={s.wrap}>
       {banner ? <View style={s.banner}><Text style={s.bannerText}>{banner}</Text></View> : null}
 
-      <ScrollView contentContainerStyle={s.body}>
+      <ScrollView
+        contentContainerStyle={s.body}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      >
         <View style={s.headerRow}>
           <View>
             <Text style={s.h1}>Coupons</Text>

@@ -25,6 +25,7 @@ import { LedgerService } from '../ledger/ledger.service';
 import { ReferralsService } from '../referrals/referrals.service';
 import { DispatchService } from '../dispatch/dispatch.service';
 import { DisputesService } from '../disputes/disputes.service';
+import { WebPushService } from '../notifications/web-push.service';
 import { AdvanceOrderDto } from './dto/advance-order.dto';
 import { PlaceOrderDto } from './dto/place-order.dto';
 import {
@@ -54,7 +55,27 @@ export class OrdersService {
     private readonly referrals: ReferralsService,
     private readonly dispatch: DispatchService,
     private readonly disputes: DisputesService,
+    private readonly webPush: WebPushService,
   ) {}
+
+  /**
+   * Fire a Web Push to a shop's owner (best-effort, never throws). Used so the
+   * shopkeeper is alerted even when the app is backgrounded / phone locked.
+   */
+  private async pushToShopOwner(
+    shopId: string,
+    payload: { title: string; body: string; tag?: string; url?: string },
+  ): Promise<void> {
+    try {
+      const shop = await this.prisma.shop.findUnique({
+        where: { id: shopId },
+        select: { ownerId: true },
+      });
+      if (shop?.ownerId) await this.webPush.sendToUser(shop.ownerId, payload);
+    } catch {
+      /* best-effort — never block the order flow on a push */
+    }
+  }
 
   /**
    * Place an order from the customer's cart. Durable-write-first: the whole
@@ -316,6 +337,15 @@ export class OrdersService {
     // reliability plan moves this onto a BullMQ queue with retries; the order is
     // already safe in the DB regardless of whether this emit lands.)
     this.realtime.emitOrderCreated(shopId, { orderId: created.id });
+    // Background push so the shopkeeper is alerted even with the app closed /
+    // phone locked (the in-app socket + polling only fire while the tab is open).
+    const orderTotal = created.adjustedTotalPaise ?? created.originalTotalPaise;
+    void this.pushToShopOwner(shopId, {
+      title: '🛒 New order!',
+      body: `New order for ₹${(orderTotal / 100).toFixed(2)} — tap to view.`,
+      tag: `order-${created.id}`,
+      url: '/',
+    });
 
     return this.toPlacedResult(created);
   }

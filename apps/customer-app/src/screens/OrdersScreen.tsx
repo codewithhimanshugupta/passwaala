@@ -4,6 +4,7 @@ import {
   FlatList,
   Image,
   Pressable,
+  RefreshControl,
   StyleSheet,
   Text,
   View,
@@ -32,6 +33,7 @@ export function OrdersScreen({
   const { t } = useLang();
   const [orders, setOrders] = useState<OrderHistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reordering, setReordering] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'ongoing' | 'history'>('ongoing');
@@ -78,6 +80,11 @@ export function OrdersScreen({
 
   useEffect(() => {
     void load();
+  }, [load]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try { await load(); } finally { setRefreshing(false); }
   }, [load]);
 
   async function reorder(orderId: string) {
@@ -141,6 +148,7 @@ export function OrdersScreen({
         keyExtractor={(o) => o.orderId}
         contentContainerStyle={styles.list}
         showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         onEndReached={loadMore}
         onEndReachedThreshold={0.4}
         ListEmptyComponent={

@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Modal,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -63,6 +64,7 @@ export function ShopApprovalsScreen() {
   const { t } = useLang();
   const [shops, setShops] = useState<PendingShop[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [forbidden, setForbidden] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
@@ -94,6 +96,11 @@ export function ShopApprovalsScreen() {
 
   useEffect(() => {
     load();
+  }, [load]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try { await load(); } finally { setRefreshing(false); }
   }, [load]);
 
   function flash(msg: string) {
@@ -177,7 +184,10 @@ export function ShopApprovalsScreen() {
         </View>
       ) : null}
 
-      <ScrollView contentContainerStyle={styles.body}>
+      <ScrollView
+        contentContainerStyle={styles.body}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      >
         <View style={styles.headerRow}>
           <View>
             <Text style={styles.h1}>{t.approvals.title}</Text>

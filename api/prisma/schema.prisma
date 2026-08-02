@@ -263,6 +263,7 @@ model User {
   referredAs    Referral[]    @relation("RefereeUser")
   adminInvites  AdminInvite[] @relation("InvitedByOwner")
   riderProfile  RiderProfile?
+  pushSubscriptions PushSubscription[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -270,6 +271,21 @@ model User {
 
   @@unique([phone, appType])
   @@index([role])
+}
+
+/// A Web Push subscription for a user's browser/PWA (VAPID). Lets us send order
+/// notifications when the app is backgrounded / phone locked. One row per
+/// device+browser; endpoint is unique. Cleaned up on 410 Gone from the push service.
+model PushSubscription {
+  id       String @id @default(uuid())
+  userId   String
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint String @unique
+  p256dh   String // client public key (from the browser subscription)
+  auth     String // client auth secret (from the browser subscription)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
 }
 
 /// A shop (product business for the MVP). Cannot be discovered/receive orders

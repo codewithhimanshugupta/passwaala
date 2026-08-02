@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Modal, Platform, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Modal, Platform, Pressable, RefreshControl, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import { api, updateName } from '../api';
 import type { Account, Address, ReferralInfo } from '../types';
 import { AddressForm } from '../components/AddressForm';
@@ -23,6 +23,7 @@ export function ProfileScreen({ onLogout }: { onLogout: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   // Name editing
   const [editingName, setEditingName] = useState(false);
@@ -61,6 +62,11 @@ export function ProfileScreen({ onLogout }: { onLogout: () => void }) {
 
   useEffect(() => {
     void load();
+  }, [load]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try { await load(); } finally { setRefreshing(false); }
   }, [load]);
 
   const reloadAddresses = useCallback(async () => {
@@ -191,7 +197,7 @@ export function ProfileScreen({ onLogout }: { onLogout: () => void }) {
   const hasName = !!account?.name;
 
   return (
-    <ScrollView style={styles.root} contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+    <ScrollView style={styles.root} contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}>
       <View style={styles.hero}>
         {/* Avatar + edit */}
         <View style={styles.avatarWrap}>

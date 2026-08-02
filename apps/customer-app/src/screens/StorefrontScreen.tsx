@@ -6,6 +6,7 @@ import {
   Linking,
   Platform,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -60,6 +61,7 @@ export function StorefrontScreen({
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [pending, setPending] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
   const [conflict, setConflict] = useState<{ productId: string; message: string } | null>(null);
 
   // Search + category drill-down. `query` is the raw input; a debounced effect
@@ -96,6 +98,11 @@ export function StorefrontScreen({
 
   useEffect(() => {
     void load();
+  }, [load]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try { await load(); } finally { setRefreshing(false); }
   }, [load]);
 
   // Debounced search / category filtering. Skips the very first render (initial
@@ -176,6 +183,7 @@ export function StorefrontScreen({
         numColumns={2}
         key="grid-2"
         showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         contentContainerStyle={[styles.list, showCartBar && styles.listWithBar]}
         ListHeaderComponent={
           <StoreHeader

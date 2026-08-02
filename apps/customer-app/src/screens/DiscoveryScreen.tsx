@@ -5,6 +5,7 @@ import {
   Modal,
   Platform,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -59,6 +60,7 @@ export function DiscoveryScreen({
   const CATEGORIES = categoriesFor(t);
   const [shops, setShops] = useState<NearbyShop[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [category, setCategory] = useState('');
   const [sort, setSort] = useState<'distance' | 'rating'>('distance');
@@ -184,6 +186,11 @@ export function DiscoveryScreen({
 
   useEffect(() => {
     void load();
+  }, [load]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try { await load(); } finally { setRefreshing(false); }
   }, [load]);
 
   // Open a shop, but if it's pickup-only right now (no rider nearby for a
@@ -452,6 +459,7 @@ export function DiscoveryScreen({
           )}
           keyExtractor={(s) => s.id}
           showsVerticalScrollIndicator={false}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
           renderItem={({ item }) => <ShopCard shop={item} onPress={() => handleOpenShop(item)} />}
         />
       )}

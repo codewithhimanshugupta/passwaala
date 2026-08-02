@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -53,6 +54,7 @@ export function ShopsScreen() {
   const { t } = useLang();
   const [shops, setShops] = useState<AdminShop[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [forbidden, setForbidden] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
@@ -83,6 +85,11 @@ export function ShopsScreen() {
   }, []);
 
   useEffect(() => { load(city); }, [load, city]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try { await load(city); } finally { setRefreshing(false); }
+  }, [load, city]);
 
   function flash(msg: string) {
     setBanner(msg);
@@ -177,7 +184,11 @@ export function ShopsScreen() {
     <View style={styles.wrap}>
       {banner ? <View style={styles.banner}><Text style={styles.bannerText}>{banner}</Text></View> : null}
 
-      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.body}
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      >
         {/* Header */}
         <View style={styles.pageHeader}>
           <View>

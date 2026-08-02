@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Modal,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Switch,
@@ -53,6 +54,7 @@ export function CitiesScreen() {
   const [cities, setCities] = useState<City[]>([]);
   const [admins, setAdmins] = useState<AdminInvite[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [forbidden, setForbidden] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
@@ -90,6 +92,11 @@ export function CitiesScreen() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try { await load(); } finally { setRefreshing(false); }
+  }, [load]);
 
   function flash(msg: string) {
     setBanner(msg);
@@ -238,7 +245,10 @@ export function CitiesScreen() {
 
       {/* ── Tab: Cities ── */}
       {tab === 'cities' && (
-        <ScrollView contentContainerStyle={styles.body}>
+        <ScrollView
+          contentContainerStyle={styles.body}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        >
           {error ? <Text style={styles.error}>{error}</Text> : null}
           {cities.length === 0 ? (
             <View style={styles.empty}>
@@ -272,7 +282,10 @@ export function CitiesScreen() {
 
       {/* ── Tab: Admins ── */}
       {tab === 'admins' && (
-        <ScrollView contentContainerStyle={styles.body}>
+        <ScrollView
+          contentContainerStyle={styles.body}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        >
           {/* Invite form */}
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Invite an Admin</Text>

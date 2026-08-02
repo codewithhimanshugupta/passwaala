@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   FlatList,
   Pressable,
+  RefreshControl,
   StyleSheet,
   Text,
   TextInput,
@@ -131,6 +132,7 @@ export function CouponScreen({
   const [codeError, setCodeError] = useState<string | null>(null);
   const [shopCoupons, setShopCoupons] = useState<ShopCoupon[]>([]);
   const [loadingCoupons, setLoadingCoupons] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [appliedCouponCode, setAppliedCouponCode] = useState<string | null>(null);
 
   const loadCoupons = useCallback(async () => {
@@ -142,6 +144,11 @@ export function CouponScreen({
     } catch { /* ignore */ }
     finally { setLoadingCoupons(false); }
   }, [shopId]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try { await loadCoupons(); } finally { setRefreshing(false); }
+  }, [loadCoupons]);
 
   useEffect(() => { void loadCoupons(); }, [loadCoupons]);
 
@@ -206,6 +213,7 @@ export function CouponScreen({
         data={allItems}
         keyExtractor={item => item.id}
         contentContainerStyle={s.list}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         ListHeaderComponent={
           loadingCoupons ? (
             <ActivityIndicator color={theme.color.primary} style={{ margin: 16 }} />

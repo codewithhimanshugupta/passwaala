@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { ApiError } from '@passwaala/api-client';
 import { api } from '../api';
 import { formatRupees, theme } from '../theme';
@@ -32,6 +32,7 @@ export function PaymentClaimsScreen() {
   const { t } = useLang();
   const [claims, setClaims] = useState<PaymentClaim[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [forbidden, setForbidden] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
@@ -53,6 +54,11 @@ export function PaymentClaimsScreen() {
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try { await load(); } finally { setRefreshing(false); }
+  }, [load]);
 
   function flash(msg: string) {
     setBanner(msg);
@@ -103,7 +109,10 @@ export function PaymentClaimsScreen() {
         </View>
       ) : null}
 
-      <ScrollView contentContainerStyle={styles.body}>
+      <ScrollView
+        contentContainerStyle={styles.body}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      >
         <View style={styles.headerRow}>
           <View>
             <Text style={styles.h1}>{t.paymentClaims.title}</Text>

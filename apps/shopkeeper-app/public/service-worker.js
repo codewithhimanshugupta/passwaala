@@ -6,11 +6,44 @@
  *  - Images/icons → stale-while-revalidate
  * Bump CACHE_VERSION on each deploy to evict old shells.
  */
-const CACHE_VERSION = 'v1';
+const CACHE_VERSION = 'v2';
 const SHELL_CACHE   = `passwaala-partner-shell-${CACHE_VERSION}`;
 const STATIC_CACHE  = `passwaala-partner-static-${CACHE_VERSION}`;
 
-const PRECACHE_URLS = ['/', '/index.html', '/favicon.svg', '/icons/icon-192.svg', '/icons/icon-512.svg'];
+const PRECACHE_URLS = ['/', '/index.html', '/favicon.png', '/icons/icon-192.png', '/icons/icon-512.png'];
+
+/* ------------------------- Web Push (background alerts) ------------------------- */
+// Fires even when the app is closed / phone locked. The backend sends a JSON
+// payload {title, body, tag, url}; we show a system notification. Tapping it
+// focuses an open app tab or opens one.
+self.addEventListener('push', (event) => {
+  let data = {};
+  try { data = event.data ? event.data.json() : {}; } catch { data = {}; }
+  const title = data.title || 'PassWaala Partner';
+  const options = {
+    body: data.body || 'You have a new update.',
+    tag: data.tag || 'passwaala',
+    renotify: true,
+    icon: '/icons/icon-192.png',
+    badge: '/icons/icon-192.png',
+    vibrate: [400, 150, 400],
+    data: { url: data.url || '/' },
+  };
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const target = (event.notification.data && event.notification.data.url) || '/';
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+      for (const client of clients) {
+        if ('focus' in client) return client.focus();
+      }
+      if (self.clients.openWindow) return self.clients.openWindow(target);
+    })
+  );
+});
 
 self.addEventListener('install', (event) => {
   event.waitUntil(

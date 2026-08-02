@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { ApiError } from '@passwaala/api-client';
 import { api } from '../api';
 import { formatRupees, theme } from '../theme';
@@ -14,6 +14,7 @@ export function RidersScreen() {
   const { t } = useLang();
   const [riders, setRiders] = useState<AdminRider[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [forbidden, setForbidden] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
@@ -42,6 +43,11 @@ export function RidersScreen() {
   }, [city]);
 
   useEffect(() => { void load(); }, [load]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try { await load(); } finally { setRefreshing(false); }
+  }, [load]);
 
   function flash(msg: string) {
     setBanner(msg);
@@ -126,7 +132,11 @@ export function RidersScreen() {
         <View style={styles.banner}><Text style={styles.bannerText}>{banner}</Text></View>
       ) : null}
 
-      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.body}
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      >
         {/* Header */}
         <View style={styles.pageHeader}>
           <View>
