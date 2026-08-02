@@ -14,7 +14,8 @@ build/
 !.env.example
 
 # Local media storage (dev uploads → R2/CDN in prod)
-uploads/
+/api/uploads/
+/uploads/
 
 # Logs
 *.log
