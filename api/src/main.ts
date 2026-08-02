@@ -33,11 +33,30 @@ async function bootstrap(): Promise<void> {
     }),
   );
 
+  // CORS: explicit allowlist from CORS_ORIGINS, plus any *.vercel.app and
+  // *.passwaala.in origin (so newly-deployed apps + custom subdomains work
+  // without editing env vars each time). Non-browser callers (no Origin) allowed.
   const corsOrigins = (process.env.CORS_ORIGINS ?? '')
     .split(',')
     .map((o) => o.trim())
     .filter(Boolean);
-  app.enableCors({ origin: corsOrigins.length ? corsOrigins : false });
+  const allowedHostSuffixes = ['.vercel.app', '.passwaala.in'];
+  app.enableCors({
+    origin: (origin, cb) => {
+      if (!origin) return cb(null, true); // curl / server-to-server / same-origin
+      if (corsOrigins.includes(origin)) return cb(null, true);
+      try {
+        const host = new URL(origin).hostname;
+        if (host === 'passwaala.in' || allowedHostSuffixes.some((s) => host.endsWith(s))) {
+          return cb(null, true);
+        }
+      } catch {
+        /* malformed origin — fall through to deny */
+      }
+      return cb(null, false);
+    },
+    credentials: true,
+  });
 
   const port = Number(process.env.PORT ?? 3000);
   await app.listen(port, '0.0.0.0');
