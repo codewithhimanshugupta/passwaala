@@ -10,7 +10,6 @@
     "web": {
       "bundler": "metro",
       "output": "single",
-      "favicon": "./public/favicon.svg",
       "name": "PassWaala Partner",
       "shortName": "PW Partner",
       "description": "Manage your shop, orders and earnings on PassWaala",

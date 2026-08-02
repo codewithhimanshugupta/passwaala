@@ -10,7 +10,6 @@
     "web": {
       "bundler": "metro",
       "output": "single",
-      "favicon": "./public/favicon.svg",
       "name": "PassWaala",
       "shortName": "PassWaala",
       "description": "Order from your favourite local shops",

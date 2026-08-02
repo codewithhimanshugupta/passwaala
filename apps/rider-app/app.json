@@ -10,7 +10,6 @@
     "web": {
       "bundler": "metro",
       "output": "single",
-      "favicon": "./public/favicon.svg",
       "name": "PassWaala Rider",
       "shortName": "PW Rider",
       "description": "Accept deliveries and track earnings on PassWaala",

@@ -10,7 +10,6 @@
     "web": {
       "bundler": "metro",
       "output": "single",
-      "favicon": "./public/favicon.svg",
       "name": "PassWaala Admin",
       "shortName": "PW Admin",
       "description": "PassWaala operations & partner console",
