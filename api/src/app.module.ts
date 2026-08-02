@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { PrismaModule } from './prisma/prisma.module';
+import { CacheModule } from './common/cache.module';
 import { HealthController } from './health/health.controller';
 import { JwtAuthGuard } from './common/jwt-auth.guard';
 import { RolesGuard } from './common/roles.guard';
@@ -48,6 +49,7 @@ import { GstModule } from './gst/gst.module';
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     PrismaModule,
+    CacheModule,
     AuthModule,
     ShopsModule,
     ProductsModule,

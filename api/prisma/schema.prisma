@@ -454,6 +454,7 @@ model Product {
 
   @@index([shopId])
   @@index([categoryId])
+  @@index([shopId, available]) // hot: public catalog listing (shop + in-stock filter)
 }
 
 /// A customer's cart. A cart maps to EXACTLY ONE shop (single-shop cart rule).
@@ -614,6 +615,7 @@ model Order {
   @@index([customerId])
   @@index([status])
   @@index([riderId])
+  @@index([shopId, status]) // hot: shopkeeper order feed (shop + status tab)
 }
 
 /// An order line. Carries snapshots (rule #6) + substitution status.

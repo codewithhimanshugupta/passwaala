@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { MemoryCache } from '../common/memory-cache';
 import { assertOwnedByShop, requireShopScope } from '../common/shop-scope';
 import { CreateCategoryDto } from './dto/create-category.dto';
 
@@ -10,18 +11,23 @@ import { CreateCategoryDto } from './dto/create-category.dto';
  */
 @Injectable()
 export class CategoriesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly cache: MemoryCache,
+  ) {}
 
-  /** Public: a shop's categories (for the customer drill-down). */
+  /** Public: a shop's categories (for the customer drill-down). Cached 60s. */
   listForShop(shopId: string) {
     if (!shopId) {
       throw new BadRequestException('shopId is required');
     }
-    return this.prisma.category.findMany({
-      where: { shopId, deletedAt: null },
-      orderBy: { name: 'asc' },
-      select: { id: true, name: true },
-    });
+    return this.cache.wrap(`categories:${shopId}`, 60_000, () =>
+      this.prisma.category.findMany({
+        where: { shopId, deletedAt: null },
+        orderBy: { name: 'asc' },
+        select: { id: true, name: true },
+      }),
+    );
   }
 
   /** Shopkeeper: their OWN categories. */
@@ -34,11 +40,13 @@ export class CategoriesService {
   }
 
   /** Shopkeeper: create a category in their OWN shop. */
-  create(shopId: string | undefined, dto: CreateCategoryDto) {
+  async create(shopId: string | undefined, dto: CreateCategoryDto) {
     const id = requireShopScope(shopId);
-    return this.prisma.category.create({
+    const created = await this.prisma.category.create({
       data: { shopId: id, name: dto.name },
     });
+    this.cache.delete(`categories:${id}`);
+    return created;
   }
 
   /** Shopkeeper: soft-delete a category in their OWN shop (IDOR-guarded). */
@@ -53,6 +61,7 @@ export class CategoriesService {
       where: { id: categoryId },
       data: { deletedAt: new Date() },
     });
+    this.cache.delete(`categories:${id}`);
     return { deleted: true };
   }
 }

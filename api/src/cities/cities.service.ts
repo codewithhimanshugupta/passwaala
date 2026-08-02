@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { MemoryCache } from '../common/memory-cache';
 import { UpsertCityDto } from './dto/upsert-city.dto';
 import { CreateOfferDto, UpdateOfferDto } from './dto/offer.dto';
 
@@ -10,10 +11,15 @@ import { CreateOfferDto, UpdateOfferDto } from './dto/offer.dto';
  */
 @Injectable()
 export class CitiesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly cache: MemoryCache,
+  ) {}
 
   /** Public: enabled cities with their active offer templates and delivery radius. */
   async listEnabled(): Promise<Array<{ name: string; deliveryRadiusMeters: number; offers: Array<{ id: string; title: string; type: string; value: number; minOrderPaise: number }> }>> {
+    // Cached — this is hit on every customer app load; the data changes rarely.
+    return this.cache.wrap('cities:enabled', 60_000, async () => {
     const [cities, coupons] = await Promise.all([
       this.prisma.serviceableCity.findMany({
         where: { enabled: true, deletedAt: null },
@@ -39,6 +45,7 @@ export class CitiesService {
           minOrderPaise: coupon.minOrderPaise,
         }));
       return { name: c.name, deliveryRadiusMeters: c.deliveryRadiusMeters, offers: [...c.offerTemplates, ...cityCoupons] };
+    });
     });
   }
 
@@ -148,7 +155,9 @@ export class CitiesService {
     if (!city) {
       throw new NotFoundException('City not found');
     }
-    return this.prisma.serviceableCity.update({ where: { id }, data: { enabled } });
+    const updated = await this.prisma.serviceableCity.update({ where: { id }, data: { enabled } });
+    this.cache.delete('cities:enabled');
+    return updated;
   }
 
   /** Owner: list all offer templates for a city. */
