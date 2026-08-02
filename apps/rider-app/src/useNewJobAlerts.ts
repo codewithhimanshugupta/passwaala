@@ -6,7 +6,7 @@ import { canNotify, notifyNewJob, requestNotifyPermission, vibrate } from './not
 import type { RiderJob } from './types';
 
 /** How often the app polls the job board for freshly available jobs (ms). */
-const POLL_MS = 4000;
+const POLL_MS = 15000;
 /** Re-pulse the vibration on this cadence while an alert is unacknowledged (ms). */
 const VIBRATE_MS = 3000;
 

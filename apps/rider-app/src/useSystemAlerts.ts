@@ -3,7 +3,7 @@ import { api } from './api';
 import { notifyAlert, vibrate } from './notify';
 
 /** How often the app polls the rider's system alerts (ms). */
-const POLL_MS = 15000;
+const POLL_MS = 30000;
 
 export interface RiderAlert {
   id: string;

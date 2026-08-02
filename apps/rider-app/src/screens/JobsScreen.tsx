@@ -11,7 +11,7 @@ import { OtpBoxes } from '../ui';
 import type { RiderJob } from '../types';
 
 /** Poll interval for available jobs + active work while online. */
-const POLL_MS = 8000;
+const POLL_MS = 20000;
 
 /**
  * Build a maps directions URL to a lat/lng (web + native both handle the
@@ -156,7 +156,7 @@ export function JobsScreen({ online }: { online: boolean }) {
       );
     };
     ping();
-    const id = setInterval(ping, 10000);
+    const id = setInterval(ping, 30000);
     return () => clearInterval(id);
   }, [hasActive]);
 

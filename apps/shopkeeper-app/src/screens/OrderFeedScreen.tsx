@@ -22,7 +22,7 @@ import type { Strings } from '../i18n/strings';
 import type { FeedOrder } from '../types';
 
 /** How often the open Orders tab refreshes its visible list (ms). */
-const POLL_MS = 8000;
+const POLL_MS = 20000;
 
 /** Orders fetched per page within a tab (initial load + each scroll-to-end). */
 const PAGE_SIZE = 20;

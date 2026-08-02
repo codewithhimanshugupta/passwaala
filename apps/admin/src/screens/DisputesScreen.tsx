@@ -143,7 +143,7 @@ export function DisputesScreen() {
 
   useEffect(() => { void loadLists(); }, [loadLists]);
   useEffect(() => {
-    const id = setInterval(() => void loadLists(), 5000);
+    const id = setInterval(() => void loadLists(), 12000);
     return () => clearInterval(id);
   }, [loadLists]);
 
@@ -170,7 +170,7 @@ export function DisputesScreen() {
   useEffect(() => {
     if (!selected) return;
     void loadThread(selected);
-    const id = setInterval(() => void loadThread(selected), 3000);
+    const id = setInterval(() => void loadThread(selected), 10000);
     return () => clearInterval(id);
   }, [selected, loadThread]);
 

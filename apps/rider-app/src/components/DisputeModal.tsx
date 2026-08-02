@@ -93,7 +93,7 @@ export function DisputeModal({
   useEffect(() => {
     if (!open) return;
     void loadDispute();
-    const id = setInterval(() => void loadDispute(), 5000);
+    const id = setInterval(() => void loadDispute(), 12000);
     return () => clearInterval(id);
   }, [open, loadDispute]);
 

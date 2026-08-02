@@ -7,7 +7,7 @@ import { canNotify, notifyNewOrder, requestNotifyPermission, vibrate } from './n
 import type { FeedOrder } from './types';
 
 /** How often the app polls the feed for freshly PLACED orders (ms). */
-const POLL_MS = 4000;
+const POLL_MS = 15000;
 /** Re-pulse the vibration on this cadence while an alert is unacknowledged (ms). */
 const VIBRATE_MS = 3000;
 

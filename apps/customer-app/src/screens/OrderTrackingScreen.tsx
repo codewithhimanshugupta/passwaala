@@ -182,7 +182,7 @@ export function OrderTrackingScreen({
     if (done) return;
     const t = setInterval(() => {
       void load();
-    }, 5000);
+    }, 12000);
     return () => clearInterval(t);
   }, [order, load]);
 
