@@ -80,7 +80,9 @@ function AppRoot() {
 
   // App-wide new-order alerts — polls + rings on EVERY tab (not just Orders)
   // while we're signed in with a live shop.
-  const alerts = useNewOrderAlerts(stage === 'app' && shop != null, viewContext === 'all');
+  // Poll for new-order alerts app-wide, EXCEPT when the Orders screen is open —
+  // that screen already polls the feed, so we'd be double-polling otherwise.
+  const alerts = useNewOrderAlerts(stage === 'app' && shop != null && tab !== 'orders', viewContext === 'all');
 
   /** Unlock audio on the first user interaction (idempotent). */
   const unlockAudioOnce = useCallback(() => {

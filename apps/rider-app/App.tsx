@@ -55,7 +55,9 @@ function AppRoot() {
 
   // App-wide new-job alerts — polls + rings on EVERY tab (not just Jobs) while
   // we're signed in AND online (jobs are only offered to online riders).
-  const alerts = useNewJobAlerts(stage === 'app' && online);
+  // Poll for new-job alerts app-wide, EXCEPT when the Jobs screen is open —
+  // that screen already polls /jobs, so we'd be double-polling otherwise.
+  const alerts = useNewJobAlerts(stage === 'app' && online && tab !== 'jobs');
 
   // App-wide SYSTEM alerts (escalations / penalties) — polls + vibrates + fires
   // an OS notification on ANY tab while signed in (online OR offline — an
