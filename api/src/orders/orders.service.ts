@@ -106,22 +106,20 @@ export class OrdersService {
     const isPickup = wantsPickup;
 
     // For delivery, the address must belong to the customer (object-level auth).
-    // Pickup skips the address entirely.
+    // Pickup skips the address entirely. The address read is independent of the
+    // shop/product reads below, so we kick it off here and await it in parallel
+    // with them (Promise.all) rather than paying its round-trip serially.
     let addressId: string | null = null;
     let dropCoords: { latitude: unknown; longitude: unknown } | null = null;
-    if (!isPickup) {
-      if (!dto.addressId) {
-        throw new BadRequestException('A delivery address is required');
-      }
-      const address = await this.prisma.address.findFirst({
-        where: { id: dto.addressId, userId: customerId, deletedAt: null },
-        select: { id: true, latitude: true, longitude: true },
-      });
-      if (!address) {
-        throw new NotFoundException('Address not found');
-      }
-      addressId = address.id;
-      dropCoords = { latitude: address.latitude, longitude: address.longitude };
+    const addressPromise =
+      !isPickup && dto.addressId
+        ? this.prisma.address.findFirst({
+            where: { id: dto.addressId, userId: customerId, deletedAt: null },
+            select: { id: true, latitude: true, longitude: true },
+          })
+        : Promise.resolve(null);
+    if (!isPickup && !dto.addressId) {
+      throw new BadRequestException('A delivery address is required');
     }
 
     // Resolve the order source: CLIENT-CART path (dto.shopId + dto.items) or the
@@ -136,17 +134,26 @@ export class OrdersService {
     let cart: { id: string | null; shopId: string; shop: any; items: NormalItem[] };
 
     if (dto.shopId && dto.items && dto.items.length > 0) {
-      // Client cart: load the shop + the referenced products fresh from the DB.
-      const shop = await this.prisma.shop.findFirst({
-        where: { id: dto.shopId, deletedAt: null },
-        include: shopInclude,
-      });
-      if (!shop) throw new BadRequestException('Shop not found');
+      // Client cart: load the shop + referenced products + the address all in
+      // parallel (they're independent) — one round-trip instead of three.
       const productIds = dto.items.map((i) => i.productId);
-      const products = await this.prisma.product.findMany({
-        where: { id: { in: productIds }, shopId: dto.shopId, deletedAt: null },
-        select: { id: true, name: true, pricePaise: true, stock: true, available: true, weightGrams: true },
-      });
+      const [shop, products, address] = await Promise.all([
+        this.prisma.shop.findFirst({
+          where: { id: dto.shopId, deletedAt: null },
+          include: shopInclude,
+        }),
+        this.prisma.product.findMany({
+          where: { id: { in: productIds }, shopId: dto.shopId, deletedAt: null },
+          select: { id: true, name: true, pricePaise: true, stock: true, available: true, weightGrams: true },
+        }),
+        addressPromise,
+      ]);
+      if (!shop) throw new BadRequestException('Shop not found');
+      if (!isPickup) {
+        if (!address) throw new NotFoundException('Address not found');
+        addressId = address.id;
+        dropCoords = { latitude: address.latitude, longitude: address.longitude };
+      }
       const byId = new Map(products.map((p) => [p.id, p]));
       const normItems: NormalItem[] = dto.items.map((i) => {
         const product = byId.get(i.productId);
@@ -155,16 +162,24 @@ export class OrdersService {
       });
       cart = { id: null, shopId: dto.shopId, shop, items: normItems };
     } else {
-      // Legacy server-cart path.
-      const serverCart = await this.prisma.cart.findFirst({
-        where: { customerId, deletedAt: null },
-        include: {
-          shop: { include: shopInclude },
-          items: { include: { product: true } },
-        },
-      });
+      // Legacy server-cart path (await the address alongside the cart read).
+      const [serverCart, address] = await Promise.all([
+        this.prisma.cart.findFirst({
+          where: { customerId, deletedAt: null },
+          include: {
+            shop: { include: shopInclude },
+            items: { include: { product: true } },
+          },
+        }),
+        addressPromise,
+      ]);
       if (!serverCart || serverCart.items.length === 0) {
         throw new BadRequestException('Cart is empty');
+      }
+      if (!isPickup) {
+        if (!address) throw new NotFoundException('Address not found');
+        addressId = address.id;
+        dropCoords = { latitude: address.latitude, longitude: address.longitude };
       }
       cart = serverCart as unknown as typeof cart;
     }
