@@ -3,6 +3,7 @@ import { VerificationStatus } from '@passwaala/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { assertOwnedByShop, requireShopScope } from '../common/shop-scope';
 import { titleCaseName } from '../common/text.util';
+import { MemoryCache } from '../common/memory-cache';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 
@@ -21,7 +22,16 @@ import { UpdateProductDto } from './dto/update-product.dto';
  */
 @Injectable()
 export class ProductsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly cache: MemoryCache,
+  ) {}
+
+  /** How long public catalog reads are cached (ms). Short — a shopkeeper edit
+   *  invalidates immediately anyway; this only absorbs repeat customer loads.
+   *  Disabled under tests so each case reads fresh state (the in-memory cache
+   *  would otherwise survive resetDb between cases). */
+  private static readonly PUBLIC_TTL_MS = process.env.NODE_ENV === 'test' ? 0 : 30_000;
 
   /** Shopkeeper: list their OWN shop's products (full view incl. stock). */
   async listMine(shopId: string | undefined) {
@@ -45,7 +55,7 @@ export class ProductsService {
       assertOwnedByShop(category, id);
     }
 
-    return this.prisma.product.create({
+    const created = await this.prisma.product.create({
       data: {
         shopId: id,
         name: titleCaseName(dto.name),
@@ -59,6 +69,8 @@ export class ProductsService {
         categoryId: dto.categoryId,
       },
     });
+    this.cache.invalidatePrefix(`products:list:${id}`);
+    return created;
   }
 
   /** Shopkeeper: update a product in their OWN shop (IDOR-guarded). */
@@ -71,7 +83,7 @@ export class ProductsService {
     // 404 if missing OR belongs to another shop — never reveals existence.
     assertOwnedByShop(existing, id);
 
-    return this.prisma.product.update({
+    const updated = await this.prisma.product.update({
       where: { id: productId },
       data: {
         name: dto.name === undefined ? undefined : titleCaseName(dto.name),
@@ -84,6 +96,9 @@ export class ProductsService {
         weightGrams: dto.weightGrams,
       },
     });
+    this.cache.invalidatePrefix(`products:list:${id}`);
+    this.cache.delete(`products:detail:${productId}`);
+    return updated;
   }
 
   /** Shopkeeper: soft-delete a product in their OWN shop (IDOR-guarded). */
@@ -99,6 +114,8 @@ export class ProductsService {
       where: { id: productId },
       data: { deletedAt: new Date() },
     });
+    this.cache.invalidatePrefix(`products:list:${id}`);
+    this.cache.delete(`products:detail:${productId}`);
     return { deleted: true };
   }
 
@@ -110,24 +127,28 @@ export class ProductsService {
     if (!shopId) {
       throw new BadRequestException('shopId is required');
     }
-    const shop = await this.prisma.shop.findFirst({
-      where: {
-        id: shopId,
-        deletedAt: null,
-        verificationStatus: VerificationStatus.APPROVED,
-      },
-      select: { id: true },
-    });
-    if (!shop) {
-      // Unapproved / missing shop has no public catalog.
-      throw new BadRequestException('Shop not found');
-    }
+    // Cache the public catalog per shop (short TTL). Invalidated on any product
+    // write for this shop (see create/update/remove), so edits show immediately.
+    return this.cache.wrap(`products:list:${shopId}`, ProductsService.PUBLIC_TTL_MS, async () => {
+      const shop = await this.prisma.shop.findFirst({
+        where: {
+          id: shopId,
+          deletedAt: null,
+          verificationStatus: VerificationStatus.APPROVED,
+        },
+        select: { id: true },
+      });
+      if (!shop) {
+        // Unapproved / missing shop has no public catalog.
+        throw new BadRequestException('Shop not found');
+      }
 
-    const products = await this.prisma.product.findMany({
-      where: { shopId, deletedAt: null, available: true },
-      orderBy: { orderCount: 'desc' },
+      const products = await this.prisma.product.findMany({
+        where: { shopId, deletedAt: null, available: true },
+        orderBy: { orderCount: 'desc' },
+      });
+      return products.map((p) => this.toPublicView(p));
     });
-    return products.map((p) => this.toPublicView(p));
   }
 
   /**
@@ -189,14 +210,16 @@ export class ProductsService {
    * top of the public view. 404 if missing/deleted.
    */
   async publicDetail(productId: string) {
-    const p = await this.prisma.product.findFirst({
-      where: { id: productId, deletedAt: null },
-      select: {
-        id: true, shopId: true, name: true, pricePaise: true, mrpPaise: true,
-        imageUrl: true, available: true, stock: true, orderCount: true, description: true,
-      },
+    return this.cache.wrap(`products:detail:${productId}`, ProductsService.PUBLIC_TTL_MS, async () => {
+      const p = await this.prisma.product.findFirst({
+        where: { id: productId, deletedAt: null },
+        select: {
+          id: true, shopId: true, name: true, pricePaise: true, mrpPaise: true,
+          imageUrl: true, available: true, stock: true, orderCount: true, description: true,
+        },
+      });
+      if (!p) throw new BadRequestException('Product not found');
+      return { ...this.toPublicView(p), description: p.description ?? null };
     });
-    if (!p) throw new BadRequestException('Product not found');
-    return { ...this.toPublicView(p), description: p.description ?? null };
   }
 }

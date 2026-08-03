@@ -12,6 +12,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
 import { CitiesService } from '../cities/cities.service';
+import { MemoryCache } from '../common/memory-cache';
 import { requireShopScope } from '../common/shop-scope';
 import { titleCaseName } from '../common/text.util';
 import { RegisterShopDto } from './dto/register-shop.dto';
@@ -37,6 +38,7 @@ export class ShopsService {
     private readonly prisma: PrismaService,
     private readonly auth: AuthService,
     private readonly cities: CitiesService,
+    private readonly cache: MemoryCache,
   ) {}
 
   /**
@@ -347,6 +349,21 @@ export class ShopsService {
         : 'distance_meters ASC';
 
     const openNow = q.openNow === 'true';
+    // Cache the discovery list briefly (15s), keyed on the query. Coords are
+    // rounded to ~3 decimals (~110m) so customers in the same area share a cache
+    // entry — the home screen's repeated identical calls then skip the DB. Short
+    // TTL keeps open/closed + new-shop changes fresh enough for a pilot. Disabled
+    // under tests so each case reads fresh state (the in-memory cache would
+    // otherwise survive resetDb between cases and cause cross-test bleed).
+    const ttl = process.env.NODE_ENV === 'test' ? 0 : 15_000;
+    const cacheKey = [
+      'shops:nearby',
+      Number(q.lat).toFixed(3),
+      Number(q.lng).toFixed(3),
+      radius, limit, offset, orderBy, openNow,
+      q.category ?? '', q.minRating ?? '',
+    ].join(':');
+    return this.cache.wrap(cacheKey, ttl, async () => {
     const rows = await this.prisma.$queryRawUnsafe<
       Array<{
         id: string;
@@ -444,6 +461,7 @@ export class ShopsService {
       deliveryAvailable: r.deliveryAvailable,
       deliveryUnavailable: r.deliveryUnavailable ?? false,
     }));
+    });
   }
 
   /**
