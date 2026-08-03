@@ -1,5 +1,16 @@
-import { IsEnum, IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import { IsArray, IsEnum, IsInt, IsOptional, IsString, MaxLength, Min, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
 import { DeliveryMode, PaymentMethod } from '@passwaala/shared';
+
+/** One line of a client-side cart sent at placement. */
+export class PlaceOrderItemDto {
+  @IsString()
+  productId!: string;
+
+  @IsInt()
+  @Min(1)
+  qty!: number;
+}
 
 /**
  * PlaceOrderDto — body for POST /orders. The order is built server-side from the
@@ -50,4 +61,19 @@ export class PlaceOrderDto {
   @IsOptional()
   @IsString()
   offerId?: string;
+
+  /**
+   * CLIENT-CART path: the shop + items the customer built locally. When present,
+   * the order is placed from these (server still re-validates stock/price/shop);
+   * when absent, the order falls back to the server-side cart (legacy path).
+   */
+  @IsOptional()
+  @IsString()
+  shopId?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => PlaceOrderItemDto)
+  items?: PlaceOrderItemDto[];
 }

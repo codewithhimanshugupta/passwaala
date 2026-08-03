@@ -33,12 +33,12 @@ interface Dispute {
 
 // Rider-specific FAQ chips
 const FAQ_CHIPS = [
-  { label: '🏠 Customer not home', text: 'I am at the delivery address but the customer is not home and not answering calls.' },
-  { label: '📍 Wrong or unreachable address', text: 'The delivery address is incorrect or I cannot find the location.' },
-  { label: '💵 COD cash issue', text: 'There is a dispute about the COD cash amount the customer paid me.' },
-  { label: '🏪 Shop not ready', text: 'I arrived at the shop for pickup but the order is not ready and the shop is unresponsive.' },
-  { label: '🚦 Safety or route issue', text: 'I am facing a safety concern or route blockage and cannot complete this delivery.' },
-  { label: '❌ Unable to complete delivery', text: 'I am unable to complete this delivery. Please reassign or cancel.' },
+  { label: 'Customer not home', text: 'I am at the delivery address but the customer is not home and not answering calls.' },
+  { label: 'Wrong or unreachable address', text: 'The delivery address is incorrect or I cannot find the location.' },
+  { label: 'COD cash issue', text: 'There is a dispute about the COD cash amount the customer paid me.' },
+  { label: 'Shop not ready', text: 'I arrived at the shop for pickup but the order is not ready and the shop is unresponsive.' },
+  { label: 'Safety or route issue', text: 'I am facing a safety concern or route blockage and cannot complete this delivery.' },
+  { label: 'Unable to complete delivery', text: 'I am unable to complete this delivery. Please reassign or cancel.' },
 ];
 
 function fmtTime(iso: string) {
@@ -130,7 +130,7 @@ export function DisputeModal({
   }
 
   const statusLabel = (s: string) =>
-    s === 'RESOLVED' ? '✅ Resolved' : s === 'ASSIGNED' ? '🟢 Admin joined' : '🟡 Waiting for admin';
+    s === 'RESOLVED' ? 'Resolved' : s === 'ASSIGNED' ? 'Admin joined' : 'Waiting for admin';
 
   // Only show the button if within window OR there's an existing dispute to continue
   // We check this lazily: always show button if within window; after window closes
@@ -141,13 +141,11 @@ export function DisputeModal({
     <>
       {inline ? (
         <Pressable style={styles.helpBtn} onPress={() => setOpen(true)}>
-          <Text style={styles.helpEmoji}>🆘</Text>
           <Text style={styles.helpBtnText}>Need help with this order?</Text>
           <Text style={styles.helpArrow}>›</Text>
         </Pressable>
       ) : (
         <Pressable style={styles.helpBtnStandalone} onPress={() => setOpen(true)}>
-          <Text style={styles.helpEmoji}>🆘</Text>
           <Text style={styles.helpBtnStandaloneText}>Need help with this order?</Text>
           <Text style={styles.helpArrow}>›</Text>
         </Pressable>
@@ -159,7 +157,6 @@ export function DisputeModal({
             {/* Header */}
             <View style={styles.header}>
               <View style={styles.headerLeft}>
-                <Text style={styles.headerEmoji}>💬</Text>
                 <View>
                   <Text style={styles.headerTitle}>Help & Support</Text>
                   <Text style={styles.headerSub}>Order #{orderId.slice(0, 8).toUpperCase()}</Text>
@@ -181,8 +178,8 @@ export function DisputeModal({
                   {orderSummary.deliveryFeePaise != null ? <Text style={styles.orderStripDot}>·</Text> : null}
                   {orderSummary.deliveryFeePaise != null ? <Text style={styles.orderStripMeta}>Fee ₹{(orderSummary.deliveryFeePaise / 100).toFixed(0)}</Text> : null}
                 </View>
-                {orderSummary.pickup ? <Text style={styles.orderStripAddr} numberOfLines={1}>📍 {orderSummary.pickup}</Text> : null}
-                {orderSummary.drop ? <Text style={styles.orderStripAddr} numberOfLines={1}>🏠 {orderSummary.drop}</Text> : null}
+                {orderSummary.pickup ? <Text style={styles.orderStripAddr} numberOfLines={1}>{orderSummary.pickup}</Text> : null}
+                {orderSummary.drop ? <Text style={styles.orderStripAddr} numberOfLines={1}>{orderSummary.drop}</Text> : null}
               </View>
             )}
 
@@ -239,7 +236,6 @@ export function DisputeModal({
                   </>
                 ) : (
                   <View style={styles.windowClosedCard}>
-                    <Text style={styles.windowClosedEmoji}>⏰</Text>
                     <Text style={styles.windowClosedTitle}>Dispute window closed</Text>
                     <Text style={styles.windowClosedSub}>Disputes can only be raised within {DISPUTE_WINDOW_HOURS} hours of placing an order.</Text>
                   </View>
@@ -273,7 +269,7 @@ export function DisputeModal({
                       ]}>
                         {!isMe ? (
                           <View style={[styles.avatar, isSystem ? styles.avatarSystem : styles.avatarAdmin]}>
-                            <Text style={styles.avatarText}>{isSystem ? '🤖' : '👤'}</Text>
+                            <Text style={styles.avatarText}>{isSystem ? 'B' : 'A'}</Text>
                           </View>
                         ) : null}
                         <View style={[
@@ -295,7 +291,7 @@ export function DisputeModal({
                   {dispute.status !== 'RESOLVED' && dispute.messages.length > 0 && !dispute.messages.find(m => m.senderRole === 'ADMIN') ? (
                     <View style={styles.typingRow}>
                       <View style={[styles.avatar, styles.avatarAdmin]}>
-                        <Text style={styles.avatarText}>👤</Text>
+                        <Text style={styles.avatarText}>A</Text>
                       </View>
                       <View style={styles.typingBubble}>
                         <Text style={styles.typingDots}>• • •</Text>
@@ -327,7 +323,7 @@ export function DisputeModal({
                   </View>
                 ) : (
                   <View style={styles.resolvedBar}>
-                    <Text style={styles.resolvedText}>✅ This dispute has been resolved. Thank you!</Text>
+                    <Text style={styles.resolvedText}>This dispute has been resolved. Thank you!</Text>
                     {(dispute.reopenCount ?? 0) < 1 ? (
                       <Pressable style={[styles.reopenBtn, reopening && { opacity: 0.5 }]} onPress={reopen} disabled={reopening}>
                         {reopening ? <ActivityIndicator color={theme.color.primary} size="small" /> : <Text style={styles.reopenBtnText}>Still not resolved? Reopen</Text>}

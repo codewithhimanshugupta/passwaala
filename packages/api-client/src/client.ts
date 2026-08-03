@@ -2,6 +2,7 @@ import type {
   CreateOrder,
   PlaceOrderResult,
   ProductPublic,
+  ProductDetailPublic,
   ShopPublic,
 } from '@passwaala/shared';
 
@@ -114,13 +115,38 @@ export class PasswaalaApiClient {
   }
 
   // ---- Auth ----
-  /** Sign up with phone + name + password. Returns a token + a one-time backup OTP. */
-  signup(phone: string, name: string, password: string, appType?: string): Promise<{ accessToken: string; role: string; loginOtp: string }> {
-    return this.post('/auth/signup', { phone, name, password, ...(appType && { appType }) });
+  /** Sign up with phone + name + password + an optional user-chosen 4-digit login PIN. */
+  signup(
+    phone: string,
+    name: string,
+    password: string,
+    opts?: { pin?: string; appType?: string },
+  ): Promise<{ accessToken: string; role: string }> {
+    const { pin, appType } = opts ?? {};
+    return this.post('/auth/signup', {
+      phone,
+      name,
+      password,
+      ...(pin && { pin }),
+      ...(appType && { appType }),
+    });
   }
-  /** Log in with phone + credential (password OR the fixed backup OTP). */
-  login(phone: string, credential: string, appType?: string): Promise<{ accessToken: string; role: string }> {
-    return this.post('/auth/login', { phone, credential, ...(appType && { appType }) });
+  /**
+   * Log in with phone + a credential. `method` picks the credential type the
+   * user chose: 'pin' (4-digit) or 'password'. Omitted → legacy fallback.
+   */
+  login(
+    phone: string,
+    credential: string,
+    opts?: { method?: 'pin' | 'password'; appType?: string },
+  ): Promise<{ accessToken: string; role: string }> {
+    const { method, appType } = opts ?? {};
+    return this.post('/auth/login', {
+      phone,
+      credential,
+      ...(method && { method }),
+      ...(appType && { appType }),
+    });
   }
   requestOtp(phone: string, appType?: string): Promise<{ sent: true }> {
     return this.post('/auth/request-otp', { phone, ...(appType && { appType }) });
@@ -138,6 +164,8 @@ export class PasswaalaApiClient {
     openNow?: boolean;
     category?: string;
     minRating?: number;
+    limit?: number;
+    offset?: number;
   }): Promise<NearbyShop[]> {
     const q = new URLSearchParams();
     q.set('lat', String(params.lat));
@@ -147,13 +175,23 @@ export class PasswaalaApiClient {
     if (params.openNow) q.set('openNow', 'true');
     if (params.category) q.set('category', params.category);
     if (params.minRating != null) q.set('minRating', String(params.minRating));
+    if (params.limit != null) q.set('limit', String(params.limit));
+    if (params.offset != null) q.set('offset', String(params.offset));
     return this.get(`/shops/nearby?${q.toString()}`);
+  }
+  /** Lazy per-shop delivery-availability check (cheap; call when opening a shop). */
+  shopDeliveryAvailable(shopId: string): Promise<{ deliveryAvailable: boolean; selfPickupEnabled: boolean }> {
+    return this.get(`/shops/${shopId}/delivery-available`);
   }
   shop(id: string): Promise<ShopPublic> {
     return this.get(`/shops/${id}`);
   }
   shopProducts(shopId: string): Promise<ProductPublic[]> {
     return this.get(`/products?shopId=${shopId}`);
+  }
+  /** Public: one product's detail (name+price+description), loaded lazily on tap. */
+  productDetail(id: string): Promise<ProductDetailPublic> {
+    return this.get(`/products/${id}`);
   }
   /** Search/filter a shop's catalog by name and/or category. */
   searchProducts(shopId: string, opts: { q?: string; categoryId?: string } = {}): Promise<ProductPublic[]> {
@@ -304,8 +342,9 @@ export class PasswaalaApiClient {
   /** Admin/owner: all riders with earnings + COD dues + active orders. */
   adminListRiders(city?: string): Promise<Array<{
     userId: string; name: string | null; phone: string | null; vehicle: string | null;
+    serviceCity: string | null;
     online: boolean; earningsPaise: number; duesPaise: number; creditLimitPaise: number;
-    totalDeliveries: number; todayDeliveries: number; cities: string[]; loginOtp: string | null;
+    totalDeliveries: number; todayDeliveries: number; cities: string[]; loginOtp: string | null; loginPin: string | null;
     activeOrders: Array<{
       orderId: string; orderRef: string; status: string;
       shopName: string | null; totalPaise: number; paymentMethod: string;
@@ -314,9 +353,35 @@ export class PasswaalaApiClient {
     const qs = city?.trim() ? `?${new URLSearchParams({ city: city.trim() }).toString()}` : '';
     return this.get(`/admin/riders${qs}`);
   }
+  /** Admin/owner: full detail for one rider — profile + KYC + recent orders. */
+  adminRiderDetail(userId: string): Promise<{
+    userId: string; name: string | null; phone: string | null; shortId: string | null;
+    serviceCity: string | null; vehicle: string | null; online: boolean;
+    earningsPaise: number; duesPaise: number; creditLimitPaise: number; joinedAt: string;
+    kyc: {
+      fullName: string; aadhaar: string; pan: string | null; dlNumber: string;
+      vehicleNumber: string | null; emergencyName: string | null; emergencyPhone: string | null;
+      photoUrl: string | null; docUrls: string[]; submittedAt: string; updatedAt: string;
+    } | null;
+    recentOrders: Array<{
+      orderId: string; orderRef: string; status: string; createdAt: string;
+      shopName: string | null; city: string | null; totalPaise: number; paymentMethod: string;
+    }>;
+  }> {
+    return this.get(`/admin/riders/${userId}`);
+  }
   /** Admin/owner: record a rider's COD cash deposit → clears their dues. */
   adminRecordRiderPayment(userId: string): Promise<{ settled: true; clearedPaise: number }> {
     return this.post(`/admin/riders/${userId}/record-payment`, {});
+  }
+  /** Admin/owner: all customers with coin balance + order stats. Optional `q` filters name/phone. */
+  adminListCustomers(q?: string): Promise<Array<{
+    userId: string; name: string | null; phone: string | null; shortId: string | null;
+    coinBalance: number; joinedAt: string; loginPin: string | null; loginOtp: string | null;
+    totalOrders: number; deliveredOrders: number;
+  }>> {
+    const qs = q?.trim() ? `?${new URLSearchParams({ q: q.trim() }).toString()}` : '';
+    return this.get(`/admin/customers${qs}`);
   }
   /** Admin/owner: pay a rider their accrued delivery earnings. */
   adminPayRiderEarnings(userId: string, amountPaise: number): Promise<{ paid: true; newEarningsPaise: number }> {
@@ -487,7 +552,21 @@ export class PasswaalaApiClient {
   }
 
   // ---- Rider (platform delivery) ----
-  registerRider(body: { name: string; vehicle?: string }): Promise<{ accessToken: string }> {
+  registerRider(body: {
+    name: string;
+    vehicle?: string;
+    serviceCity?: string;
+    // KYC (identity + documents) — optional at the API layer, collected by the app.
+    fullName?: string;
+    aadhaar?: string;
+    pan?: string;
+    dlNumber?: string;
+    vehicleNumber?: string;
+    emergencyName?: string;
+    emergencyPhone?: string;
+    photoUrl?: string;
+    docUrls?: string[];
+  }): Promise<{ accessToken: string }> {
     return this.post('/riders/register', body);
   }
   riderMe(): Promise<{
@@ -696,6 +775,7 @@ export class PasswaalaApiClient {
       mrpPaise: number;
       stock: number;
       imageUrl: string;
+      description: string;
       available: boolean;
       categoryId: string;
       weightGrams: number;
@@ -810,13 +890,21 @@ export class PasswaalaApiClient {
    * a shop/product. Uses the raw fetch so the browser sets the multipart
    * boundary; the auth header is attached manually.
    */
-  async uploadImage(file: Blob | { uri: string; name: string; type: string }): Promise<{ url: string; filename: string }> {
+  async uploadImage(
+    file: Blob | { uri: string; name: string; type: string },
+    opts: { type?: 'shop' | 'product' | 'kyc'; scopeId?: string } = {},
+  ): Promise<{ url: string; filename: string }> {
     const form = new FormData();
     // Both Blob (web) and the RN {uri,name,type} shape are accepted by FormData.
     form.append('file', file as Blob);
     const headers: Record<string, string> = {};
     if (this.token) headers.Authorization = `Bearer ${this.token}`;
-    const res = await this.fetchImpl(`${this.baseUrl}/uploads/image`, {
+    // Organise uploads into folders: ?type=shop|product|kyc & scopeId=<shopId>.
+    const q = new URLSearchParams();
+    if (opts.type) q.set('type', opts.type);
+    if (opts.scopeId) q.set('scopeId', opts.scopeId);
+    const qs = q.toString();
+    const res = await this.fetchImpl(`${this.baseUrl}/uploads/image${qs ? `?${qs}` : ''}`, {
       method: 'POST',
       headers, // do NOT set Content-Type — the runtime sets the multipart boundary
       body: form,

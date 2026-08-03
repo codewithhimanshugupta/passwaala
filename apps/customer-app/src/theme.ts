@@ -273,23 +273,21 @@ function svgLogo(name: string, size: number): string {
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
 
-export function bannerImage(id: string, url?: string | null, w = 400, h = 200, name?: string): string {
-  if (usableUrl(url)) return url;
-  return svgBanner(name || id, w, h);
+/**
+ * Image helpers — return the real image URL if usable, else NULL (no SVG
+ * placeholder). Callers render a clean text/initial card when null, per the
+ * "no image = no image, just text" design. `svgBanner`/`svgLogo` are kept only
+ * for any legacy caller but are no longer used by these helpers.
+ */
+export function bannerImage(id: string, url?: string | null, _w = 400, _h = 200, _name?: string): string | null {
+  return usableUrl(url) ? url : null;
 }
 
-export function logoImage(id: string, url?: string | null, size = 96, name?: string): string {
-  if (usableUrl(url)) return url;
-  return svgLogo(name || id, size);
+export function logoImage(id: string, url?: string | null, _size = 96, _name?: string): string | null {
+  return usableUrl(url) ? url : null;
 }
 
-export function productImage(id: string, url?: string | null, size = 120, name?: string): string {
-  if (usableUrl(url)) return url;
-  // Simple soft-colored placeholder with emoji — no text in the image area
-  const [c1, c2] = seedGradient(name || id);
-  const emojis = ['🛍️','📦','🏷️','✨','🎁','🧴','🥫','🍫'];
-  const code = [...(name || id)].reduce((n, c) => n + c.charCodeAt(0), 0);
-  const emoji = emojis[code % emojis.length];
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}"><defs><linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:${c1}18"/><stop offset="100%" style="stop-color:${c2}28"/></linearGradient></defs><rect width="${size}" height="${size}" fill="url(#g)"/><text x="${size/2}" y="${size/2}" text-anchor="middle" dominant-baseline="central" font-size="${Math.round(size*0.42)}">${emoji}</text></svg>`;
-  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+export function productImage(id: string, url?: string | null, _size = 120, _name?: string): string | null {
+  return usableUrl(url) ? url : null;
 }
+

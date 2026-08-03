@@ -92,7 +92,7 @@ export function DuesScreen() {
       {/* Delivery fee tiers — what the rider earns per km band */}
       <Card>
         <Pressable onPress={() => setShowTiers(v => !v)} style={styles.tiersHeader}>
-          <Text style={styles.tiersTitleText}>💰 {t.dues.feeByDistance}</Text>
+          <Text style={styles.tiersTitleText}>{t.dues.feeByDistance}</Text>
           <Text style={styles.tiersChevron}>{showTiers ? '▲' : '▼'}</Text>
         </Pressable>
         {showTiers ? (

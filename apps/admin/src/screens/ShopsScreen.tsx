@@ -27,6 +27,7 @@ interface AdminShop {
   creditLimitPaise: number;
   contactPhone: string | null;
   ownerLoginOtp?: string | null;
+  ownerLoginPin?: string | null;
 }
 
 type StatusTone = 'good' | 'warning' | 'info' | 'critical';
@@ -312,7 +313,7 @@ export function ShopsScreen() {
                         <PanelStat label="Credit Limit" value={formatRupees(shop.creditLimitPaise)} />
                         <PanelStat label="Commission" value={`${ratePct(shop.commissionRate)}%`} />
                         {shop.contactPhone ? <PanelStat label="Phone" value={shop.contactPhone} /> : null}
-                        {shop.ownerLoginOtp ? <PanelStat label="Login OTP" value={shop.ownerLoginOtp} /> : null}
+                        {shop.ownerLoginPin ? <PanelStat label="Login PIN" value={shop.ownerLoginPin} /> : shop.ownerLoginOtp ? <PanelStat label="Login OTP" value={shop.ownerLoginOtp} /> : null}
                       </View>
 
                       {/* Commission setter */}

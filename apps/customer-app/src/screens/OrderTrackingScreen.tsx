@@ -12,26 +12,27 @@ import { DisputeModal, type DisputeModalHandle } from '../components/DisputeModa
 import { useLang } from '../i18n/LanguageContext';
 import type { Strings } from '../i18n/strings';
 import { canNotify, notifyOrderUpdate, requestNotifyPermission } from '../notify';
+import { onSocket } from '../socket';
 
-type TimelineStep = { key: OrderStatus; label: string; caption: string; icon: string };
+type TimelineStep = { key: OrderStatus; label: string; caption: string };
 
 /** Friendly, collapsed 4-step DELIVERY timeline. Terminal states get their own display. */
 function deliveryTimeline(t: Strings): TimelineStep[] {
   return [
-    { key: OrderStatus.PLACED, label: t.orderTracking.timelineOrderPlaced, caption: t.orderTracking.timelineOrderPlacedCaption, icon: '📝' },
-    { key: OrderStatus.PREPARING, label: t.orderTracking.timelinePreparing, caption: t.orderTracking.timelinePreparingCaption, icon: '👨‍🍳' },
-    { key: OrderStatus.OUT_FOR_DELIVERY, label: t.orderTracking.timelineOutForDelivery, caption: t.orderTracking.timelineOutForDeliveryCaption, icon: '🛵' },
-    { key: OrderStatus.DELIVERED, label: t.orderTracking.timelineDelivered, caption: t.orderTracking.timelineDeliveredCaption, icon: '✅' },
+    { key: OrderStatus.PLACED, label: t.orderTracking.timelineOrderPlaced, caption: t.orderTracking.timelineOrderPlacedCaption },
+    { key: OrderStatus.PREPARING, label: t.orderTracking.timelinePreparing, caption: t.orderTracking.timelinePreparingCaption },
+    { key: OrderStatus.OUT_FOR_DELIVERY, label: t.orderTracking.timelineOutForDelivery, caption: t.orderTracking.timelineOutForDeliveryCaption },
+    { key: OrderStatus.DELIVERED, label: t.orderTracking.timelineDelivered, caption: t.orderTracking.timelineDeliveredCaption },
   ];
 }
 
 /** Self-pickup timeline — same status keys, pickup-flavoured labels (no delivery language). */
 function pickupTimeline(t: Strings): TimelineStep[] {
   return [
-    { key: OrderStatus.PLACED, label: t.orderTracking.timelineOrderPlaced, caption: t.orderTracking.timelineOrderPlacedCaption, icon: '📝' },
-    { key: OrderStatus.PREPARING, label: t.orderTracking.timelinePreparing, caption: t.orderTracking.timelinePreparingCaption, icon: '👨‍🍳' },
-    { key: OrderStatus.OUT_FOR_DELIVERY, label: t.orderTracking.timelineReadyForPickup, caption: t.orderTracking.timelineReadyForPickupCaption, icon: '🏬' },
-    { key: OrderStatus.DELIVERED, label: t.orderTracking.timelineCollected, caption: t.orderTracking.timelineCollectedCaption, icon: '✅' },
+    { key: OrderStatus.PLACED, label: t.orderTracking.timelineOrderPlaced, caption: t.orderTracking.timelineOrderPlacedCaption },
+    { key: OrderStatus.PREPARING, label: t.orderTracking.timelinePreparing, caption: t.orderTracking.timelinePreparingCaption },
+    { key: OrderStatus.OUT_FOR_DELIVERY, label: t.orderTracking.timelineReadyForPickup, caption: t.orderTracking.timelineReadyForPickupCaption },
+    { key: OrderStatus.DELIVERED, label: t.orderTracking.timelineCollected, caption: t.orderTracking.timelineCollectedCaption },
   ];
 }
 
@@ -42,11 +43,11 @@ function pickupTimeline(t: Strings): TimelineStep[] {
  */
 function riderTimeline(t: Strings): TimelineStep[] {
   return [
-    { key: OrderStatus.PLACED, label: t.orderTracking.timelineOrderPlaced, caption: t.orderTracking.timelineOrderPlacedCaption, icon: '📝' },
-    { key: OrderStatus.PREPARING, label: t.orderTracking.timelinePreparing, caption: t.orderTracking.timelinePreparingCaption, icon: '👨‍🍳' },
-    { key: OrderStatus.READY, label: t.orderTracking.timelineReady, caption: t.orderTracking.timelineReadyCaption, icon: '📦' },
-    { key: OrderStatus.OUT_FOR_DELIVERY, label: t.orderTracking.timelineOutForDelivery, caption: t.orderTracking.timelineOutForDeliveryCaption, icon: '🛵' },
-    { key: OrderStatus.DELIVERED, label: t.orderTracking.timelineDelivered, caption: t.orderTracking.timelineDeliveredCaption, icon: '✅' },
+    { key: OrderStatus.PLACED, label: t.orderTracking.timelineOrderPlaced, caption: t.orderTracking.timelineOrderPlacedCaption },
+    { key: OrderStatus.PREPARING, label: t.orderTracking.timelinePreparing, caption: t.orderTracking.timelinePreparingCaption },
+    { key: OrderStatus.READY, label: t.orderTracking.timelineReady, caption: t.orderTracking.timelineReadyCaption },
+    { key: OrderStatus.OUT_FOR_DELIVERY, label: t.orderTracking.timelineOutForDelivery, caption: t.orderTracking.timelineOutForDeliveryCaption },
+    { key: OrderStatus.DELIVERED, label: t.orderTracking.timelineDelivered, caption: t.orderTracking.timelineDeliveredCaption },
   ];
 }
 
@@ -180,10 +181,13 @@ export function OrderTrackingScreen({
     if (!order) return;
     const done = order.status === OrderStatus.DELIVERED || TERMINAL_BAD.has(order.status);
     if (done) return;
+    // Socket order.statusChanged is the primary trigger; the interval is a slow
+    // fallback (60s) for when the socket is disconnected.
     const t = setInterval(() => {
       void load();
-    }, 12000);
-    return () => clearInterval(t);
+    }, 60000);
+    const off = onSocket('order.statusChanged', () => { void load(); });
+    return () => { clearInterval(t); off(); };
   }, [order, load]);
 
   // Payment prompt: only on the FRESH placement flow (placeResult present) do we
@@ -225,30 +229,30 @@ export function OrderTrackingScreen({
 
     // Payment requested by shop
     if (prev.status !== OrderStatus.AWAITING_PAYMENT && order.status === OrderStatus.AWAITING_PAYMENT) {
-      notifyOrderUpdate('💳 Payment Required', `${order.shop.name} is ready — please complete your UPI payment.`, tag);
+      notifyOrderUpdate('Payment Required', `${order.shop.name} is ready — please complete your UPI payment.`, tag);
     }
     // Item(s) removed — order total changed
     const prevUnavail = prev.items.filter(i => i.status === 'UNAVAILABLE').length;
     const nowUnavail = order.items.filter(i => i.status === 'UNAVAILABLE').length;
     if (nowUnavail > prevUnavail && order.status !== OrderStatus.CANCELLED) {
       const removed = nowUnavail - prevUnavail;
-      notifyOrderUpdate('⚠️ Items Removed', `${removed} item${removed > 1 ? 's were' : ' was'} marked out of stock by ${order.shop.name}. Tap to review.`, tag);
+      notifyOrderUpdate('Items Removed', `${removed} item${removed > 1 ? 's were' : ' was'} marked out of stock by ${order.shop.name}. Tap to review.`, tag);
     }
     // Order cancelled
     if (prev.status !== OrderStatus.CANCELLED && order.status === OrderStatus.CANCELLED) {
-      notifyOrderUpdate('❌ Order Cancelled', `Your order from ${order.shop.name} has been cancelled.`, tag);
+      notifyOrderUpdate('Order Cancelled', `Your order from ${order.shop.name} has been cancelled.`, tag);
     }
     // Order accepted
     if (prev.status === OrderStatus.PLACED && order.status === OrderStatus.ACCEPTED) {
-      notifyOrderUpdate('✅ Order Accepted', `${order.shop.name} accepted your order and is preparing it.`, tag);
+      notifyOrderUpdate('Order Accepted', `${order.shop.name} accepted your order and is preparing it.`, tag);
     }
     // Out for delivery
     if (prev.status !== OrderStatus.OUT_FOR_DELIVERY && order.status === OrderStatus.OUT_FOR_DELIVERY) {
-      notifyOrderUpdate('🛵 Out for Delivery', `Your order from ${order.shop.name} is on the way!`, tag);
+      notifyOrderUpdate('Out for Delivery', `Your order from ${order.shop.name} is on the way!`, tag);
     }
     // Delivered
     if (prev.status !== OrderStatus.DELIVERED && order.status === OrderStatus.DELIVERED) {
-      notifyOrderUpdate('🎉 Order Delivered', `Your order from ${order.shop.name} has been delivered. Enjoy!`, tag);
+      notifyOrderUpdate('Order Delivered', `Your order from ${order.shop.name} has been delivered. Enjoy!`, tag);
     }
   }, [order]);
 
@@ -404,14 +408,14 @@ export function OrderTrackingScreen({
           {isTerminalBad
             ? statusLabel(order.status, t)
             : isDelivered
-              ? '✅  Order Delivered!'
+              ? 'Order Delivered!'
               : order.status === 'OUT_FOR_DELIVERY'
-                ? '🛵  On the way to you'
+                ? 'On the way to you'
                 : order.status === 'PREPARING' || order.status === 'READY' || order.status === 'RIDER_ASSIGNED'
-                  ? '👨‍🍳  Preparing your order'
+                  ? 'Preparing your order'
                   : order.status === 'AWAITING_PAYMENT'
-                    ? '💳  Awaiting payment'
-                    : '✅  Order Confirmed!'}
+                    ? 'Awaiting payment'
+                    : 'Order Confirmed!'}
         </Text>
         {etaBand && !isTerminalBad && !isDelivered ? (
           <View style={styles.stickyEtaRow}>
@@ -432,7 +436,7 @@ export function OrderTrackingScreen({
           <Image source={{ uri: order.shop.storefrontPhotoUrl }} style={styles.shopCardAvatar} />
         ) : (
           <View style={[styles.shopCardAvatar, styles.shopCardAvatarFallback]}>
-            <Text style={styles.shopCardAvatarText}>🏬</Text>
+            <Text style={styles.shopCardAvatarText}>{order.shop.name.charAt(0).toUpperCase()}</Text>
           </View>
         )}
         <View style={styles.shopCardInfo}>
@@ -452,7 +456,7 @@ export function OrderTrackingScreen({
             onPress={() => Linking.openURL(`tel:${order.shop.contactPhone}`)}
             hitSlop={8}
           >
-            <Text style={styles.shopCallIcon}>📞</Text>
+            <Text style={styles.shopCallIcon}>{t.orderTracking.call}</Text>
           </Pressable>
         ) : null}
       </View>
@@ -474,7 +478,7 @@ export function OrderTrackingScreen({
             {upiLink() ? (
               <>
                 <UpiQr link={upiLink()!} />
-                <Button label={t.orderTracking.payNowUpi} onPress={openUpi} icon="📲" />
+                <Button label={t.orderTracking.payNowUpi} onPress={openUpi} />
               </>
             ) : null}
             <Button
@@ -523,9 +527,7 @@ export function OrderTrackingScreen({
                       state === 'done' && styles.nodeDone,
                       state === 'active' && styles.nodeActive,
                     ]}
-                  >
-                    <Text style={styles.nodeIcon}>{state === 'todo' ? '' : step.icon}</Text>
-                  </View>
+                  />
                   {!isLast ? (
                     <View style={[styles.connector, (isDelivered || i < currentStep) && styles.connectorDone]} />
                   ) : null}
@@ -553,9 +555,6 @@ export function OrderTrackingScreen({
           hidden once delivered (the trip is over). */}
       {rider && !isTerminalBad && !isDelivered ? (
         <View style={styles.riderCard}>
-          <View style={styles.riderAvatar}>
-            <Text style={styles.riderAvatarText}>🛵</Text>
-          </View>
           <View style={styles.riderInfo}>
             <Text style={styles.riderLabel}>{t.orderTracking.deliveryPartner}</Text>
             <Text style={styles.riderName}>{rider.name || t.orderTracking.rider}</Text>
@@ -566,7 +565,6 @@ export function OrderTrackingScreen({
             onPress={() => Linking.openURL(`tel:${rider.phone}`)}
             hitSlop={8}
           >
-            <Text style={styles.callBtnIcon}>📞</Text>
             <Text style={styles.callBtnText}>{t.orderTracking.call}</Text>
           </Pressable>
         </View>
@@ -583,14 +581,13 @@ export function OrderTrackingScreen({
       {/* Rate your order — only once delivered */}
       {isDelivered ? (
         <View style={styles.rateCard}>
-          <Text style={styles.rateEmoji}>⭐</Text>
           {reviewed ? (
             <Text style={styles.rateTitle}>{t.orderTracking.rateThanks}</Text>
           ) : (
             <>
               <Text style={styles.rateTitle}>{t.orderTracking.howWasOrder}</Text>
               <Text style={styles.rateSub}>{t.orderTracking.rateShop(order.shop.name)}</Text>
-              <Button label={t.orderTracking.rateYourOrder} onPress={() => setShowReview(true)} icon="⭐" />
+              <Button label={t.orderTracking.rateYourOrder} onPress={() => setShowReview(true)} />
             </>
           )}
         </View>
@@ -601,7 +598,6 @@ export function OrderTrackingScreen({
         <View style={styles.nudgeCard}>
           {order.customerNudgedAt ? (
             <View style={styles.nudgeSent}>
-              <Text style={styles.nudgeSentIcon}>💬</Text>
               <View style={{ flex: 1 }}>
                 <Text style={styles.nudgeSentTitle}>Message sent to shop</Text>
                 <Text style={styles.nudgeSentBody}>"{order.customerNudge}"</Text>
@@ -646,7 +642,6 @@ export function OrderTrackingScreen({
             </View>
           ) : (
             <Pressable style={styles.nudgeBtn} onPress={() => setShowNudge(true)}>
-              <Text style={styles.nudgeBtnEmoji}>💬</Text>
               <Text style={styles.nudgeBtnText}>Message the shop</Text>
               <Text style={styles.nudgeBtnArrow}>›</Text>
             </Pressable>
@@ -657,17 +652,17 @@ export function OrderTrackingScreen({
       {/* Help / dispute — available on any order within the 48h window */}
       <DisputeModal ref={disputeRef} orderId={order.id} orderCreatedAt={order.createdAt} senderRole="CUSTOMER" />
 
-      {/* Refund received ✅ — customer confirmed the off-platform refund */}
+      {/* Refund received — customer confirmed the off-platform refund */}
       {order.status === OrderStatus.REFUNDED ? (
         <View style={styles.refundDoneCard}>
-          <Text style={styles.refundDoneTitle}>✅ Refund confirmed</Text>
+          <Text style={styles.refundDoneTitle}>Refund confirmed</Text>
           <Text style={styles.refundDoneBody}>
             You confirmed you received your refund of {formatRupees(order.adjustedTotalPaise ?? order.originalTotalPaise)} from {order.shop.name}. This order is now closed.
           </Text>
         </View>
       ) : order.status === OrderStatus.REFUND_PENDING ? (
         <View style={styles.refundCard}>
-          <Text style={styles.refundTitle}>💸 Refund pending</Text>
+          <Text style={styles.refundTitle}>Refund pending</Text>
           {/* Audit summary — what happened */}
           <View style={styles.refundAudit}>
             <Text style={styles.refundAuditRow}>
@@ -684,7 +679,7 @@ export function OrderTrackingScreen({
             {order.shop.name} will refund you directly. Once the money is back with you, confirm below — or raise a dispute if you haven't received it.
           </Text>
           <Button
-            label={refundBusy ? 'Confirming…' : '✅ I received my refund'}
+            label={refundBusy ? 'Confirming…' : 'I received my refund'}
             onPress={confirmRefundReceived}
             disabled={refundBusy}
           />
@@ -701,7 +696,7 @@ export function OrderTrackingScreen({
           </Pressable>
           {order.shop.contactPhone ? (
             <Pressable onPress={() => Linking.openURL(`tel:${order.shop.contactPhone}`)}>
-              <Text style={styles.refundCallBtn}>📞 Call {order.shop.name}</Text>
+              <Text style={styles.refundCallBtn}>Call {order.shop.name}</Text>
             </Pressable>
           ) : null}
         </View>
@@ -713,11 +708,11 @@ export function OrderTrackingScreen({
         {order.items.some(it => it.status === 'UNAVAILABLE') && order.status !== 'CANCELLED' && order.status !== 'REJECTED' ? (
           <View style={styles.itemsUpdatedBanner}>
             <Text style={styles.itemsUpdatedText}>
-              ⚠️ {order.items.filter(it => it.status === 'UNAVAILABLE').length} item{order.items.filter(it => it.status === 'UNAVAILABLE').length > 1 ? 's' : ''} removed by the shop — order total updated.
+              {order.items.filter(it => it.status === 'UNAVAILABLE').length} item{order.items.filter(it => it.status === 'UNAVAILABLE').length > 1 ? 's' : ''} removed by the shop — order total updated.
             </Text>
             {!order.customerAcceptedChanges ? (
               <Button
-                label="✓ Accept changes & continue"
+                label="Accept changes & continue"
                 onPress={async () => {
                   try {
                     await api.acceptOrderChanges(order.id);
@@ -726,7 +721,7 @@ export function OrderTrackingScreen({
                 }}
               />
             ) : (
-              <Text style={[styles.itemsUpdatedText, { color: '#065F46' }]}>✓ You accepted these changes</Text>
+              <Text style={[styles.itemsUpdatedText, { color: '#065F46' }]}>You accepted these changes</Text>
             )}
           </View>
         ) : null}

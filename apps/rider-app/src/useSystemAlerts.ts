@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from './api';
 import { notifyAlert, vibrate } from './notify';
+import { onSocket } from './socket';
 
-/** How often the app polls the rider's system alerts (ms). */
-const POLL_MS = 30000;
+/** Fallback poll cadence — alerts arrive via socket; this is a safety net (ms). */
+const POLL_MS = 60000;
 
 export interface RiderAlert {
   id: string;
@@ -50,7 +51,7 @@ export function useSystemAlerts(enabled: boolean): SystemAlerts {
       vibrate();
       const first = fresh[0];
       notifyAlert(
-        first.isWarning ? '🔴 PassWaala Alert' : '🟡 PassWaala Update',
+        first.isWarning ? 'PassWaala Alert' : 'PassWaala Update',
         fresh.length > 1 ? `${fresh.length} new alerts` : first.message,
       );
     }
@@ -76,9 +77,11 @@ export function useSystemAlerts(enabled: boolean): SystemAlerts {
     };
     load();
     const id = setInterval(load, POLL_MS);
+    const off = onSocket('system.alert', () => { void load(); });
     return () => {
       alive = false;
       clearInterval(id);
+      off();
     };
   }, [enabled, detect]);
 

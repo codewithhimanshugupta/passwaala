@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { titleCaseName } from '../common/text.util';
 
 /**
  * AccountService — profile + in-app account deletion (plan → Compliance: account
@@ -28,7 +29,7 @@ export class AccountService {
 
   /** Update the caller's display name. */
   async updateName(userId: string, name: string) {
-    await this.prisma.user.update({ where: { id: userId }, data: { name } });
+    await this.prisma.user.update({ where: { id: userId }, data: { name: titleCaseName(name) } });
     return this.me(userId);
   }
 

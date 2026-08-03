@@ -84,6 +84,17 @@ export class ShopsController {
     return this.shops.findNearby(query);
   }
 
+  /**
+   * Public, cheap "can this shop deliver right now?" check — called lazily when
+   * a customer opens a storefront (NOT for every shop in the list). Declared
+   * before :id so "delivery-available" isn't captured as an id param.
+   */
+  @Public()
+  @Get(':id/delivery-available')
+  deliveryAvailable(@Param('id') id: string) {
+    return this.shops.deliveryAvailableForShop(id);
+  }
+
   /** Shopkeeper: how many times each offer template was used on their orders. */
   @Roles(UserRole.SHOPKEEPER)
   @Get('me/offer-stats')

@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { OrderStatus, PaymentMethod, DeliveryMode, nextStatuses } from '@passwaala/shared';
 import { api } from '../api';
+import { onSocket } from '../socket';
 import { formatRupees, theme } from '../theme';
 import { Badge, Button, ErrorText, OtpBoxes } from '../ui';
 import { DisputeModal } from '../components/DisputeModal';
@@ -22,7 +23,7 @@ import type { Strings } from '../i18n/strings';
 import type { FeedOrder } from '../types';
 
 /** How often the open Orders tab refreshes its visible list (ms). */
-const POLL_MS = 20000;
+const POLL_MS = 60000;
 
 /** Orders fetched per page within a tab (initial load + each scroll-to-end). */
 const PAGE_SIZE = 20;
@@ -189,12 +190,14 @@ export function OrderFeedScreen({
     load();
   }, [load]);
 
-  // Keep the visible page fresh while this tab is open (list-only — the loud
-  // new-order alert now lives app-wide in useNewOrderAlerts, so this doesn't
-  // ring; it just refreshes what's on screen).
+  // Keep the visible page fresh. Socket events (order.created / order.shopUpdated)
+  // are the primary trigger; the interval is a slow fallback for when the socket
+  // is down.
   useEffect(() => {
     const id = setInterval(() => load(), POLL_MS);
-    return () => clearInterval(id);
+    const off1 = onSocket('order.created', () => { void load(); });
+    const off2 = onSocket('order.shopUpdated', () => { void load(); });
+    return () => { clearInterval(id); off1(); off2(); };
   }, [load]);
 
   // Per-tab badge counts derived from the server's per-status counts.
@@ -676,14 +679,12 @@ function OrderCard({
           style={styles.riderRow}
           onPress={() => order.rider?.phone && Linking.openURL(`tel:${order.rider.phone}`)}
         >
-          <Text style={styles.riderIcon}>🛵</Text>
           <View style={styles.riderInfo}>
             <Text style={styles.riderLabel}>{t.orders.deliveryPartner}</Text>
             <Text style={styles.riderName}>
               {order.rider.name || t.orders.rider} · {order.rider.phone}
             </Text>
           </View>
-          <Text style={styles.riderCall}>📞</Text>
         </Pressable>
       ) : null}
 
@@ -718,7 +719,6 @@ function OrderCard({
       {/* Customer nudge — one-time message from the customer */}
       {order.customerNudge ? (
         <View style={styles.nudgeBanner}>
-          <Text style={styles.nudgeBannerEmoji}>💬</Text>
           <View style={{ flex: 1 }}>
             <Text style={styles.nudgeBannerTitle}>Message from customer</Text>
             <Text style={styles.nudgeBannerBody}>"{order.customerNudge}"</Text>
@@ -871,7 +871,6 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   nudgeBanner: { flexDirection: 'row', alignItems: 'flex-start', gap: theme.space.sm, backgroundColor: '#EEF2FF', borderRadius: theme.radius.md, padding: theme.space.md, borderWidth: 1, borderColor: '#C7D2FE' },
-  nudgeBannerEmoji: { fontSize: 18 },
   nudgeBannerTitle: { fontSize: theme.font.tiny, fontWeight: '800', color: '#4338CA' },
   nudgeBannerBody: { fontSize: theme.font.small, color: '#374151', fontStyle: 'italic', marginTop: 2 },
 
@@ -897,11 +896,9 @@ const styles = StyleSheet.create({
     paddingVertical: theme.space.sm,
     paddingHorizontal: theme.space.md,
   },
-  riderIcon: { fontSize: 20 },
   riderInfo: { flex: 1, gap: 1 },
   riderLabel: { fontSize: theme.font.tiny, fontWeight: '700', color: theme.color.textMuted, textTransform: 'uppercase', letterSpacing: 0.4 },
   riderName: { fontSize: theme.font.small, fontWeight: '800', color: theme.color.text },
-  riderCall: { fontSize: 20 },
 
   empty: { color: theme.color.textMuted, textAlign: 'center', marginTop: theme.space.xxl },
 

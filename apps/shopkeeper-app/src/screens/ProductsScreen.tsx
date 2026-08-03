@@ -282,6 +282,7 @@ function ProductFormModal({
   const [stock, setStock] = useState('');
   const [weight, setWeight] = useState('');
   const [imageUrl, setImageUrl] = useState('');
+  const [description, setDescription] = useState('');
   const [available, setAvailable] = useState(true);
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -299,6 +300,7 @@ function ProductFormModal({
       setStock(String(product.stock));
       setWeight(product.weightGrams ? String(product.weightGrams) : '');
       setImageUrl(product.imageUrl ?? '');
+      setDescription(product.description ?? '');
       setAvailable(product.available);
       setCategoryId(product.categoryId ?? null);
     } else {
@@ -308,6 +310,7 @@ function ProductFormModal({
       setStock('');
       setWeight('');
       setImageUrl('');
+      setDescription('');
       setAvailable(true);
       setCategoryId(null);
     }
@@ -340,6 +343,7 @@ function ProductFormModal({
         stock: stockNum,
         weightGrams: Math.round(weightNum),
         imageUrl: imageUrl.trim() || undefined,
+        description: description.trim() || undefined,
         available,
         categoryId: categoryId ?? undefined,
       };
@@ -388,6 +392,14 @@ function ProductFormModal({
             onChangeText={setWeight}
           />
 
+          <Field
+            label="Description (optional)"
+            placeholder="Longer details customers see when they tap the product"
+            value={description}
+            onChangeText={setDescription}
+            multiline
+          />
+
           <View style={styles.availRow}>
             <View style={styles.flex}>
               <Text style={styles.pickerLabel}>{t.products.availableToCustomers}</Text>
@@ -423,6 +435,8 @@ function ProductFormModal({
             value={imageUrl.trim() || null}
             onUploaded={setImageUrl}
             hint={t.products.productImageHint}
+            uploadType="product"
+            scopeId={product?.shopId}
           />
 
           {error ? <ErrorText>{error}</ErrorText> : null}

@@ -124,21 +124,51 @@ export class OrdersService {
       dropCoords = { latitude: address.latitude, longitude: address.longitude };
     }
 
-    // Load the cart with shop economics + product snapshots + active offer.
-    const cart = await this.prisma.cart.findFirst({
-      where: { customerId, deletedAt: null },
-      include: {
-        shop: {
-          include: {
-            activeOffer: { select: { id: true, title: true, type: true, value: true, minOrderPaise: true, active: true } },
-          },
+    // Resolve the order source: CLIENT-CART path (dto.shopId + dto.items) or the
+    // legacy server-cart path. Either way we normalise to a `cart`-shaped object
+    // with `.shop` (incl. activeOffer) and `.items[].product` so the rest of the
+    // flow is unchanged. The client cart is never trusted for price/stock — we
+    // reload the products from the DB here.
+    const shopInclude = {
+      activeOffer: { select: { id: true, title: true, type: true, value: true, minOrderPaise: true, active: true } },
+    };
+    type NormalItem = { productId: string; qty: number; product: { id: string; name: string; pricePaise: number; stock: number; available: boolean; weightGrams: number | null } };
+    let cart: { id: string | null; shopId: string; shop: any; items: NormalItem[] };
+
+    if (dto.shopId && dto.items && dto.items.length > 0) {
+      // Client cart: load the shop + the referenced products fresh from the DB.
+      const shop = await this.prisma.shop.findFirst({
+        where: { id: dto.shopId, deletedAt: null },
+        include: shopInclude,
+      });
+      if (!shop) throw new BadRequestException('Shop not found');
+      const productIds = dto.items.map((i) => i.productId);
+      const products = await this.prisma.product.findMany({
+        where: { id: { in: productIds }, shopId: dto.shopId, deletedAt: null },
+        select: { id: true, name: true, pricePaise: true, stock: true, available: true, weightGrams: true },
+      });
+      const byId = new Map(products.map((p) => [p.id, p]));
+      const normItems: NormalItem[] = dto.items.map((i) => {
+        const product = byId.get(i.productId);
+        if (!product) throw new BadRequestException('A product in your cart is no longer available');
+        return { productId: i.productId, qty: i.qty, product };
+      });
+      cart = { id: null, shopId: dto.shopId, shop, items: normItems };
+    } else {
+      // Legacy server-cart path.
+      const serverCart = await this.prisma.cart.findFirst({
+        where: { customerId, deletedAt: null },
+        include: {
+          shop: { include: shopInclude },
+          items: { include: { product: true } },
         },
-        items: { include: { product: true } },
-      },
-    });
-    if (!cart || cart.items.length === 0) {
-      throw new BadRequestException('Cart is empty');
+      });
+      if (!serverCart || serverCart.items.length === 0) {
+        throw new BadRequestException('Cart is empty');
+      }
+      cart = serverCart as unknown as typeof cart;
     }
+
     if (cart.shop.verificationStatus !== VerificationStatus.APPROVED) {
       throw new BadRequestException('Shop is not available');
     }
@@ -168,6 +198,34 @@ export class OrdersService {
       : cart.shop.platformDeliveryEnabled
         ? DeliveryMode.PLATFORM_RIDER
         : DeliveryMode.SELF_DELIVERY;
+
+    // Hard guard: a PLATFORM_RIDER delivery can only be placed if at least one
+    // rider is available near the shop right now. Otherwise no order should reach
+    // the shop (the customer should pick self-pickup instead, if offered).
+    // Short-circuit exists-check (LIMIT 1) — never scans all riders.
+    if (deliveryMode === DeliveryMode.PLATFORM_RIDER) {
+      let riderRadius = 5000;
+      if (cart.shop.city) {
+        const cityCfg = await this.prisma.serviceableCity.findFirst({
+          where: { name: { equals: cart.shop.city, mode: 'insensitive' }, deletedAt: null },
+          select: { riderCheckRadiusMeters: true },
+        });
+        if (cityCfg?.riderCheckRadiusMeters) riderRadius = cityCfg.riderCheckRadiusMeters;
+      }
+      const hit = await this.prisma.$queryRawUnsafe<Array<{ ok: number }>>(
+        `SELECT 1 AS ok FROM "RiderProfile" rp JOIN "Shop" s ON s.id = $1
+           WHERE rp.online = TRUE AND rp.latitude IS NOT NULL AND rp.longitude IS NOT NULL AND s.geog IS NOT NULL
+             AND ST_DWithin(ST_SetSRID(ST_MakePoint(rp.longitude::float8, rp.latitude::float8),4326)::geography, s.geog, $2)
+           LIMIT 1`,
+        cart.shopId,
+        riderRadius,
+      );
+      if (hit.length === 0) {
+        throw new BadRequestException(
+          'No delivery rider is available near this shop right now. Please try self-pickup or try again shortly.',
+        );
+      }
+    }
 
     // Validate availability + stock, and build snapshotted line items.
     const items = cart.items.map((it) => {
@@ -327,9 +385,11 @@ export class OrdersService {
           data: { stock: { decrement: it.qty } },
         });
       }
-      // Empty the cart now that the order is durably captured.
-      await tx.cartItem.deleteMany({ where: { cartId } });
-      await tx.cart.delete({ where: { id: cartId } });
+      // Empty the server cart if this order came from one (client-cart path has none).
+      if (cartId) {
+        await tx.cartItem.deleteMany({ where: { cartId } });
+        await tx.cart.delete({ where: { id: cartId } });
+      }
       return order;
     });
 
@@ -437,7 +497,7 @@ export class OrdersService {
       select: { id: true, status: true, paymentClaimedAt: true, paymentClaimCount: true },
     });
     // Nudge the shop's feed to re-check (customer claims payment sent).
-    this.realtime.emitOrderStatusChanged(order.shopId, {
+    this.realtime.emitOrderShopUpdate(order.shopId, {
       orderId,
       status: order.status as OrderStatus,
     });
@@ -725,7 +785,7 @@ export class OrdersService {
       select: ORDER_MUTATION_SELECT,
     });
     // Notify the shop's feed so the completed tab reflects the closed refund.
-    this.realtime.emitOrderStatusChanged(order.shopId, {
+    this.realtime.emitOrderShopUpdate(order.shopId, {
       orderId,
       status: OrderStatus.REFUNDED,
     });
@@ -1059,7 +1119,7 @@ export class OrdersService {
     });
 
     // Notify the shop's feed in real-time (reuse statusChanged event with a custom status)
-    this.realtime.emitOrderStatusChanged(order.shopId, { orderId, status: 'NUDGE' as never });
+    this.realtime.emitOrderShopUpdate(order.shopId, { orderId, status: 'NUDGE' as never });
 
     return updated;
   }
@@ -1079,7 +1139,7 @@ export class OrdersService {
       select: { id: true, customerAcceptedChanges: true },
     });
     // Notify the shop that customer accepted
-    this.realtime.emitOrderStatusChanged(order.shopId, { orderId, status: 'CHANGES_ACCEPTED' as never });
+    this.realtime.emitOrderShopUpdate(order.shopId, { orderId, status: 'CHANGES_ACCEPTED' as never });
     return updated;
   }
 }

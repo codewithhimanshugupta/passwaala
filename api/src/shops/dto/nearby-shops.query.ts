@@ -45,4 +45,19 @@ export class NearbyShopsQuery {
   @Min(0)
   @Max(5)
   minRating?: number;
+
+  /** Pagination: max results to return (default 15, max 50). */
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(50)
+  limit?: number;
+
+  /** Pagination: how many results to skip (for load-more on scroll). */
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  offset?: number;
 }

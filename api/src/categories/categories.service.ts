@@ -2,6 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { MemoryCache } from '../common/memory-cache';
 import { assertOwnedByShop, requireShopScope } from '../common/shop-scope';
+import { titleCaseName } from '../common/text.util';
 import { CreateCategoryDto } from './dto/create-category.dto';
 
 /**
@@ -43,7 +44,7 @@ export class CategoriesService {
   async create(shopId: string | undefined, dto: CreateCategoryDto) {
     const id = requireShopScope(shopId);
     const created = await this.prisma.category.create({
-      data: { shopId: id, name: dto.name },
+      data: { shopId: id, name: titleCaseName(dto.name) },
     });
     this.cache.delete(`categories:${id}`);
     return created;

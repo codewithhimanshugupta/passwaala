@@ -182,7 +182,6 @@ export function CoinChip({
         style,
       ]}
     >
-      <Text style={[s.coinGlyph, size === 'sm' && s.coinGlyphSm]}>🪙</Text>
       <Text style={[s.coinText, onLight ? s.coinTextLight : s.coinTextDark, size === 'sm' && s.coinTextSm]}>
         {label}
       </Text>
@@ -243,7 +242,6 @@ export function ErrorState({
   const { t } = useLang();
   return (
     <View style={s.centered}>
-      <Text style={s.stateEmoji}>⚠️</Text>
       <Text style={s.stateTitle}>{t.common.somethingWentWrong}</Text>
       <Text style={s.stateMuted}>{message}</Text>
       {onRetry ? (
@@ -256,7 +254,7 @@ export function ErrorState({
 }
 
 export function EmptyState({
-  emoji = '🛍️',
+  emoji,
   title,
   subtitle,
   action,
@@ -268,7 +266,7 @@ export function EmptyState({
 }) {
   return (
     <View style={s.centered}>
-      <Text style={s.stateEmoji}>{emoji}</Text>
+      {emoji ? <Text style={s.stateEmoji}>{emoji}</Text> : null}
       <Text style={s.stateTitle}>{title}</Text>
       {subtitle ? <Text style={s.stateMuted}>{subtitle}</Text> : null}
       {action ? <View style={s.stateAction}>{action}</View> : null}
@@ -348,8 +346,6 @@ const s = StyleSheet.create({
   coinChipLight: { backgroundColor: '#FFF7E0', borderColor: '#F59E0B' },
   // Translucent gold for dark / brand backgrounds (e.g. the green profile hero).
   coinChipDark: { backgroundColor: 'rgba(245, 158, 11, 0.22)', borderColor: '#FFD700' },
-  coinGlyph: { fontSize: theme.font.body },
-  coinGlyphSm: { fontSize: theme.font.small },
   coinText: {
     fontSize: theme.font.small,
     fontWeight: theme.weight.heavy,

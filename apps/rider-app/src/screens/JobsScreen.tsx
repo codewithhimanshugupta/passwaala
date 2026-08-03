@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Linking, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { buildUpiDeepLink } from '@passwaala/shared';
 import { api } from '../api';
+import { onSocket } from '../socket';
 import { formatRupees, theme } from '../theme';
 import { Badge, Banner, Button, Card, ErrorText, Field, Screen } from '../ui';
 import { UpiQr } from '../components/UpiQr';
@@ -10,8 +11,8 @@ import { useLang } from '../i18n/LanguageContext';
 import { OtpBoxes } from '../ui';
 import type { RiderJob } from '../types';
 
-/** Poll interval for available jobs + active work while online. */
-const POLL_MS = 20000;
+/** Fallback poll for jobs while online — socket 'job.offered' is primary (ms). */
+const POLL_MS = 60000;
 
 /**
  * Build a maps directions URL to a lat/lng (web + native both handle the
@@ -132,12 +133,13 @@ export function JobsScreen({ online }: { online: boolean }) {
     };
   }, [load]);
 
-  // Auto-poll while online so new jobs + status changes surface without a
-  // manual refresh.
+  // Fallback poll while online (safety net); the socket 'job.offered' event is
+  // the primary trigger for an instant refresh.
   useEffect(() => {
     if (!online) return;
     const id = setInterval(load, POLL_MS);
-    return () => clearInterval(id);
+    const off = onSocket('job.offered', () => { void load(); });
+    return () => { clearInterval(id); off(); };
   }, [online, load]);
 
   // While the rider is holding an active order, push GPS every ~10s so the

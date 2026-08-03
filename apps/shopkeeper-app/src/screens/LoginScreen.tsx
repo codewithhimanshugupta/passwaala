@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { api, APP_TYPE } from '../api';
 import { theme } from '../theme';
-import { Banner, Button, ErrorText, OtpBoxes } from '../ui';
+import { Banner, Button, ErrorText } from '../ui';
+import { PinBoxes } from '../PinBoxes';
 import { useLang } from '../i18n/LanguageContext';
 
 export function LoginScreen({
@@ -17,7 +18,8 @@ export function LoginScreen({
   const { t } = useLang();
   const [phone, setPhone] = useState('');
   const [credential, setCredential] = useState('');
-  const [mode, setMode] = useState<'password' | 'otp'>('password');
+  // Three distinct login methods, each with its own input.
+  const [method, setMethod] = useState<'pin' | 'password' | 'otp'>('pin');
   const [step, setStep] = useState<'phone' | 'credential'>('phone');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -30,12 +32,23 @@ export function LoginScreen({
     setStep('credential');
   }
 
-  async function login() {
-    const cred = credential.trim();
+  function selectMethod(m: 'pin' | 'password' | 'otp') {
+    setMethod(m);
+    setCredential('');
+    setError(null);
+  }
+
+  async function login(credOverride?: string) {
+    if (method === 'otp') { setError(t.login.otpComingSoon); return; }
+    const cred = (credOverride ?? credential).trim();
+    if (method === 'pin' && !/^\d{4}$/.test(cred)) { setError(t.login.enterPin); return; }
     if (!cred) { setError(t.login.enterCredential); return; }
     setBusy(true); setError(null);
     try {
-      const { accessToken } = await api.login(`+91${phone.replace(/\D/g, '')}`, cred, APP_TYPE);
+      const { accessToken } = await api.login(`+91${phone.replace(/\D/g, '')}`, cred, {
+        method: method === 'pin' ? 'pin' : 'password',
+        appType: APP_TYPE,
+      });
       api.setToken(accessToken);
       onLoggedIn();
     } catch (e) {
@@ -63,7 +76,7 @@ export function LoginScreen({
           <>
             <Text style={styles.hint}>{t.login.phoneLabel}</Text>
             <View style={styles.phoneRow}>
-              <View style={styles.ccBox}><Text style={styles.ccText}>🇮🇳 +91</Text></View>
+              <View style={styles.ccBox}><Text style={styles.ccText}>+91</Text></View>
               <TextInput
                 style={styles.phoneInput}
                 placeholder={t.login.phonePlaceholder}
@@ -86,7 +99,6 @@ export function LoginScreen({
           </>
         ) : (
           <>
-            <Text style={styles.stepTitle}>{mode === 'password' ? t.login.passwordLabel : t.login.otpLabel}</Text>
             <Text style={styles.hint}>
               +91 {phone} ·{' '}
               <Text style={styles.changeLink} onPress={() => { setStep('phone'); setCredential(''); setError(null); }}>
@@ -94,28 +106,53 @@ export function LoginScreen({
               </Text>
             </Text>
 
-            {mode === 'otp' ? (
-              <OtpBoxes length={6} value={credential} onChange={(v) => { setCredential(v); setError(null); }} onComplete={login} />
+            {/* Three separate login methods */}
+            <View style={styles.methodTabs}>
+              <MethodTab label={t.login.methodPin} active={method === 'pin'} onPress={() => selectMethod('pin')} />
+              <MethodTab label={t.login.methodPassword} active={method === 'password'} onPress={() => selectMethod('password')} />
+              <MethodTab label={t.login.methodOtp} active={method === 'otp'} onPress={() => selectMethod('otp')} />
+            </View>
+
+            {method === 'otp' ? (
+              <View style={styles.comingSoonBox}>
+                <Text style={styles.comingSoonText}>{t.login.otpComingSoon}</Text>
+              </View>
             ) : (
-              <TextInput
-                style={styles.credInput}
-                placeholder={t.login.passwordPlaceholder}
-                placeholderTextColor={theme.color.textFaint}
-                secureTextEntry
-                value={credential}
-                onChangeText={(v) => { setCredential(v); setError(null); }}
-                autoFocus
-                onSubmitEditing={login}
-              />
+              <>
+                <Text style={styles.stepTitle}>
+                  {method === 'pin' ? t.login.pinLabel : t.login.passwordLabel}
+                </Text>
+                {method === 'pin' ? (
+                  <PinBoxes
+                    value={credential}
+                    onChange={(v) => { setCredential(v); setError(null); }}
+                    onComplete={(v) => login(v)}
+                    autoFocus
+                  />
+                ) : (
+                  <TextInput
+                    style={styles.credInput}
+                    placeholder={t.login.passwordPlaceholder}
+                    placeholderTextColor={theme.color.textFaint}
+                    secureTextEntry
+                    keyboardType="default"
+                    value={credential}
+                    onChangeText={(v) => {
+                      setCredential(v);
+                      setError(null);
+                    }}
+                    autoFocus
+                    onSubmitEditing={() => login()}
+                  />
+                )}
+                <Button
+                  label={t.login.loginBtn}
+                  onPress={() => login()}
+                  busy={busy}
+                  disabled={method === 'pin' ? credential.length !== 4 : !credential.trim()}
+                />
+              </>
             )}
-
-            <Button label={t.login.loginBtn} onPress={login} busy={busy} disabled={!credential.trim()} />
-
-            <Text style={styles.switchLine}>
-              <Text style={styles.switchLink} onPress={() => { setMode(mode === 'password' ? 'otp' : 'password'); setCredential(''); setError(null); }}>
-                {mode === 'password' ? t.login.useOtpInstead : t.login.usePasswordInstead}
-              </Text>
-            </Text>
           </>
         )}
 
@@ -126,6 +163,15 @@ export function LoginScreen({
         {t.login.footer}
       </Text>
     </KeyboardAvoidingView>
+  );
+}
+
+/** A single method selector tab (PIN / Password / OTP). */
+function MethodTab({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
+  return (
+    <Pressable onPress={onPress} style={[styles.methodTab, active && styles.methodTabActive]}>
+      <Text style={[styles.methodTabText, active && styles.methodTabTextActive]}>{label}</Text>
+    </Pressable>
   );
 }
 
@@ -168,6 +214,31 @@ const styles = StyleSheet.create({
   stepTitle: { fontSize: theme.font.h2, fontWeight: '900', color: theme.color.text },
   hint: { fontSize: theme.font.small, color: theme.color.textMuted },
   changeLink: { color: theme.color.accent, fontWeight: '700' },
+  methodTabs: {
+    flexDirection: 'row',
+    gap: theme.space.xs,
+    backgroundColor: theme.color.surfaceAlt,
+    borderRadius: theme.radius.md,
+    padding: 4,
+  },
+  methodTab: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: theme.radius.sm,
+    alignItems: 'center',
+  },
+  methodTabActive: {
+    backgroundColor: theme.color.surface,
+    ...(Platform.OS === 'web' ? {} : { elevation: 1 }),
+  },
+  methodTabText: { fontSize: theme.font.small, fontWeight: '600', color: theme.color.textMuted },
+  methodTabTextActive: { color: theme.color.accent, fontWeight: '800' },
+  comingSoonBox: {
+    backgroundColor: theme.color.warningSoft,
+    borderRadius: theme.radius.md,
+    padding: theme.space.md,
+  },
+  comingSoonText: { color: theme.color.warning, fontSize: theme.font.small, fontWeight: '700', textAlign: 'center' },
   switchLine: { fontSize: theme.font.small, color: theme.color.textMuted, textAlign: 'center', marginTop: theme.space.sm },
   switchLink: { color: theme.color.accent, fontWeight: '700' },
   phoneRow: { flexDirection: 'row', alignItems: 'center', gap: theme.space.sm },

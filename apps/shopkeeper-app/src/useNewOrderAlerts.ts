@@ -4,10 +4,12 @@ import { api } from './api';
 import { formatRupees } from './theme';
 import { startAlert, stopAlert } from './sound';
 import { canNotify, notifyNewOrder, requestNotifyPermission, vibrate } from './notify';
+import { onSocket } from './socket';
 import type { FeedOrder } from './types';
 
 /** How often the app polls the feed for freshly PLACED orders (ms). */
-const POLL_MS = 15000;
+/** Fallback poll cadence — orders arrive via socket; this is a safety net (ms). */
+const POLL_MS = 60000;
 /** Re-pulse the vibration on this cadence while an alert is unacknowledged (ms). */
 const VIBRATE_MS = 3000;
 
@@ -66,7 +68,7 @@ export function useNewOrderAlerts(enabled: boolean, allShops = false): NewOrderA
       setAlertSilent(!startAlert());
       vibrate();
       const total = fresh.adjustedTotalPaise ?? fresh.originalTotalPaise;
-      notifyNewOrder('🔔 New order!', `#${fresh.id.slice(0, 8).toUpperCase()} · ${formatRupees(total)}`);
+      notifyNewOrder('New order!', `#${fresh.id.slice(0, 8).toUpperCase()} · ${formatRupees(total)}`);
     }
   }, []);
 
@@ -92,9 +94,12 @@ export function useNewOrderAlerts(enabled: boolean, allShops = false): NewOrderA
     };
     load();
     const id = setInterval(load, POLL_MS);
+    // Realtime: order.created pushes trigger an immediate refresh (primary path).
+    const off = onSocket('order.created', () => { void load(); });
     return () => {
       alive = false;
       clearInterval(id);
+      off();
     };
   }, [enabled, detect, allShops]);
 

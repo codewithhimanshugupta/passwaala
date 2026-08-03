@@ -432,7 +432,7 @@ export function CitiesScreen() {
                 </View>
                 <View style={[styles.card, { backgroundColor: theme.color.infoBg, borderColor: theme.color.info, gap: theme.space.xs }]}>
                   <Text style={[styles.meta, { color: theme.color.info, fontWeight: '700' }]}>
-                    ⚠️ A city goes live only when it is <Text style={{ fontWeight: '900' }}>Enabled</Text> AND has an <Text style={{ fontWeight: '900' }}>Active admin</Text> assigned.
+                    A city goes live only when it is <Text style={{ fontWeight: '900' }}>Enabled</Text> AND has an <Text style={{ fontWeight: '900' }}>Active admin</Text> assigned.
                   </Text>
                 </View>
                 <View style={styles.modalActions}>
@@ -692,7 +692,7 @@ function CityRow({ city, admins, busy, onToggle, onAddAdmin, onUpdate }: {
           ) : (
             <Pressable onPress={() => { setUpiDraft(city.collectionUpiVpa ?? ''); setEditingUpi(true); }}>
               <Text style={[styles.meta, { color: city.collectionUpiVpa ? theme.color.primary : theme.color.warning }]}>
-                {city.collectionUpiVpa ? `UPI: ${city.collectionUpiVpa}  ✏️` : 'No UPI set — tap to add  ✏️'}
+                {city.collectionUpiVpa ? `UPI: ${city.collectionUpiVpa}` : 'No UPI set — tap to add'}
               </Text>
             </Pressable>
           )}
@@ -719,7 +719,7 @@ function CityRow({ city, admins, busy, onToggle, onAddAdmin, onUpdate }: {
       </View>
       {isAlmost && (
         <View style={styles.warnChip}>
-          <Text style={styles.warnChipText}>⚠️ Needs an active admin to go live</Text>
+          <Text style={styles.warnChipText}>Needs an active admin to go live</Text>
         </View>
       )}
       {/* Delivery settings */}

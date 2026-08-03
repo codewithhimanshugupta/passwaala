@@ -30,6 +30,11 @@ export class UpdateProductDto {
   @IsUrl({ require_tld: false })
   imageUrl?: string;
 
+  /** Optional longer product detail — loaded lazily on the product-detail view. */
+  @IsOptional()
+  @IsString()
+  description?: string;
+
   @IsOptional()
   @IsBoolean()
   available?: boolean;

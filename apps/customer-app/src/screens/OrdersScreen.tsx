@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { OrderStatus } from '@passwaala/shared';
 import { api } from '../api';
-import { refreshCart } from '../cart';
+import { loadFromServer } from '../cart';
 import type { OrderHistoryItem } from '../types';
 import { formatRupees, shadow, theme } from '../theme';
 import { Badge, Button, EmptyState, ErrorState, Loading } from '../ui';
@@ -91,7 +91,7 @@ export function OrdersScreen({
     setReordering(orderId);
     try {
       await api.reorder(orderId);
-      await refreshCart();
+      await loadFromServer();
       onReordered();
     } catch (e) {
       // surface inline via the card; nothing to do here
@@ -115,7 +115,6 @@ export function OrdersScreen({
       <View style={styles.root}>
         <ScreenHeader />
         <EmptyState
-          emoji="📦"
           title={t.orders.noOrdersTitle}
           subtitle={t.orders.noOrdersSubtitle}
           action={<Button label={t.orders.startShopping} onPress={onBrowse} fullWidth={false} />}
@@ -152,7 +151,7 @@ export function OrdersScreen({
         onEndReached={loadMore}
         onEndReachedThreshold={0.4}
         ListEmptyComponent={
-          <EmptyState emoji={activeTab === 'ongoing' ? '🛍️' : '📦'}
+          <EmptyState
             title={activeTab === 'ongoing' ? 'No ongoing orders' : 'No order history'}
             subtitle={activeTab === 'ongoing' ? 'Start shopping to place your first order!' : 'Your completed and cancelled orders will appear here.'}
             action={activeTab === 'ongoing' ? <Button label={t.orders.startShopping} onPress={onBrowse} fullWidth={false} /> : undefined}
@@ -243,7 +242,7 @@ function OrderCard({
           <Image source={{ uri: order.shop.storefrontPhotoUrl }} style={styles.shopThumb} />
         ) : (
           <View style={[styles.shopThumb, styles.shopThumbFallback]}>
-            <Text style={styles.shopThumbEmoji}>🏬</Text>
+            <Text style={styles.shopThumbEmoji}>{order.shop.name.charAt(0).toUpperCase()}</Text>
           </View>
         )}
         <View style={styles.flex}>

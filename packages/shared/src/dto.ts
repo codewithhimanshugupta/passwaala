@@ -145,3 +145,13 @@ export interface ProductPublic {
   /** Denormalized per-shop order count, used for popularity sort. */
   orderCount: number;
 }
+
+/**
+ * ProductDetailPublic — the customer-facing product view PLUS the longer
+ * `description`, loaded lazily when the customer taps a product (the list view
+ * omits it to stay light). Returned by GET /products/:id.
+ */
+export interface ProductDetailPublic extends ProductPublic {
+  /** Longer product detail; null if the shopkeeper didn't set one. */
+  description: string | null;
+}

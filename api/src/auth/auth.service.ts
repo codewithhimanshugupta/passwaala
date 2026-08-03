@@ -6,10 +6,10 @@ import { AuthPayload } from './auth-payload';
 import {
   decryptOtp,
   encryptOtp,
-  generateLoginOtp,
   hashPassword,
   verifyPassword,
 } from './credentials.util';
+import { titleCaseName } from '../common/text.util';
 
 /**
  * AuthService — phone OTP + JWT sessions (plan → Auth, Security & Data
@@ -190,39 +190,44 @@ export class AuthService {
   }
 
   /**
-   * Sign up with phone + name + password (no SMS). Creates/updates the
-   * (phone, appType) user, stores a scrypt password hash, and generates a fixed
-   * backup login OTP (AES-encrypted at rest) shown to the caller ONCE. Returns a
+   * Sign up with phone + name + password + an optional user-chosen 4-digit
+   * login PIN (no SMS). Creates/updates the (phone, appType) user and stores a
+   * scrypt hash of BOTH the password and the PIN (the PIN is a real user
+   * credential, set + confirmed on the client, NOT a one-time OTP). Returns a
    * JWT so the app can proceed straight into onboarding/registration.
    */
   async signup(
     phone: string,
     name: string,
     password: string,
+    pin: string | undefined,
     appType = 'CUSTOMER',
-  ): Promise<{ accessToken: string; role: UserRole; loginOtp: string }> {
+  ): Promise<{ accessToken: string; role: UserRole }> {
     const normalized = phone.startsWith('+91') ? phone : `+91${phone}`;
+    const displayName = titleCaseName(name);
     const effectiveAppType = await this.resolveAppType(normalized, appType);
     const roleForCreate = AuthService.appTypeToRole(effectiveAppType);
 
-    // Generate a backup OTP only for a brand-new credential; keep an existing one.
-    const existing = await this.prisma.user.findUnique({
-      where: { phone_appType: { phone: normalized, appType: effectiveAppType } },
-      select: { loginOtpEnc: true },
-    });
-    const plainOtp = generateLoginOtp();
-    const loginOtpEnc = existing?.loginOtpEnc ?? encryptOtp(plainOtp);
+    // A PIN is optional at signup; if given, store its hash (one-way, used for
+    // login) plus an AES-encrypted copy (reversible) so admin can reveal it to a
+    // locked-out user. Existing PIN is preserved when this signup omits one.
+    const pinHash = pin ? hashPassword(pin) : undefined;
+    const loginPinEnc = pin ? encryptOtp(pin) : undefined;
 
     const user = await this.prisma.user.upsert({
       where: { phone_appType: { phone: normalized, appType: effectiveAppType } },
-      update: { name, passwordHash: hashPassword(password), loginOtpEnc },
+      update: {
+        name: displayName,
+        passwordHash: hashPassword(password),
+        ...(pinHash ? { pinHash, loginPinEnc } : {}),
+      },
       create: {
         phone: normalized,
         role: roleForCreate,
         appType: effectiveAppType,
-        name,
+        name: displayName,
         passwordHash: hashPassword(password),
-        loginOtpEnc,
+        ...(pinHash ? { pinHash, loginPinEnc } : {}),
       },
       include: { ownedShops: { where: { deletedAt: null }, select: { id: true } } },
     });
@@ -235,25 +240,25 @@ export class AuthService {
       resolvedRole = UserRole.SHOPKEEPER;
     }
 
-    // Reveal the OTP once: the plaintext we just generated (or decrypt the kept one).
-    const shownOtp = existing?.loginOtpEnc ? decryptOtp(existing.loginOtpEnc) ?? plainOtp : plainOtp;
-
     return {
       accessToken: await this.signFor(user.id, resolvedRole, user.ownedShops[0]?.id),
       role: resolvedRole,
-      loginOtp: shownOtp,
     };
   }
 
   /**
-   * Log in with phone + a credential that is EITHER the password OR the fixed
-   * backup OTP. No SMS. 401 if the user doesn't exist or the credential matches
-   * neither. Signs the same JWT shape as OTP login.
+   * Log in with phone + a credential, verified by an explicit `method`:
+   *  - 'pin'      → check against the user's 4-digit PIN hash.
+   *  - 'password' → check against the user's password hash.
+   *  - undefined  → legacy: try password, then PIN, then the fixed backup OTP.
+   * No SMS. 401 if the user doesn't exist or the credential doesn't match.
+   * Signs the same JWT shape as OTP login.
    */
   async login(
     phone: string,
     credential: string,
     appType = 'CUSTOMER',
+    method?: 'pin' | 'password',
   ): Promise<{ accessToken: string; role: UserRole }> {
     const normalized = phone.startsWith('+91') ? phone : `+91${phone}`;
     const effectiveAppType = await this.resolveAppType(normalized, appType);
@@ -266,10 +271,20 @@ export class AuthService {
       throw new UnauthorizedException('No account found. Please sign up first.');
     }
 
-    const passOk = verifyPassword(credential, user.passwordHash);
-    const otpOk = !!user.loginOtpEnc && decryptOtp(user.loginOtpEnc) === credential;
-    if (!passOk && !otpOk) {
-      throw new UnauthorizedException('Incorrect password or OTP.');
+    let ok = false;
+    if (method === 'pin') {
+      ok = verifyPassword(credential, user.pinHash);
+      if (!ok) throw new UnauthorizedException('Incorrect PIN.');
+    } else if (method === 'password') {
+      ok = verifyPassword(credential, user.passwordHash);
+      if (!ok) throw new UnauthorizedException('Incorrect password.');
+    } else {
+      // Legacy fallback: accept password, PIN, or the fixed backup OTP.
+      const passOk = verifyPassword(credential, user.passwordHash);
+      const pinOk = verifyPassword(credential, user.pinHash);
+      const otpOk = !!user.loginOtpEnc && decryptOtp(user.loginOtpEnc) === credential;
+      ok = passOk || pinOk || otpOk;
+      if (!ok) throw new UnauthorizedException('Incorrect credentials.');
     }
 
     return {

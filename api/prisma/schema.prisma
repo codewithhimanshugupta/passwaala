@@ -240,6 +240,14 @@ model User {
   /// scrypt password hash ("<saltHex>:<hashHex>"), one-way. Null until the user
   /// sets a password (phone+password login; no SMS OTP gateway for the pilot).
   passwordHash String?
+  /// scrypt hash of the user-chosen 4-digit login PIN ("<saltHex>:<hashHex>"),
+  /// one-way. A real user credential (set + confirmed at signup), distinct from
+  /// a one-time SMS OTP. Null until the user sets a PIN.
+  pinHash String?
+  /// The 4-digit login PIN, AES-256-GCM encrypted at rest ("iv:tag:cipher") so
+  /// admin can reveal it to help a locked-out user (support convenience). Kept
+  /// alongside pinHash (which is what login actually verifies). Null until set.
+  loginPinEnc String?
   /// The fixed backup login OTP, AES-256-GCM encrypted at rest ("iv:tag:cipher").
   /// Admin can reveal it (server decrypts) so a locked-out user can be helped.
   loginOtpEnc String?
@@ -263,6 +271,7 @@ model User {
   referredAs    Referral[]    @relation("RefereeUser")
   adminInvites  AdminInvite[] @relation("InvitedByOwner")
   riderProfile  RiderProfile?
+  riderKyc      RiderKyc?
   pushSubscriptions PushSubscription[]
 
   createdAt DateTime  @default(now())
@@ -439,6 +448,7 @@ model Product {
   mrpPaise   Int // MRP for strike-through display
   stock      Int     @default(0)
   imageUrl   String?
+  description String? // longer product detail, loaded lazily on the product-detail view
   available  Boolean @default(true) // catalog availability toggle (hide without deleting)
   weightGrams Int? // weight in grams — mandatory for new products, used for multi-rider dispatch
 
@@ -890,6 +900,9 @@ model RiderProfile {
   user   User   @relation(fields: [userId], references: [id])
 
   vehicle       String?
+  /// The city this rider serves. Dispatch only offers a rider jobs from shops in
+  /// the SAME city (pilot = Jhansi). Owner/admin-decided, like a shop's city.
+  serviceCity   String  @default("Jhansi")
   online        Boolean @default(false)
   latitude      Decimal? @db.Decimal(9, 6)
   longitude     Decimal? @db.Decimal(9, 6)
@@ -904,6 +917,35 @@ model RiderProfile {
   deletedAt DateTime?
 
   @@index([online])
+  @@index([serviceCity, online])
+}
+
+/// Rider KYC — identity + document details captured at registration so admin can
+/// verify a delivery partner and pull their records if anything happens later.
+/// Mirrors ShopKyc: sensitive numbers are stored (field-encrypt in prod) and the
+/// document image URLs live in a private bucket (ADMIN-ONLY, never sent to other
+/// roles). 1:1 with a rider's User.
+model RiderKyc {
+  id String @id @default(uuid())
+
+  userId String @unique // 1:1 with the rider User
+  user   User   @relation(fields: [userId], references: [id])
+
+  fullName       String  // legal name as on the ID
+  aadhaar        String  // Aadhaar number (field-encrypt in prod)
+  pan            String? // PAN (optional for riders)
+  dlNumber       String  // driving licence number
+  vehicleNumber  String? // vehicle registration plate
+  emergencyName  String? // emergency contact name
+  emergencyPhone String? // emergency contact phone
+  photoUrl       String? // rider profile / face photo (private)
+  docUrls        Json    // ADMIN-ONLY: array of stored document image URLs (private bucket)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([userId])
 }
 
 /// A payment claim filed by a shopkeeper (dues) or rider (COD deposit) after

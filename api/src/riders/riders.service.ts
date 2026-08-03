@@ -13,6 +13,7 @@ import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { LedgerService } from '../ledger/ledger.service';
 import { RIDER_ORDER_SELECT } from '../orders/order-select';
 import { PaginationQuery, cursorArgs, toPage } from '../common/pagination';
+import { titleCaseName } from '../common/text.util';
 import { RegisterRiderDto, SetRiderOnlineDto } from './dto/rider.dto';
 
 /**
@@ -52,13 +53,33 @@ export class RidersService {
     }
     await this.prisma.user.update({
       where: { id: userId },
-      data: { role: UserRole.RIDER, name: dto.name },
+      data: { role: UserRole.RIDER, name: titleCaseName(dto.name) },
     });
     await this.prisma.riderProfile.upsert({
       where: { userId },
-      create: { userId, vehicle: dto.vehicle },
-      update: { vehicle: dto.vehicle },
+      create: { userId, vehicle: dto.vehicle, ...(dto.serviceCity ? { serviceCity: dto.serviceCity } : {}) },
+      update: { vehicle: dto.vehicle, ...(dto.serviceCity ? { serviceCity: dto.serviceCity } : {}) },
     });
+    // Persist KYC when any identity/document detail is supplied. Stored 1:1 with
+    // the rider so admin can verify + pull records later (docs are admin-only).
+    if (dto.fullName || dto.aadhaar || dto.dlNumber || (dto.docUrls && dto.docUrls.length)) {
+      const kyc = {
+        fullName: titleCaseName(dto.fullName ?? dto.name),
+        aadhaar: dto.aadhaar ?? '',
+        pan: dto.pan ?? null,
+        dlNumber: dto.dlNumber ?? '',
+        vehicleNumber: dto.vehicleNumber ?? null,
+        emergencyName: dto.emergencyName ?? null,
+        emergencyPhone: dto.emergencyPhone ?? null,
+        photoUrl: dto.photoUrl ?? null,
+        docUrls: dto.docUrls ?? [],
+      };
+      await this.prisma.riderKyc.upsert({
+        where: { userId },
+        create: { userId, ...kyc },
+        update: kyc,
+      });
+    }
     const accessToken = await this.auth.signFor(userId, UserRole.RIDER);
     return { accessToken };
   }
@@ -209,7 +230,10 @@ export class RidersService {
    * board. Nearest-first isn't needed here (a rider sees only their own offer).
    */
   async availableJobs(userId: string) {
-    const profile = await this.prisma.riderProfile.findUnique({ where: { userId }, select: { online: true } });
+    const profile = await this.prisma.riderProfile.findUnique({
+      where: { userId },
+      select: { online: true, serviceCity: true },
+    });
     if (!profile?.online) {
       return [];
     }
@@ -219,6 +243,8 @@ export class RidersService {
         status: OrderStatus.READY,
         riderId: null,
         deletedAt: null,
+        // City scope: only jobs from shops in the rider's service city.
+        shop: { city: profile.serviceCity },
         OR: [
           { offeredRiderId: userId, offerExpiresAt: { gt: new Date() } },
           { dispatchExhausted: true },
@@ -403,7 +429,7 @@ export class RidersService {
       data: { codUpiClaimedAt: new Date() },
     });
     // Nudge the shop's feed to confirm they received the UPI payment.
-    this.realtime.emitOrderStatusChanged(order.shopId, { orderId, status: order.status as OrderStatus });
+    this.realtime.emitOrderShopUpdate(order.shopId, { orderId, status: order.status as OrderStatus });
     return { claimed: true };
   }
 

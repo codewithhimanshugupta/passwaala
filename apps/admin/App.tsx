@@ -6,6 +6,7 @@ import { DashboardScreen } from './src/screens/DashboardScreen';
 import { ShopApprovalsScreen } from './src/screens/ShopApprovalsScreen';
 import { ShopsScreen } from './src/screens/ShopsScreen';
 import { RidersScreen } from './src/screens/RidersScreen';
+import { CustomersScreen } from './src/screens/CustomersScreen';
 import { SettlementsScreen } from './src/screens/SettlementsScreen';
 import { PaymentClaimsScreen } from './src/screens/PaymentClaimsScreen';
 import { OrdersScreen } from './src/screens/OrdersScreen';
@@ -18,6 +19,7 @@ import { hasSavedToken, logout, me, onAuthExpired } from './src/api';
 import { theme } from './src/theme';
 import { LanguageProvider, useLang } from './src/i18n/LanguageContext';
 import { LanguagePicker } from './src/components/LanguagePicker';
+import { NavIcon, type NavIconName } from './src/NavIcon';
 
 /**
  * PassWaala Admin root. Flow: OTP login → an authenticated shell with a fixed
@@ -29,7 +31,7 @@ import { LanguagePicker } from './src/components/LanguagePicker';
  * which each screen surfaces as a friendly "not an admin" message. On any 401
  * (expired token) the client fires onAuthExpired → we drop to login with a note.
  */
-type Nav = 'dashboard' | 'approvals' | 'shops' | 'riders' | 'orders' | 'settlements' | 'disputes' | 'coupons' | 'cities' | 'taskboard' | 'gst';
+type Nav = 'dashboard' | 'approvals' | 'shops' | 'riders' | 'customers' | 'orders' | 'settlements' | 'disputes' | 'coupons' | 'cities' | 'taskboard' | 'gst';
 
 export default function App() {
   return (
@@ -106,6 +108,7 @@ function AppRoot() {
           {nav === 'approvals' && <ShopApprovalsScreen />}
           {nav === 'shops' && <ShopsScreen />}
           {nav === 'riders' && <RidersScreen />}
+          {nav === 'customers' && <CustomersScreen />}
           {nav === 'orders' && <OrdersScreen />}
           {nav === 'settlements' && <PaymentClaimsScreen />}
           {nav === 'disputes' && <DisputesScreen />}
@@ -146,6 +149,7 @@ function Sidebar({
       <View style={styles.navGroup}>
         <Text style={styles.navGroupLabel}>MAIN</Text>
         <NavItem
+          icon="dashboard"
           label={t.nav.dashboard}
           active={nav === 'dashboard'}
           onPress={() => onNavigate('dashboard')}
@@ -153,48 +157,63 @@ function Sidebar({
 
         <Text style={styles.navGroupLabel}>SHOP MANAGEMENT</Text>
         <NavItem
+          icon="approvals"
           label={t.nav.approvals}
           active={nav === 'approvals'}
           onPress={() => onNavigate('approvals')}
         />
         <NavItem
+          icon="shops"
           label={t.nav.shops}
           active={nav === 'shops'}
           onPress={() => onNavigate('shops')}
         />
         <NavItem
+          icon="riders"
           label={t.nav.riders}
           active={nav === 'riders'}
           onPress={() => onNavigate('riders')}
         />
+        <NavItem
+          icon="customers"
+          label={t.nav.customers}
+          active={nav === 'customers'}
+          onPress={() => onNavigate('customers')}
+        />
 
         <Text style={styles.navGroupLabel}>ORDER MANAGEMENT</Text>
         <NavItem
+          icon="orders"
           label="Orders"
           active={nav === 'orders'}
           onPress={() => onNavigate('orders')}
         />
         <NavItem
+          icon="settlements"
           label={t.nav.settlements}
           active={nav === 'settlements'}
           onPress={() => onNavigate('settlements')}
         />
         <NavItem
+          icon="disputes"
           label={t.nav.disputes}
           active={nav === 'disputes'}
           onPress={() => onNavigate('disputes')}
         />
         <NavItem
+          icon="coupons"
           label="Coupons"
           active={nav === 'coupons'}
           onPress={() => onNavigate('coupons')}
         />
         <NavItem
+          icon="taskboard"
           label={t.nav.taskboard}
           active={nav === 'taskboard'}
           onPress={() => onNavigate('taskboard')}
         />
         <NavItem
+          icon="gst"
           label="GST"
           active={nav === 'gst'}
           onPress={() => onNavigate('gst')}
@@ -203,6 +222,7 @@ function Sidebar({
           <>
             <Text style={styles.navGroupLabel}>ADMIN</Text>
             <NavItem
+              icon="cities"
               label={t.nav.cities}
               active={nav === 'cities'}
               onPress={() => onNavigate('cities')}
@@ -224,10 +244,12 @@ function Sidebar({
 }
 
 function NavItem({
+  icon,
   label,
   active,
   onPress,
 }: {
+  icon: NavIconName;
   label: string;
   active: boolean;
   onPress: () => void;
@@ -237,6 +259,10 @@ function NavItem({
       style={[styles.navItem, active && styles.navItemActive]}
       onPress={onPress}
     >
+      <NavIcon
+        name={icon}
+        color={active ? '#fff' : theme.color.sidebarText}
+      />
       <Text style={[styles.navItemText, active && styles.navItemTextActive]}>
         {label}
       </Text>
@@ -283,6 +309,9 @@ const styles = StyleSheet.create({
     paddingBottom: theme.space.xs,
   },
   navItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.space.md,
     paddingVertical: theme.space.md,
     paddingHorizontal: theme.space.md,
     borderRadius: theme.radius.md,

@@ -256,8 +256,8 @@ export function RegisterShopScreen({ onRegistered }: { onRegistered: (shop: MySh
           <View style={{ gap: theme.space.md, marginTop: theme.space.md }}>
             <Field label={t.register.shopName} placeholder={t.register.shopNamePlaceholder} value={name} onChangeText={setName} />
             <CategoryDropdown value={shopCategory} onChange={setCategory} t={t} />
-            <ImagePicker label={t.register.storefrontPhoto} value={photoUrl.trim() || null} onUploaded={setPhotoUrl} hint={t.register.storefrontPhotoHint} />
-            <ImagePicker label="Shop logo (optional)" value={logoUrl.trim() || null} onUploaded={setLogoUrl} hint="Square logo shown on your shop card." />
+            <ImagePicker label={t.register.storefrontPhoto} value={photoUrl.trim() || null} onUploaded={setPhotoUrl} hint={t.register.storefrontPhotoHint} uploadType="shop" />
+            <ImagePicker label="Shop logo (optional)" value={logoUrl.trim() || null} onUploaded={setLogoUrl} hint="Square logo shown on your shop card." uploadType="shop" />
             <Field label={t.register.referralCode} placeholder={t.register.referralPlaceholder} autoCapitalize="characters" value={referralCode} onChangeText={setReferralCode} hint={t.register.referralHint} />
             {referralNote ? <ErrorText>{referralNote}</ErrorText> : null}
           </View>
@@ -276,7 +276,7 @@ export function RegisterShopScreen({ onRegistered }: { onRegistered: (shop: MySh
               <Banner tone="danger" title={`PassWaala is not available in ${cityTrimmed} yet`}
                 message={serviceable.length > 0 ? `We currently operate in: ${serviceable.join(', ')}.` : 'PassWaala hasn\'t launched in your city yet.'} />
             ) : cityTrimmed && serviceable !== null && serviceable.length > 0 && !cityNotServiceable ? (
-              <Banner tone="success" title={`✓ ${cityTrimmed} is a serviceable city`} message="You can proceed to the next step." />
+              <Banner tone="success" title={`${cityTrimmed} is a serviceable city`} message="You can proceed to the next step." />
             ) : null}
             <Field label={t.register.addressLine} placeholder={t.register.addressPlaceholder} value={addressLine} onChangeText={setAddressLine} />
             <Field label={t.register.contactPhone} placeholder={t.register.contactPhonePlaceholder} keyboardType="phone-pad" maxLength={15} value={contactPhone} onChangeText={setContactPhone} />
@@ -335,7 +335,7 @@ export function RegisterShopScreen({ onRegistered }: { onRegistered: (shop: MySh
                         onPress={() => setActiveOfferIds(prev => selected ? prev.filter(id => id !== offer.id) : [...prev, offer.id])}
                       >
                         <Text style={[styles.offerChipTxt, selected && styles.offerChipTxtActive]}>
-                          {selected ? '✓ ' : ''}{offer.title}
+                          {offer.title}
                         </Text>
                         {offer.minOrderPaise > 0 && <Text style={styles.offerChipMeta}>Min ₹{offer.minOrderPaise / 100}</Text>}
                       </Pressable>
@@ -343,7 +343,7 @@ export function RegisterShopScreen({ onRegistered }: { onRegistered: (shop: MySh
                   })}
                 </View>
                 {activeOfferIds.length > 0 && (
-                  <Text style={styles.offerActiveNote}>✅ {activeOfferIds.length} coupon{activeOfferIds.length > 1 ? 's' : ''} will go live once your KYC is approved</Text>
+                  <Text style={styles.offerActiveNote}>{activeOfferIds.length} coupon{activeOfferIds.length > 1 ? 's' : ''} will go live once your KYC is approved</Text>
                 )}
               </View>
             )}
@@ -357,12 +357,12 @@ export function RegisterShopScreen({ onRegistered }: { onRegistered: (shop: MySh
       {/* Step 4 — KYC (matches Settings › KYC & Verification) */}
       {step === 4 && (
         <Card>
-          <Banner tone="success" title="Shop registered! 🎉" message="Complete KYC to go live, or skip and do it later from Settings › KYC & Verification." />
+          <Banner tone="success" title="Shop registered!" message="Complete KYC to go live, or skip and do it later from Settings › KYC & Verification." />
           <View style={{ gap: theme.space.md, marginTop: theme.space.md }}>
             <Field label={t.settings.aadhaarPan} placeholder={t.settings.aadhaarPanPlaceholder} autoCapitalize="characters" value={aadhaarPan} onChangeText={setAadhaarPan} />
             <Field label={t.settings.gstOrLicence} placeholder={t.settings.gstOrLicencePlaceholder} value={gstOrLicence} onChangeText={setGstOrLicence} />
             <Field label={t.settings.fssai} placeholder={t.settings.fssaiPlaceholder} value={fssai} onChangeText={setFssai} />
-            <ImagePicker label={t.settings.bankProof} value={bankProofUrl.trim() || null} onUploaded={setBankProofUrl} hint={t.settings.bankProofHint} />
+            <ImagePicker label={t.settings.bankProof} value={bankProofUrl.trim() || null} onUploaded={setBankProofUrl} hint={t.settings.bankProofHint} uploadType="kyc" />
           </View>
         </Card>
       )}

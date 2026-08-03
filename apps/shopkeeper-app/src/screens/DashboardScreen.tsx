@@ -141,28 +141,28 @@ export function DashboardScreen({
       {/* 2×2 stat grid */}
       <View style={styles.grid}>
         <StatCard
-          icon="📊"
+          icon=""
           label="Revenue"
           sub="Total revenue"
           value={window ? formatRupees(window.valuePaise) : '—'}
           iconBg={theme.color.primarySoft}
         />
         <StatCard
-          icon="🏷️"
+          icon=""
           label="Sales"
           sub="Total Sales"
           value={window ? String(window.delivered) : '—'}
           iconBg={theme.color.primarySoft}
         />
         <StatCard
-          icon="📋"
+          icon=""
           label="Orders"
           sub="Total orders"
           value={window ? String(window.orders) : '—'}
           iconBg={theme.color.primarySoft}
         />
         <StatCard
-          icon="👥"
+          icon=""
           label="Active"
           sub="Live orders"
           value={stats ? String(stats.activeOrders) : '—'}
@@ -174,13 +174,13 @@ export function DashboardScreen({
       {/* Products row */}
       <View style={styles.grid}>
         <ProductCard
-          icon="📦"
+          icon=""
           label="Total Products"
           value={totalProducts !== null ? String(totalProducts) : '—'}
           iconBg={theme.color.primarySoft}
         />
         <ProductCard
-          icon="🚫"
+          icon=""
           label="Out of stock"
           value={outOfStock !== null ? String(outOfStock) : '—'}
           iconBg={theme.color.dangerSoft}

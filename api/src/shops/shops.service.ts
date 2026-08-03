@@ -13,6 +13,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
 import { CitiesService } from '../cities/cities.service';
 import { requireShopScope } from '../common/shop-scope';
+import { titleCaseName } from '../common/text.util';
 import { RegisterShopDto } from './dto/register-shop.dto';
 import { SubmitKycDto } from './dto/submit-kyc.dto';
 import { NearbyShopsQuery } from './dto/nearby-shops.query';
@@ -61,7 +62,7 @@ export class ShopsService {
         id: shopId,
         shortId: shopShortId,
         ownerId: userId,
-        name: dto.name,
+        name: titleCaseName(dto.name),
         shopCategory: dto.shopCategory,
         storefrontPhotoUrl: dto.storefrontPhotoUrl,
         logoUrl: dto.logoUrl,
@@ -338,6 +339,8 @@ export class ShopsService {
    */
   async findNearby(q: NearbyShopsQuery) {
     const radius = q.radiusMeters ?? 3000;
+    const limit = q.limit ?? 15;
+    const offset = q.offset ?? 0;
     const orderBy =
       q.sort === 'rating'
         ? '"avgRating" DESC, distance_meters ASC'
@@ -385,7 +388,7 @@ export class ShopsService {
          AND ($5::text IS NULL OR "shopCategory" = $5)
          AND ($6::double precision IS NULL OR "avgRating" >= $6)
        ORDER BY ${orderBy}
-       LIMIT 100
+       LIMIT $7 OFFSET $8
       `,
       q.lng,
       q.lat,
@@ -393,73 +396,27 @@ export class ShopsService {
       openNow,
       q.category ?? null,
       q.minRating ?? null,
+      limit,
+      offset,
     );
 
-    // For each unique city in the results, get the delivery radius config
-    const cities = [...new Set(rows.map(r => r.city).filter(Boolean))];
-    const cityConfigs = await this.prisma.serviceableCity.findMany({
-      where: { name: { in: cities }, deletedAt: null },
-      select: { name: true, deliveryRadiusMeters: true, riderCheckRadiusMeters: true },
-    });
-    const cityRadiusMap: Record<string, number> = {};
-    const cityRiderRadiusMap: Record<string, number> = {};
-    for (const c of cityConfigs) {
-      cityRadiusMap[c.name] = c.deliveryRadiusMeters;
-      cityRiderRadiusMap[c.name] = (c as { riderCheckRadiusMeters?: number }).riderCheckRadiusMeters ?? 5000;
-    }
-
-    // Fuzzy city lookup: "Jhansi, UP" or "Mewatipura, Jhansi" should match "Jhansi"
-    function getCityConfig(shopCity: string): { delivery: number; rider: number } {
-      const sc = shopCity.toLowerCase();
-      for (const [name, delivery] of Object.entries(cityRadiusMap)) {
-        const nc = name.toLowerCase();
-        if (sc === nc || sc.includes(nc) || nc.includes(sc)) {
-          return { delivery, rider: cityRiderRadiusMap[name] ?? 5000 };
-        }
-      }
-      return { delivery: 15000, rider: 5000 }; // defaults when city not found
-    }
-
-    // Check which shops have a rider online within their city's radius
-    // Do this in a single query: get all online riders, then check per shop
-    const onlineRiders = await this.prisma.riderProfile.findMany({
-      where: { online: true, latitude: { not: null }, longitude: { not: null } },
-      select: { latitude: true, longitude: true },
-    });
-
-    function hasRiderNearby(shopLat: unknown, shopLng: unknown, radiusM: number): boolean {
-      const sLat = shopLat ? Number(shopLat) : NaN;
-      const sLng = shopLng ? Number(shopLng) : NaN;
-      if (isNaN(sLat) || isNaN(sLng)) return false;
-      for (const rider of onlineRiders) {
-        const rLat = Number(rider.latitude);
-        const rLng = Number(rider.longitude);
-        if (isNaN(rLat) || isNaN(rLng)) continue;
-        // Simple haversine
-        const R = 6371000;
-        const dLat = (rLat - sLat) * Math.PI / 180;
-        const dLng = (rLng - sLng) * Math.PI / 180;
-        const a = Math.sin(dLat/2)**2 + Math.cos(sLat*Math.PI/180) * Math.cos(rLat*Math.PI/180) * Math.sin(dLng/2)**2;
-        const dist = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-        if (dist <= radiusM) return true;
-      }
-      return false;
-    }
-
-    // Tag each shop: deliveryAvailable = a delivery option works right now;
-    // deliveryUnavailable = no fulfilment option works at all (no delivery AND
-    // no self-pickup). Self-delivery shops always have delivery.
+    // NOTE (perf): we no longer scan ALL online riders + haversine per shop on
+    // every nearby call — that was the biggest hot-path cost. The list now
+    // optimistically reports delivery as available; whether a rider is actually
+    // online near a shop is resolved LAZILY per-shop via GET /shops/:id/
+    // delivery-available (a cheap short-circuit query) when the customer opens a
+    // shop, and definitively at dispatch time (dispatch.offerNext). This keeps
+    // the discovery list fast and paginated.
     const tagged = rows.map(r => {
-      if (!r.platformDeliveryEnabled) {
-        return { ...r, deliveryAvailable: true, deliveryUnavailable: false };
-      }
-      const cfg = getCityConfig(r.city ?? '');
-      const riderNearby = hasRiderNearby(r.latitude, r.longitude, cfg.rider);
-      if (riderNearby) {
-        return { ...r, deliveryAvailable: true, deliveryUnavailable: false };
-      }
-      // No rider — delivery is off. Shop is still usable if self-pickup is on.
-      return { ...r, deliveryAvailable: false, deliveryUnavailable: !r.selfPickupEnabled };
+      // Delivery is "available" from the list's perspective when the shop
+      // self-delivers, OR it's a platform-delivery shop (rider presence checked
+      // lazily), OR self-pickup is on. Unusable only if no fulfilment path exists.
+      const anyFulfilment = !r.platformDeliveryEnabled || r.platformDeliveryEnabled || r.selfPickupEnabled;
+      return {
+        ...r,
+        deliveryAvailable: true,
+        deliveryUnavailable: !anyFulfilment,
+      };
     });
 
     return tagged.map((r) => ({
@@ -487,6 +444,64 @@ export class ShopsService {
       deliveryAvailable: r.deliveryAvailable,
       deliveryUnavailable: r.deliveryUnavailable ?? false,
     }));
+  }
+
+  /**
+   * Cheap, lazy "can this shop deliver right now?" check — called per-shop when
+   * the customer opens a storefront, NOT for every shop in the discovery list.
+   * Short-circuits: if the shop self-delivers, delivery is always available; for
+   * a platform-delivery shop it asks Postgres for just ONE online rider within
+   * the city's rider radius (ST_DWithin + LIMIT 1 — stops at the first match, no
+   * full scan/rank). Returns pickup availability too so the app can show options.
+   */
+  async deliveryAvailableForShop(shopId: string): Promise<{
+    deliveryAvailable: boolean;
+    selfPickupEnabled: boolean;
+  }> {
+    const shop = await this.prisma.shop.findFirst({
+      where: { id: shopId, deletedAt: null },
+      select: { platformDeliveryEnabled: true, selfPickupEnabled: true, city: true },
+    });
+    if (!shop) return { deliveryAvailable: false, selfPickupEnabled: false };
+
+    // Self-delivering shops always have delivery — no rider needed.
+    if (!shop.platformDeliveryEnabled) {
+      return { deliveryAvailable: true, selfPickupEnabled: shop.selfPickupEnabled };
+    }
+
+    // City rider radius (default 5km).
+    let riderRadius = 5000;
+    if (shop.city) {
+      const city = await this.prisma.serviceableCity.findFirst({
+        where: { name: { equals: shop.city, mode: 'insensitive' }, deletedAt: null },
+        select: { riderCheckRadiusMeters: true },
+      });
+      if (city?.riderCheckRadiusMeters) riderRadius = city.riderCheckRadiusMeters;
+    }
+
+    // Short-circuit: is there AT LEAST ONE online rider within range of the shop?
+    // LIMIT 1 → Postgres stops at the first hit; never scans/ranks all riders.
+    // RiderProfile has lat/lng (no geog column), so build the point inline.
+    const hit = await this.prisma.$queryRawUnsafe<Array<{ ok: number }>>(
+      `
+      SELECT 1 AS ok
+        FROM "RiderProfile" rp
+        JOIN "Shop" s ON s.id = $1
+       WHERE rp.online = TRUE
+         AND rp.latitude IS NOT NULL
+         AND rp.longitude IS NOT NULL
+         AND s.geog IS NOT NULL
+         AND ST_DWithin(
+               ST_SetSRID(ST_MakePoint(rp.longitude::float8, rp.latitude::float8), 4326)::geography,
+               s.geog,
+               $2
+             )
+       LIMIT 1
+      `,
+      shopId,
+      riderRadius,
+    );
+    return { deliveryAvailable: hit.length > 0, selfPickupEnabled: shop.selfPickupEnabled };
   }
 
   /** Maintain the PostGIS geog point from lon/lat (raw SQL — Unsupported type). */

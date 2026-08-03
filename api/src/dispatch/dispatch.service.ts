@@ -2,6 +2,7 @@ import { Injectable, Logger, NotImplementedException, OnApplicationBootstrap, On
 import { DeliveryMode, OrderStatus } from '@passwaala/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { WebPushService } from '../notifications/web-push.service';
+import { RealtimeGateway } from '../realtime/realtime.gateway';
 
 /** A geo-coded point (lat/lng). Used for both single-point and two-point tasks. */
 export interface GeoPoint {
@@ -74,6 +75,7 @@ export class DispatchService implements OnApplicationBootstrap, OnModuleDestroy 
   constructor(
     private readonly prisma: PrismaService,
     private readonly webPush: WebPushService,
+    private readonly realtime: RealtimeGateway,
   ) {}
 
   onApplicationBootstrap(): void {
@@ -104,17 +106,21 @@ export class DispatchService implements OnApplicationBootstrap, OnModuleDestroy 
 
   /**
    * Eligible riders for an order within `radius` of the shop, nearest-first:
-   * online, with a known position, not already tried, and under the active-order
-   * cap. Returns each with its distance from the shop.
+   * online, serving the SAME city as the shop, with a known position, not already
+   * tried, and under the active-order cap. Returns each with its distance from the
+   * shop. City scoping keeps a Jhansi order from ever being offered to a rider who
+   * serves a different city, independent of raw distance.
    */
   private async candidatesFor(
     shopGeo: LatLng,
+    shopCity: string,
     triedRiderIds: string[],
     radiusMeters: number,
   ): Promise<Array<{ userId: string; distanceMeters: number }>> {
     const profiles = await this.prisma.riderProfile.findMany({
       where: {
         online: true,
+        serviceCity: shopCity,
         latitude: { not: null },
         longitude: { not: null },
         userId: { notIn: triedRiderIds },
@@ -168,13 +174,14 @@ export class DispatchService implements OnApplicationBootstrap, OnModuleDestroy 
         dispatchTriedRiderIds: true,
         dispatchRadiusMeters: true,
         dispatchExhausted: true,
-        shop: { select: { latitude: true, longitude: true } },
+        shop: { select: { latitude: true, longitude: true, city: true } },
       },
     });
     if (!order || order.dispatchExhausted) return null;
     if (order.shop?.latitude == null || order.shop?.longitude == null) return null;
 
     const shopGeo: LatLng = { lat: Number(order.shop.latitude), lng: Number(order.shop.longitude) };
+    const shopCity = order.shop.city;
     const tried = order.dispatchTriedRiderIds;
     // Start at the order's current ring (or the smallest) and widen until we find
     // a candidate or run out of rings.
@@ -183,7 +190,7 @@ export class DispatchService implements OnApplicationBootstrap, OnModuleDestroy 
 
     for (let i = startIdx; i < DispatchService.RINGS.length; i += 1) {
       const radius = DispatchService.RINGS[i];
-      const candidates = await this.candidatesFor(shopGeo, tried, radius);
+      const candidates = await this.candidatesFor(shopGeo, shopCity, tried, radius);
       if (candidates.length > 0) {
         const chosen = candidates[0];
         await this.prisma.order.update({
@@ -202,6 +209,8 @@ export class DispatchService implements OnApplicationBootstrap, OnModuleDestroy 
           tag: `job-${orderId}`,
           url: '/',
         });
+        // Live socket push so an open rider app shows the offer instantly (no poll).
+        this.realtime.emitJobOffered(chosen.userId, { orderId });
         return chosen.userId;
       }
     }

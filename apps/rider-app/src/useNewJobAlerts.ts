@@ -3,10 +3,11 @@ import { api } from './api';
 import { formatRupees } from './theme';
 import { startAlert, stopAlert } from './sound';
 import { canNotify, notifyNewJob, requestNotifyPermission, vibrate } from './notify';
+import { onSocket } from './socket';
 import type { RiderJob } from './types';
 
-/** How often the app polls the job board for freshly available jobs (ms). */
-const POLL_MS = 15000;
+/** Fallback poll cadence — only a safety net now that jobs arrive via socket (ms). */
+const POLL_MS = 60000;
 /** Re-pulse the vibration on this cadence while an alert is unacknowledged (ms). */
 const VIBRATE_MS = 3000;
 
@@ -64,7 +65,7 @@ export function useNewJobAlerts(enabled: boolean): NewJobAlerts {
       setAlertSilent(!startAlert());
       vibrate();
       notifyNewJob(
-        '🛵 New delivery job!',
+        'New delivery job!',
         `${fresh.shop?.name ?? 'Pickup'} · ${formatRupees(fresh.deliveryFeePaise)} fee`,
       );
     }
@@ -90,9 +91,13 @@ export function useNewJobAlerts(enabled: boolean): NewJobAlerts {
     };
     load();
     const id = setInterval(load, POLL_MS);
+    // Realtime: a job.offered push triggers an immediate refresh (no waiting for
+    // the 60s fallback poll). Socket is the primary path; poll is the safety net.
+    const off = onSocket('job.offered', () => { void load(); });
     return () => {
       alive = false;
       clearInterval(id);
+      off();
     };
   }, [enabled, detect]);
 

@@ -15,7 +15,7 @@ export type TripPhase = 'to_shop' | 'to_customer';
  * TrackingMap — live, leg-aware order tracking.
  *
  * On web it renders a REAL OpenStreetMap (Leaflet, no API key) inside an iframe:
- * shop 🏬, drop 🏠, a road route, and a 🛵 rider marker that glides to each new
+ * shop, drop, a road route, and a rider marker that glides to each new
  * GPS position (pushed via postMessage so the map never reloads). The route
  * reflects the current leg: while heading to pickup (`to_shop`) it runs
  * rider→shop and re-computes as the rider moves; after pickup (`to_customer`) it
@@ -66,8 +66,8 @@ var RIDER_SVG =
     '<circle cx="22" cy="14" r="4.5" fill="#E53935"/>' +                      /* helmet visor dot */
   '</svg>';
 function riderIcon(){ return L.divIcon({ html: RIDER_SVG, className: 'rider-ico', iconSize: [44,44], iconAnchor: [22,22] }); }
-L.marker([D.shop.lat, D.shop.lng], { icon: icon('🏬') }).addTo(map);
-L.marker([D.drop.lat, D.drop.lng], { icon: icon('🏠') }).addTo(map);
+L.marker([D.shop.lat, D.shop.lng], { icon: icon('<div style="width:20px;height:20px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:#0B7A4B;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.4)"></div>') }).addTo(map);
+L.marker([D.drop.lat, D.drop.lng], { icon: icon('<div style="width:20px;height:20px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:#2563EB;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.4)"></div>') }).addTo(map);
 
 var phase = D.phase;                 // 'to_shop' | 'to_customer'
 var rider = D.rider;                 // {lat,lng} | null
@@ -257,11 +257,11 @@ function SchematicMap({ shop, drop, rider, phase }: { shop: Geo; drop: Geo; ride
         {routeDots.map((d, i) => (
           <View key={i} style={[styles.routeDot, { left: d.x - 2, top: d.y - 2 }]} />
         ))}
-        <View style={[styles.pin, { left: shopPx.x - 12, top: shopPx.y - 12 }]}><Text style={styles.pinText}>🏬</Text></View>
-        <View style={[styles.pin, { left: dropPx.x - 12, top: dropPx.y - 12 }]}><Text style={styles.pinText}>🏠</Text></View>
+        <View style={[styles.pin, { left: shopPx.x - 12, top: shopPx.y - 12 }]}><View style={styles.shopDot} /></View>
+        <View style={[styles.pin, { left: dropPx.x - 12, top: dropPx.y - 12 }]}><View style={styles.dropDot} /></View>
         {riderPx ? (
           <Animated.View style={[styles.rider, { left: Animated.subtract(ax, 13), top: Animated.subtract(ay, 13) }]}>
-            <Text style={styles.riderText}>🛵</Text>
+            <View style={styles.riderDot} />
           </Animated.View>
         ) : null}
       </View>
@@ -284,7 +284,10 @@ const styles = StyleSheet.create({
   routeDot: { position: 'absolute', width: 4, height: 4, borderRadius: 2, backgroundColor: theme.color.borderStrong },
   pin: { position: 'absolute', width: 24, height: 24, alignItems: 'center', justifyContent: 'center' },
   pinText: { fontSize: 20 },
+  shopDot: { width: 16, height: 16, borderRadius: 8, backgroundColor: '#0B7A4B', borderWidth: 2, borderColor: '#fff' },
+  dropDot: { width: 16, height: 16, borderRadius: 8, backgroundColor: '#2563EB', borderWidth: 2, borderColor: '#fff' },
   rider: { position: 'absolute', width: 26, height: 26, alignItems: 'center', justifyContent: 'center' },
   riderText: { fontSize: 22 },
+  riderDot: { width: 18, height: 18, borderRadius: 9, backgroundColor: '#E53935', borderWidth: 2, borderColor: '#fff' },
   caption: { fontSize: theme.font.tiny, color: theme.color.textMuted },
 });

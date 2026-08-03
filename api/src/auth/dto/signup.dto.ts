@@ -13,6 +13,12 @@ export class SignupDto {
   @Length(4, 64, { message: 'password must be 4–64 characters' })
   password!: string;
 
+  /** Optional user-chosen 4-digit login PIN (set + confirmed on the client). */
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{4}$/, { message: 'PIN must be exactly 4 digits' })
+  pin?: string;
+
   @IsOptional()
   @IsIn(['CUSTOMER', 'SHOPKEEPER', 'RIDER', 'ADMIN', 'OWNER'])
   appType?: string;

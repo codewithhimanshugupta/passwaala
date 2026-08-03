@@ -245,7 +245,7 @@ export function DisputesScreen() {
       <View style={s.left}>
         {/* Scope banner — which city's disputes this admin sees */}
         <View style={s.scopeBar}>
-          <Text style={s.scopeText}>📍 {scopeLabel}</Text>
+          <Text style={s.scopeText}>{scopeLabel}</Text>
         </View>
         {/* Role filter tabs */}
         <View style={s.roleTabs}>
@@ -375,7 +375,7 @@ export function DisputesScreen() {
                   {resolvingId ? <ActivityIndicator color="#fff" size="small" /> : <Text style={s.resolveBtnText}>Mark resolved</Text>}
                 </Pressable>
               ) : (
-                <View style={s.resolvedChip}><Text style={s.resolvedText}>✅ Resolved</Text></View>
+                <View style={s.resolvedChip}><Text style={s.resolvedText}>Resolved</Text></View>
               )}
             </View>
 

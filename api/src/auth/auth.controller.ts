@@ -16,14 +16,14 @@ export class AuthController {
   @Post('signup')
   @HttpCode(HttpStatus.OK)
   signup(@Body() dto: SignupDto) {
-    return this.auth.signup(dto.phone, dto.name, dto.password, dto.appType);
+    return this.auth.signup(dto.phone, dto.name, dto.password, dto.pin, dto.appType);
   }
 
   @Public()
   @Post('login')
   @HttpCode(HttpStatus.OK)
   login(@Body() dto: LoginDto) {
-    return this.auth.login(dto.phone, dto.credential, dto.appType);
+    return this.auth.login(dto.phone, dto.credential, dto.appType, dto.method);
   }
 
   @Public()

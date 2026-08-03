@@ -2,6 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { VerificationStatus } from '@passwaala/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { assertOwnedByShop, requireShopScope } from '../common/shop-scope';
+import { titleCaseName } from '../common/text.util';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 
@@ -47,11 +48,12 @@ export class ProductsService {
     return this.prisma.product.create({
       data: {
         shopId: id,
-        name: dto.name,
+        name: titleCaseName(dto.name),
         pricePaise: dto.pricePaise,
         mrpPaise: dto.mrpPaise,
         stock: dto.stock ?? 0,
         imageUrl: dto.imageUrl,
+        description: dto.description,
         available: dto.available ?? true,
         weightGrams: dto.weightGrams,
         categoryId: dto.categoryId,
@@ -72,11 +74,12 @@ export class ProductsService {
     return this.prisma.product.update({
       where: { id: productId },
       data: {
-        name: dto.name,
+        name: dto.name === undefined ? undefined : titleCaseName(dto.name),
         pricePaise: dto.pricePaise,
         mrpPaise: dto.mrpPaise,
         stock: dto.stock,
         imageUrl: dto.imageUrl,
+        description: dto.description,
         available: dto.available,
         weightGrams: dto.weightGrams,
       },
@@ -178,5 +181,22 @@ export class ProductsService {
       inStock: p.stock > 0,
       orderCount: p.orderCount,
     };
+  }
+
+  /**
+   * Public product DETAIL — loaded lazily when the customer taps a product
+   * (the list view omits `description` to stay light). Adds the description on
+   * top of the public view. 404 if missing/deleted.
+   */
+  async publicDetail(productId: string) {
+    const p = await this.prisma.product.findFirst({
+      where: { id: productId, deletedAt: null },
+      select: {
+        id: true, shopId: true, name: true, pricePaise: true, mrpPaise: true,
+        imageUrl: true, available: true, stock: true, orderCount: true, description: true,
+      },
+    });
+    if (!p) throw new BadRequestException('Product not found');
+    return { ...this.toPublicView(p), description: p.description ?? null };
   }
 }

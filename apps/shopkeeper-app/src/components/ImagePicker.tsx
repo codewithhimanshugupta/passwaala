@@ -19,6 +19,8 @@ export function ImagePicker({
   onUploaded,
   onError,
   hint,
+  uploadType,
+  scopeId,
 }: {
   label: string;
   /** Current image URL (shows as a thumbnail if present). */
@@ -26,6 +28,10 @@ export function ImagePicker({
   onUploaded: (url: string) => void;
   onError?: (message: string) => void;
   hint?: string;
+  /** Which folder the upload goes into (shops/products/kyc). */
+  uploadType?: 'shop' | 'product' | 'kyc';
+  /** The owning shop id, so files land under <type>/<shopId>/. */
+  scopeId?: string;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -34,7 +40,7 @@ export function ImagePicker({
     setBusy(true);
     setError(null);
     try {
-      const { url } = await api.uploadImage(file);
+      const { url } = await api.uploadImage(file, { type: uploadType, scopeId });
       onUploaded(url);
     } catch (e) {
       const msg = (e as Error).message || 'Upload failed';
@@ -93,7 +99,7 @@ export function ImagePicker({
                 <Text style={styles.pickText}>Uploading…</Text>
               </View>
             ) : (
-              <Text style={styles.pickText}>{value ? '↻ Replace photo' : '⬆ Upload photo'}</Text>
+              <Text style={styles.pickText}>{value ? 'Replace photo' : 'Upload photo'}</Text>
             )}
           </Pressable>
           {!isWeb ? (

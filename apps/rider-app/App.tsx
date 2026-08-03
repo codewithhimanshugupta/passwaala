@@ -12,10 +12,12 @@ import { EarningsScreen } from './src/screens/EarningsScreen';
 import { DuesScreen } from './src/screens/DuesScreen';
 import { AlertsScreen } from './src/screens/AlertsScreen';
 import { api, hasSavedToken, logout, onAuthExpired } from './src/api';
+import { connectSocket, disconnectSocket } from './src/socket';
 import { formatRupees, theme } from './src/theme';
 import { useNewJobAlerts } from './src/useNewJobAlerts';
 import { useSystemAlerts } from './src/useSystemAlerts';
 import { unlockAudio } from './src/sound';
+import { TabIcon } from './src/TabIcon';
 import { LanguageProvider, useLang } from './src/i18n/LanguageContext';
 import type { RiderJob } from './src/types';
 
@@ -64,13 +66,13 @@ function AppRoot() {
   // escalation about a stuck delivery still matters when the rider went idle).
   const systemAlerts = useSystemAlerts(stage === 'app');
 
-  const TABS: { key: Tab; label: string; icon: string; badge?: number }[] = [
-    { key: 'home', label: t.tabs.home, icon: '⌂' },
-    { key: 'jobs', label: t.tabs.jobs, icon: '☰' },
-    { key: 'deliveries', label: t.tabs.deliveries, icon: '✓' },
-    { key: 'earnings', label: t.tabs.earnings, icon: '₹' },
-    { key: 'dues', label: t.tabs.dues, icon: '⛁' },
-    { key: 'alerts', label: t.tabs.alerts, icon: '🔔', badge: systemAlerts.unread },
+  const TABS: { key: Tab; label: string; badge?: number }[] = [
+    { key: 'home', label: t.tabs.home },
+    { key: 'jobs', label: t.tabs.jobs },
+    { key: 'deliveries', label: t.tabs.deliveries },
+    { key: 'earnings', label: t.tabs.earnings },
+    { key: 'dues', label: t.tabs.dues },
+    { key: 'alerts', label: t.tabs.alerts, badge: systemAlerts.unread },
   ];
 
   /** Unlock audio on the first user interaction (idempotent). */
@@ -113,6 +115,14 @@ function AppRoot() {
       resolveRider();
     }
   }, [resolveRider]);
+
+  // Connect the realtime socket while in the app; disconnect otherwise.
+  useEffect(() => {
+    if (stage === 'app') {
+      connectSocket();
+      return () => disconnectSocket();
+    }
+  }, [stage]);
 
   // Any 401 anywhere clears the token in the client; route back to login and
   // show a "session expired" note.
@@ -259,7 +269,7 @@ function BottomTabs({
   active,
   onChange,
 }: {
-  tabs: { key: Tab; label: string; icon: string; badge?: number }[];
+  tabs: { key: Tab; label: string; badge?: number }[];
   active: Tab;
   onChange: (t: Tab) => void;
 }) {
@@ -270,7 +280,10 @@ function BottomTabs({
         return (
           <Pressable key={item.key} style={styles.tabItem} onPress={() => onChange(item.key)}>
             <View>
-              <Text style={[styles.tabIcon, isActive && styles.tabActive]}>{item.icon}</Text>
+              <TabIcon
+                name={item.key}
+                color={isActive ? theme.color.accent : theme.color.textFaint}
+              />
               {item.badge && item.badge > 0 ? (
                 <View style={styles.tabBadge}>
                   <Text style={styles.tabBadgeText}>{item.badge > 9 ? '9+' : item.badge}</Text>
@@ -333,7 +346,6 @@ const styles = StyleSheet.create({
     paddingBottom: theme.space.md,
   },
   tabItem: { flex: 1, alignItems: 'center', gap: 2 },
-  tabIcon: { fontSize: 18, color: theme.color.textFaint },
   tabLabel: { fontSize: theme.font.tiny, fontWeight: '700', color: theme.color.textFaint },
   tabActive: { color: theme.color.accent },
   tabBadge: {

@@ -33,12 +33,12 @@ interface Dispute {
 
 // Shopkeeper-specific FAQ chips
 const FAQ_CHIPS = [
-  { label: '💬 Customer not responding', text: 'The customer is not responding to calls or messages and has not collected/received their order.' },
-  { label: '💳 Payment not received', text: 'The customer claimed payment but I have not received the money in my UPI account.' },
-  { label: '📦 Item out of stock', text: 'One or more items in this order are out of stock and I cannot fulfil them.' },
-  { label: '🏠 Wrong delivery address', text: 'The delivery address is incorrect or the customer cannot be found at the location.' },
-  { label: '🛵 Rider issue', text: 'The assigned rider has not arrived at my shop or is unresponsive.' },
-  { label: '❌ Order should be cancelled', text: 'I need to cancel this order due to an issue on my end. Please assist.' },
+  { label: 'Customer not responding', text: 'The customer is not responding to calls or messages and has not collected/received their order.' },
+  { label: 'Payment not received', text: 'The customer claimed payment but I have not received the money in my UPI account.' },
+  { label: 'Item out of stock', text: 'One or more items in this order are out of stock and I cannot fulfil them.' },
+  { label: 'Wrong delivery address', text: 'The delivery address is incorrect or the customer cannot be found at the location.' },
+  { label: 'Rider issue', text: 'The assigned rider has not arrived at my shop or is unresponsive.' },
+  { label: 'Order should be cancelled', text: 'I need to cancel this order due to an issue on my end. Please assist.' },
 ];
 
 function fmtTime(iso: string) {
@@ -118,19 +118,17 @@ export function DisputeModal({
   }
 
   const statusLabel = (s: string) =>
-    s === 'RESOLVED' ? '✅ Resolved' : s === 'ASSIGNED' ? '🟢 Admin joined' : '🟡 Waiting for admin';
+    s === 'RESOLVED' ? 'Resolved' : s === 'ASSIGNED' ? 'Admin joined' : 'Waiting for admin';
 
   return (
     <>
       {inline ? (
         <Pressable style={styles.helpBtn} onPress={() => setOpen(true)}>
-          <Text style={styles.helpEmoji}>🆘</Text>
           <Text style={styles.helpBtnText}>Need help with this order?</Text>
           <Text style={styles.helpArrow}>›</Text>
         </Pressable>
       ) : (
         <Pressable style={styles.helpBtnStandalone} onPress={() => setOpen(true)}>
-          <Text style={styles.helpEmoji}>🆘</Text>
           <Text style={styles.helpBtnStandaloneText}>Need help with this order?</Text>
           <Text style={styles.helpArrow}>›</Text>
         </Pressable>
@@ -142,7 +140,6 @@ export function DisputeModal({
             {/* Header */}
             <View style={styles.header}>
               <View style={styles.headerLeft}>
-                <Text style={styles.headerEmoji}>💬</Text>
                 <View>
                   <Text style={styles.headerTitle}>Help & Support</Text>
                   <Text style={styles.headerSub}>Order #{orderId.slice(0, 8).toUpperCase()}</Text>
@@ -206,7 +203,6 @@ export function DisputeModal({
                   </>
                 ) : (
                   <View style={styles.windowClosedCard}>
-                    <Text style={styles.windowClosedEmoji}>⏰</Text>
                     <Text style={styles.windowClosedTitle}>Dispute window closed</Text>
                     <Text style={styles.windowClosedSub}>Disputes can only be raised within {DISPUTE_WINDOW_HOURS} hours of placing an order.</Text>
                   </View>
@@ -240,7 +236,7 @@ export function DisputeModal({
                       ]}>
                         {!isMe ? (
                           <View style={[styles.avatar, isSystem ? styles.avatarSystem : styles.avatarAdmin]}>
-                            <Text style={styles.avatarText}>{isSystem ? '🤖' : '👤'}</Text>
+                            <Text style={styles.avatarText}>{isSystem ? 'B' : 'A'}</Text>
                           </View>
                         ) : null}
                         <View style={[
@@ -262,7 +258,7 @@ export function DisputeModal({
                   {dispute.status !== 'RESOLVED' && dispute.messages.length > 0 && !dispute.messages.find(m => m.senderRole === 'ADMIN') ? (
                     <View style={styles.typingRow}>
                       <View style={[styles.avatar, styles.avatarAdmin]}>
-                        <Text style={styles.avatarText}>👤</Text>
+                        <Text style={styles.avatarText}>A</Text>
                       </View>
                       <View style={styles.typingBubble}>
                         <Text style={styles.typingDots}>• • •</Text>
@@ -294,7 +290,7 @@ export function DisputeModal({
                   </View>
                 ) : (
                   <View style={styles.resolvedBar}>
-                    <Text style={styles.resolvedText}>✅ This dispute has been resolved. Thank you!</Text>
+                    <Text style={styles.resolvedText}>This dispute has been resolved. Thank you!</Text>
                     {(dispute.reopenCount ?? 0) < 1 ? (
                       <Pressable style={[styles.reopenBtn, reopening && { opacity: 0.5 }]} onPress={reopen} disabled={reopening}>
                         {reopening ? <ActivityIndicator color={theme.color.primary} size="small" /> : <Text style={styles.reopenBtnText}>Still not resolved? Reopen</Text>}
@@ -331,7 +327,6 @@ const styles = StyleSheet.create({
     ...{ shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 1 },
   },
   helpBtnStandaloneText: { flex: 1, fontSize: theme.font.body, fontWeight: '700', color: '#374151' },
-  helpEmoji: { fontSize: 18 },
   helpBtnText: { flex: 1, fontSize: theme.font.small, fontWeight: '600', color: '#6B7280' },
   helpArrow: { fontSize: 18, color: '#9CA3AF', fontWeight: '300' },
 
@@ -349,7 +344,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24,
   },
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: theme.space.sm },
-  headerEmoji: { fontSize: 28 },
   headerTitle: { fontSize: theme.font.h3, fontWeight: '800', color: '#111827' },
   headerSub: { fontSize: theme.font.tiny, color: '#6B7280', marginTop: 1 },
   closeBtn: { fontSize: 18, color: '#9CA3AF', padding: 4 },
@@ -390,7 +384,6 @@ const styles = StyleSheet.create({
   raiseBtnText: { color: '#fff', fontWeight: '800', fontSize: theme.font.body },
 
   windowClosedCard: { alignItems: 'center', padding: 32, gap: 12 },
-  windowClosedEmoji: { fontSize: 48 },
   windowClosedTitle: { fontSize: theme.font.h2, fontWeight: '800', color: '#374151' },
   windowClosedSub: { fontSize: theme.font.small, color: '#6B7280', textAlign: 'center', lineHeight: 20 },
 

@@ -53,7 +53,7 @@ export function EarningsScreen() {
       <Card>
         <Text style={styles.earningsLabel}>Currently owed to you</Text>
         <Text style={styles.earningsValue}>{formatRupees(me?.earningsPaise ?? 0)}</Text>
-        {me?.vehicle ? <Text style={styles.vehicle}>🛵 {me.vehicle}</Text> : null}
+        {me?.vehicle ? <Text style={styles.vehicle}>{me.vehicle}</Text> : null}
       </Card>
 
       {/* Lifetime summary — total ever earned and total ever paid out. */}

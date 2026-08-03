@@ -352,6 +352,7 @@ export class AutomationService {
             await this.prisma.disputeMessage.create({ data: { disputeId: d.id, senderId: order.riderId as string, senderRole: 'SYSTEM', body: msg } });
           }
           await this.log({ action: 'RIDER_DELIVERY_PENALTY', detail: msg, orderId: order.id, shopId: order.shopId, riderUserId: order.riderId as string });
+          this.realtime.emitSystemAlert(order.riderId as string, { message: msg });
 
         } else if (staleMins >= 45 && staleMins < 60) {
           // ≥45 min: escalate ONCE (guard on a prior escalation log for this order).
@@ -368,6 +369,7 @@ export class AutomationService {
               await this.prisma.disputeMessage.create({ data: { disputeId: existingDispute.id, senderId: order.riderId as string, senderRole: 'SYSTEM', body: msg } });
             }
             await this.log({ action: 'RIDER_DELIVERY_ESCALATED', detail: msg, orderId: order.id, shopId: order.shopId, riderUserId: order.riderId as string });
+            this.realtime.emitSystemAlert(order.riderId as string, { message: msg });
           }
 
         } else if (staleMins >= 30 && staleMins < 45 && !existingDispute) {

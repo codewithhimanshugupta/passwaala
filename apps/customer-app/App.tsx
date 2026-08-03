@@ -13,8 +13,10 @@ import { OrderTrackingScreen } from './src/screens/OrderTrackingScreen';
 import { OrdersScreen } from './src/screens/OrdersScreen';
 import { ProfileScreen } from './src/screens/ProfileScreen';
 import { api, hasSavedToken, logout, onAuthExpired } from './src/api';
+import { connectSocket, disconnectSocket } from './src/socket';
 import type { Account } from './src/types';
 import { resetCartStore, useCart } from './src/cart';
+import { TabIcon } from './src/TabIcon';
 import { shadow, theme } from './src/theme';
 import { LanguageProvider, useLang } from './src/i18n/LanguageContext';
 
@@ -35,7 +37,7 @@ function OrderConfirmedScreen({
       <View style={confirmedStyles.body}>
         {/* Checkmark circle */}
         <View style={confirmedStyles.checkCircle}>
-          <Text style={confirmedStyles.checkMark}>✓</Text>
+          <View style={confirmedStyles.checkMark} />
         </View>
 
         <Text style={confirmedStyles.title}>Congratulations!</Text>
@@ -74,7 +76,12 @@ const confirmedStyles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
     ...shadow.md,
   },
-  checkMark: { fontSize: 48, color: '#fff', fontWeight: '900', lineHeight: 56 },
+  checkMark: {
+    width: 40, height: 22,
+    borderLeftWidth: 6, borderBottomWidth: 6, borderColor: '#fff',
+    transform: [{ rotate: '-45deg' }],
+    marginTop: -8,
+  },
   title: { fontSize: 28, fontWeight: '900', color: theme.color.primary, textAlign: 'center' },
   subtitle: { fontSize: 16, color: theme.color.textMuted, textAlign: 'center' },
   orderIdPill: {
@@ -144,6 +151,20 @@ function AppRoot() {
   // Persist discovery view mode + selected map shop so back-from-shop returns correctly.
   const [discoveryViewMode, setDiscoveryViewMode] = useState<'list' | 'map'>('list');
   const [discoverySelectedShopId, setDiscoverySelectedShopId] = useState<string | null>(null);
+
+  // Delivery location lifted to the root so it PERSISTS across navigating into a
+  // shop and back (DiscoveryScreen unmounts on that nav). GPS runs at most once
+  // and never overrides a location the user has explicitly picked.
+  //   coords     — the active lat/lng used for nearby search
+  //   placeName  — human label for the location bar
+  //   addressPicked — true once the user chose a saved address (locks out GPS override)
+  //   gpsTried   — so we auto-run GPS only once per session
+  const [loc, setLoc] = useState<{
+    coords: { lat: number; lng: number } | null;
+    placeName: string | null;
+    addressPicked: boolean;
+    gpsTried: boolean;
+  }>({ coords: null, placeName: null, addressPicked: false, gpsTried: false });
   // Name used in the location permission greeting after onboarding.
   const [onboardedName, setOnboardedName] = useState<string | null>(null);
   const [showLocationPerm, setShowLocationPerm] = useState(false);
@@ -167,6 +188,14 @@ function AppRoot() {
   useEffect(() => {
     if (loggedIn) void checkName();
   }, [loggedIn, checkName]);
+
+  // Connect the realtime socket while logged in (live order tracking); disconnect on logout.
+  useEffect(() => {
+    if (loggedIn) {
+      connectSocket();
+      return () => disconnectSocket();
+    }
+  }, [loggedIn]);
 
   // When any request 401s, the client clears the token and fires onAuthExpired.
   // Drop back to login with a brief notice instead of surfacing a raw error.
@@ -322,6 +351,8 @@ function AppRoot() {
             viewMode={discoveryViewMode}
             onViewModeChange={setDiscoveryViewMode}
             restoredShopId={discoverySelectedShopId}
+            loc={loc}
+            onLocChange={setLoc}
           />
       )}
       {tab === 'cart' && (
@@ -365,11 +396,11 @@ function Shell({
   );
 }
 
-const TABS: { key: Tab; icon: string; iconActive: string }[] = [
-  { key: 'home',    icon: '🏠', iconActive: '🏡' },
-  { key: 'cart',    icon: '🛒', iconActive: '🛒' },
-  { key: 'orders',  icon: '📋', iconActive: '📋' },
-  { key: 'profile', icon: '👤', iconActive: '👤' },
+const TABS: { key: Tab }[] = [
+  { key: 'home' },
+  { key: 'cart' },
+  { key: 'orders' },
+  { key: 'profile' },
 ];
 
 function TabBar({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) {
@@ -383,9 +414,10 @@ function TabBar({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) {
           <Pressable key={item.key} style={styles.tabItem} onPress={() => onTab(item.key)}>
             <View style={[styles.tabIndicator, active && styles.tabIndicatorActive]} />
             <View style={styles.tabIconWrap}>
-              <Text style={[styles.tabIcon, active && styles.tabIconActive]}>
-                {active ? item.iconActive : item.icon}
-              </Text>
+              <TabIcon
+                name={item.key}
+                color={active ? theme.color.primary : theme.color.textMuted}
+              />
               {item.key === 'cart' && itemCount > 0 ? (
                 <View style={styles.tabBadge}>
                   <Text style={styles.tabBadgeText}>{itemCount > 9 ? '9+' : itemCount}</Text>

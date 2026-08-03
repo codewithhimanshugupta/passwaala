@@ -33,12 +33,12 @@ interface Dispute {
 
 // Customer-specific FAQ chips
 const FAQ_CHIPS = [
-  { label: '📦 Wrong or missing item', text: 'I received a wrong or missing item in my order.' },
-  { label: '💳 Payment issue', text: 'I have a payment issue — I was charged but the order status is wrong.' },
-  { label: '🚚 Delivery is very late', text: 'My delivery is very late. The estimated time has passed.' },
-  { label: '❌ Order was cancelled unfairly', text: 'My order was cancelled without my consent. I need a refund.' },
-  { label: '🔁 Wrong items delivered', text: 'The shop delivered items I did not order.' },
-  { label: '🏪 Shop is not responding', text: 'The shop is not accepting or responding to my order.' },
+  { label: 'Wrong or missing item', text: 'I received a wrong or missing item in my order.' },
+  { label: 'Payment issue', text: 'I have a payment issue — I was charged but the order status is wrong.' },
+  { label: 'Delivery is very late', text: 'My delivery is very late. The estimated time has passed.' },
+  { label: 'Order was cancelled unfairly', text: 'My order was cancelled without my consent. I need a refund.' },
+  { label: 'Wrong items delivered', text: 'The shop delivered items I did not order.' },
+  { label: 'Shop is not responding', text: 'The shop is not accepting or responding to my order.' },
 ];
 
 function fmtTime(iso: string) {
@@ -144,19 +144,17 @@ export const DisputeModal = forwardRef<DisputeModalHandle, {
   }
 
   const statusLabel = (s: string) =>
-    s === 'RESOLVED' ? '✅ Resolved' : s === 'ASSIGNED' ? '🟢 Admin joined' : '🟡 Waiting for admin';
+    s === 'RESOLVED' ? 'Resolved' : s === 'ASSIGNED' ? 'Admin joined' : 'Waiting for admin';
 
   return (
     <>
       {inline ? (
         <Pressable style={styles.helpBtn} onPress={() => setOpen(true)}>
-          <Text style={styles.helpEmoji}>🆘</Text>
           <Text style={styles.helpBtnText}>Need help with this order?</Text>
           <Text style={styles.helpArrow}>›</Text>
         </Pressable>
       ) : (
         <Pressable style={styles.helpBtnStandalone} onPress={() => setOpen(true)}>
-          <Text style={styles.helpEmoji}>🆘</Text>
           <Text style={styles.helpBtnStandaloneText}>Need help with this order?</Text>
           <Text style={styles.helpArrow}>›</Text>
         </Pressable>
@@ -168,7 +166,6 @@ export const DisputeModal = forwardRef<DisputeModalHandle, {
             {/* Header */}
             <View style={styles.header}>
               <View style={styles.headerLeft}>
-                <Text style={styles.headerEmoji}>💬</Text>
                 <View>
                   <Text style={styles.headerTitle}>Help & Support</Text>
                   <Text style={styles.headerSub}>Order #{orderId.slice(0, 8).toUpperCase()}</Text>
@@ -266,7 +263,7 @@ export const DisputeModal = forwardRef<DisputeModalHandle, {
                       ]}>
                         {!isMe ? (
                           <View style={[styles.avatar, isSystem ? styles.avatarSystem : styles.avatarAdmin]}>
-                            <Text style={styles.avatarText}>{isSystem ? '🤖' : '👤'}</Text>
+                            <Text style={styles.avatarText}>{isSystem ? 'B' : 'A'}</Text>
                           </View>
                         ) : null}
                         <View style={[
@@ -288,7 +285,7 @@ export const DisputeModal = forwardRef<DisputeModalHandle, {
                   {dispute.status !== 'RESOLVED' && dispute.messages.length > 0 && !dispute.messages.find(m => m.senderRole === 'ADMIN') ? (
                     <View style={styles.typingRow}>
                       <View style={[styles.avatar, styles.avatarAdmin]}>
-                        <Text style={styles.avatarText}>👤</Text>
+                        <Text style={styles.avatarText}>A</Text>
                       </View>
                       <View style={styles.typingBubble}>
                         <Text style={styles.typingDots}>• • •</Text>
@@ -320,7 +317,7 @@ export const DisputeModal = forwardRef<DisputeModalHandle, {
                   </View>
                 ) : (
                   <View style={styles.resolvedBar}>
-                    <Text style={styles.resolvedText}>✅ This dispute has been resolved. Thank you!</Text>
+                    <Text style={styles.resolvedText}>This dispute has been resolved. Thank you!</Text>
                     {(dispute.reopenCount ?? 0) < 1 ? (
                       <Pressable style={[styles.reopenBtn, reopening && { opacity: 0.5 }]} onPress={reopen} disabled={reopening}>
                         {reopening ? <ActivityIndicator color={theme.color.primary} size="small" /> : <Text style={styles.reopenBtnText}>Still not resolved? Reopen</Text>}

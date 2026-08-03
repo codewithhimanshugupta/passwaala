@@ -65,6 +65,7 @@ export interface MyProduct {
   mrpPaise: number;
   stock: number;
   imageUrl: string | null;
+  description: string | null;
   available: boolean;
   categoryId: string | null;
   weightGrams: number | null;

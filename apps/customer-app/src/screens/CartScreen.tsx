@@ -12,12 +12,13 @@ import {
 import { PaymentMethod, DeliveryMode, MAX_DELIVERY_RADIUS_METERS, isWithinDeliveryRange } from '@passwaala/shared';
 import type { PlaceOrderResult } from '@passwaala/shared';
 import { api } from '../api';
-import { clearCart, refreshCart, setQty, useCart } from '../cart';
+import { clearCart, setQty, useCart, syncToServer, resetCartStore } from '../cart';
 import type { Address, ShopView } from '../types';
 import { AddressForm } from '../components/AddressForm';
 import { CouponScreen } from './CouponScreen';
 import { estimateOrderMinutes, formatDistance, formatMinutesBand, formatRupees, haversineMeters, productImage, shadow, theme } from '../theme';
 import { Badge, Button, CoinChip, Divider, EmptyState, Loading } from '../ui';
+import { ImageOrInitial } from '../ImageOrInitial';
 import { useLang } from '../i18n/LanguageContext';
 
 /**
@@ -37,7 +38,11 @@ export function CartScreen({
   onPlaced: (result: PlaceOrderResult) => void;
 }) {
   const { t } = useLang();
-  const { cart, itemCount } = useCart();
+  const localCart = useCart();
+  const itemCount = localCart.itemCount;
+  // The server-computed cart/bill, produced by syncing the local cart up. Held
+  // locally here (the shopping cart itself is client-side now — see cart.ts).
+  const [cart, setCart] = useState<any>({ empty: itemCount === 0, items: [] });
   // riderAvailable: false when no rider online near shop — from cart API response
   const riderAvailableFromCart = (cart as { riderAvailable?: boolean }).riderAvailable !== false;
   const [addresses, setAddresses] = useState<Address[]>([]);
@@ -46,7 +51,6 @@ export function CartScreen({
   const [fulfilment, setFulfilment] = useState<DeliveryMode>(DeliveryMode.SELF_DELIVERY);
   const [notes, setNotes] = useState('');
   const [loadingAddrs, setLoadingAddrs] = useState(true);
-  const [pendingItem, setPendingItem] = useState<string | null>(null);
   const [placing, setPlacing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showAddrForm, setShowAddrForm] = useState(false);
@@ -89,7 +93,8 @@ export function CartScreen({
   }, []);
 
   useEffect(() => {
-    void refreshCart().catch(() => undefined);
+    // Addresses + coin balance load once. The authoritative bill is produced by
+    // the debounced sync effect below (which also re-runs on qty/mode changes).
     void loadAddresses();
     void api
       .referralMe()
@@ -166,31 +171,35 @@ export function CartScreen({
   }, [platformDelivery, riderAvailableFromCart, fulfilment, cart?.shop?.selfPickupEnabled]);
   // delivery fee matches exactly what the server will charge (distance-tiered
   // for a platform-rider delivery; flat for self-delivery; ₹0 for pickup).
+  // Debounced so rapid +/- taps collapse into a single background sync — the
+  // line list already updates instantly from the local cart.
+  const cartSig = localCart.lines
+    .map((l) => `${l.productId}:${l.qty}`)
+    .join('|');
   useEffect(() => {
+    if (itemCount === 0) { setCart({ empty: true, items: [] }); return; }
     const pickup = fulfilment === DeliveryMode.SELF_PICKUP;
     const mode = pickup
       ? DeliveryMode.SELF_PICKUP
       : platformDelivery
         ? DeliveryMode.PLATFORM_RIDER
         : DeliveryMode.SELF_DELIVERY;
-    void refreshCart({
-      deliveryMode: mode,
-      addressId: pickup ? undefined : selectedAddress ?? undefined,
-      selectedOfferId: selectedOfferId ?? undefined,
-    }).catch(() => undefined);
-  }, [fulfilment, selectedAddress, platformDelivery, selectedOfferId]);
+    const handle = setTimeout(() => {
+      void syncToServer({
+        deliveryMode: mode,
+        addressId: pickup ? undefined : selectedAddress ?? undefined,
+        selectedOfferId: selectedOfferId ?? undefined,
+      }).then(setCart).catch(() => undefined);
+    }, 350);
+    return () => clearTimeout(handle);
+  }, [cartSig, itemCount, fulfilment, selectedAddress, platformDelivery, selectedOfferId]);
 
   async function changeQty(productId: string, qty: number) {
-    setPendingItem(productId);
     setError(null);
-    try {
-      await setQty(productId, qty);
-    } catch (e) {
-      setError((e as Error).message);
-      await refreshCart().catch(() => undefined);
-    } finally {
-      setPendingItem(null);
-    }
+    // Instant, local-only update — the line list renders from the local cart so
+    // the +/- reflects immediately. The bill re-syncs to the server in the
+    // background (debounced effect below); we never block the buttons on it.
+    await setQty(productId, qty);
   }
 
   async function onClearCart() {
@@ -231,11 +240,23 @@ export function CartScreen({
     setPlacing(true);
     setError(null);
     try {
+      // Ensure the server cart matches the local cart before placing (the bill
+      // sync is debounced, so a fast tap→place could otherwise race). This also
+      // refreshes the authoritative bill one last time.
+      const mode = isPickupMode
+        ? DeliveryMode.SELF_PICKUP
+        : platformDelivery ? DeliveryMode.PLATFORM_RIDER : DeliveryMode.SELF_DELIVERY;
+      const fresh = await syncToServer({
+        deliveryMode: mode,
+        addressId: isPickupMode ? undefined : selectedAddress ?? undefined,
+        selectedOfferId: selectedOfferId ?? undefined,
+      });
+      setCart(fresh);
       const idempotencyKey = `pw-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
       const userNote = notes.trim();
       // Coins redeem against the item subtotal only (1 coin = ₹1). Cap
       // client-side to min(balance, subtotal); the server re-caps anyway.
-      const subtotalRupees = Math.floor((cart.bill?.subtotalPaise ?? 0) / 100);
+      const subtotalRupees = Math.floor(((fresh as { bill?: { subtotalPaise?: number } }).bill?.subtotalPaise ?? 0) / 100);
       const appliedCoins = useCoins ? Math.min(coinBalance, subtotalRupees) : 0;
       const result = await api.placeOrder({
         deliveryMode: fulfilment,
@@ -247,7 +268,8 @@ export function CartScreen({
         redeemCoins: appliedCoins > 0 ? appliedCoins : 0,
         offerId: selectedOfferId ?? undefined,
       });
-      await refreshCart().catch(() => undefined);
+      // Order placed — clear the local cart.
+      resetCartStore();
       onPlaced(result);
     } catch (e) {
       setError((e as Error).message);
@@ -261,7 +283,6 @@ export function CartScreen({
       <View style={styles.root}>
         <Header onBack={onBack} title={t.cart.title} />
         <EmptyState
-          emoji="🛒"
           title={t.cart.emptyTitle}
           subtitle={t.cart.emptySubtitle}
           action={<Button label={t.cart.browseShops} onPress={onBrowse} fullWidth={false} />}
@@ -354,52 +375,50 @@ export function CartScreen({
 
   return (
     <View style={styles.root}>
-      <Header onBack={onBack} title={t.cart.title} subtitle={cart.shop?.name} />
+      <Header onBack={onBack} title={t.cart.title} subtitle={cart.shop?.name ?? localCart.shopName ?? undefined} />
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        {/* Items */}
+        {/* Items — rendered from the LOCAL cart so +/- is instant (the bill
+            below re-syncs to the server in the background). */}
         <View style={styles.section}>
-          {cart.items.map((item) => (
-            <View key={item.productId} style={styles.itemRow}>
-              <Image source={{ uri: productImage(item.productId, undefined, 80, item.name) }} style={styles.itemThumb} />
-              <View style={styles.itemInfo}>
-                <Text style={styles.itemName} numberOfLines={2}>
-                  {item.name}
-                </Text>
-                <Text style={styles.itemUnit}>
-                  {t.cart.each(formatRupees(item.unitPricePaise))}
-                </Text>
-                {!item.available ? <Badge label={t.cart.unavailable} tone="danger" /> : null}
-              </View>
-              <View style={styles.itemRight}>
-                <Pressable
-                  onPress={() => changeQty(item.productId, 0)}
-                  disabled={pendingItem === item.productId}
-                  style={styles.trashBtn}
-                  hitSlop={6}
-                >
-                  <Text style={styles.trashIcon}>🗑</Text>
-                </Pressable>
-                <View style={styles.stepper}>
-                  <Pressable
-                    style={styles.stepBtn}
-                    onPress={() => changeQty(item.productId, item.qty - 1)}
-                    disabled={pendingItem === item.productId}
-                  >
-                    <Text style={styles.stepText}>−</Text>
-                  </Pressable>
-                  <Text style={styles.qty}>{item.qty}</Text>
-                  <Pressable
-                    style={styles.stepBtn}
-                    onPress={() => changeQty(item.productId, item.qty + 1)}
-                    disabled={pendingItem === item.productId}
-                  >
-                    <Text style={styles.stepText}>+</Text>
-                  </Pressable>
+          {localCart.lines.map((item) => {
+            // Prefer the server line's availability flag when we have it.
+            const serverLine = (cart.items as Array<{ productId: string; available?: boolean }> | undefined)
+              ?.find((s) => s.productId === item.productId);
+            const available = serverLine?.available !== false;
+            const lineTotalPaise = item.unitPricePaise * item.qty;
+            return (
+              <View key={item.productId} style={styles.itemRow}>
+                <ImageOrInitial uri={productImage(item.productId, item.imageUrl ?? undefined, 80, item.name)} name={item.name} style={styles.itemThumb} />
+                <View style={styles.itemInfo}>
+                  <Text style={styles.itemName} numberOfLines={2}>
+                    {item.name}
+                  </Text>
+                  <Text style={styles.itemUnit}>
+                    {t.cart.each(formatRupees(item.unitPricePaise))}
+                  </Text>
+                  {!available ? <Badge label={t.cart.unavailable} tone="danger" /> : null}
                 </View>
-                <Text style={styles.lineTotal}>{formatRupees(item.lineTotalPaise)}</Text>
+                <View style={styles.itemRight}>
+                  <View style={styles.stepper}>
+                    <Pressable
+                      style={styles.stepBtn}
+                      onPress={() => changeQty(item.productId, item.qty - 1)}
+                    >
+                      <Text style={styles.stepText}>−</Text>
+                    </Pressable>
+                    <Text style={styles.qty}>{item.qty}</Text>
+                    <Pressable
+                      style={styles.stepBtn}
+                      onPress={() => changeQty(item.productId, item.qty + 1)}
+                    >
+                      <Text style={styles.stepText}>+</Text>
+                    </Pressable>
+                  </View>
+                  <Text style={styles.lineTotal}>{formatRupees(lineTotalPaise)}</Text>
+                </View>
               </View>
-            </View>
-          ))}
+            );
+          })}
           <Pressable onPress={onClearCart} style={styles.clearBtn}>
             <Text style={styles.clearText}>{t.cart.clearCart}</Text>
           </Pressable>
@@ -422,7 +441,7 @@ export function CartScreen({
           {/* Warn when platform delivery is selected but no rider is available */}
           {platformDelivery && !riderAvailableFromCart && fulfilment === DeliveryMode.SELF_DELIVERY ? (
             <View style={styles.noRiderBanner}>
-              <Text style={styles.noRiderText}>🛵 No delivery riders available near this shop right now. Choose self-pickup or try again later.</Text>
+              <Text style={styles.noRiderText}>No delivery riders available near this shop right now. Choose self-pickup or try again later.</Text>
             </View>
           ) : null}
           <View style={styles.segment}>
@@ -434,7 +453,7 @@ export function CartScreen({
               disabled={platformDelivery && !riderAvailableFromCart}
             >
               <Text style={[styles.segmentText, fulfilment === DeliveryMode.SELF_DELIVERY && styles.segmentTextActive]}>
-                {platformDelivery && !riderAvailableFromCart ? '🛵 Unavailable' : t.cart.delivery}
+                {platformDelivery && !riderAvailableFromCart ? 'Unavailable' : t.cart.delivery}
               </Text>
             </Pressable>
             <Pressable
@@ -458,7 +477,6 @@ export function CartScreen({
         {(cart as { availableOffers?: Array<{ id: string; title: string; type: string; value: number; minOrderPaise: number }> }).availableOffers?.length ? (
           <View style={styles.section}>
             <Pressable style={styles.couponRow} onPress={() => setShowCoupons(true)}>
-              <Text style={styles.couponIcon}>🏷️</Text>
               <View style={styles.couponMid}>
                 {selectedOfferId && bill?.offerApplied && bill.discountPaise > 0 ? (
                   <>
@@ -466,7 +484,7 @@ export function CartScreen({
                       {(cart as { activeOffer?: { title?: string } | null }).activeOffer?.title ?? 'Offer applied'}
                     </Text>
                     <Text style={styles.couponSaving}>
-                      {formatRupees(bill.discountPaise)} off applied ✓
+                      {formatRupees(bill.discountPaise)} off applied
                     </Text>
                   </>
                 ) : (
@@ -490,7 +508,7 @@ export function CartScreen({
             {bill.offerApplied && bill.discountPaise > 0 ? (
               <View style={styles.savedBanner}>
                 <Text style={styles.savedBannerText}>
-                  🎉 {formatRupees(bill.discountPaise)} saved on this order!
+                  {formatRupees(bill.discountPaise)} saved on this order!
                 </Text>
               </View>
             ) : null}
@@ -503,17 +521,27 @@ export function CartScreen({
                 valueTone="success"
               />
             ) : null}
-            <BillRow
-              label={
-                isPickup
-                  ? t.cart.deliveryFeePickup
-                  : platformDelivery
-                    ? t.cart.deliveryFeeByDistance
-                    : t.cart.deliveryFee
-              }
-              value={isPickup ? '₹0.00' : freeDeliveryApplied ? t.cart.freeUpper : formatRupees(shownDeliveryFeePaise)}
-              valueTone={isPickup || freeDeliveryApplied ? 'success' : undefined}
-            />
+            <View style={styles.feeRow}>
+              <View style={styles.flex}>
+                <Text style={styles.billLabel}>
+                  {isPickup
+                    ? t.cart.deliveryFeePickup
+                    : platformDelivery
+                      ? t.cart.deliveryFeeByDistance
+                      : t.cart.deliveryFee}
+                </Text>
+                <Text style={styles.feeSubtext}>
+                  {isPickup
+                    ? 'Self-pickup from the shop'
+                    : platformDelivery
+                      ? 'Delivered by a PassWaala rider'
+                      : 'Delivered by the shop'}
+                </Text>
+              </View>
+              <Text style={[styles.billValue, (isPickup || freeDeliveryApplied) ? styles.billSuccess : null]}>
+                {isPickup ? '₹0.00' : freeDeliveryApplied ? t.cart.freeUpper : formatRupees(shownDeliveryFeePaise)}
+              </Text>
+            </View>
             <View style={styles.feeRow}>
               <View style={styles.flex}>
                 <Text style={styles.billLabel}>{t.cart.platformFee}</Text>
@@ -539,9 +567,7 @@ export function CartScreen({
                   accessibilityRole="checkbox"
                   accessibilityState={{ checked: useCoins }}
                 >
-                  <View style={[styles.checkbox, useCoins && styles.checkboxActive]}>
-                    {useCoins ? <Text style={styles.checkboxTick}>✓</Text> : null}
-                  </View>
+                  <View style={[styles.checkbox, useCoins && styles.checkboxActive]} />
                   <View style={styles.flex}>
                     <Text style={styles.coinToggleTitle}>{t.cart.useCoins}</Text>
                     <Text style={styles.coinToggleSub}>
@@ -568,7 +594,6 @@ export function CartScreen({
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>{t.cart.pickup}</Text>
             <View style={styles.pickupCard}>
-              <Text style={styles.pickupCardEmoji}>🏬</Text>
               <View style={styles.flex}>
                 <Text style={styles.pickupCardTitle}>{t.cart.collectFromShop}</Text>
                 <Text style={styles.pickupCardSub}>
@@ -608,14 +633,13 @@ export function CartScreen({
               );
               return (
                 <View style={[styles.addrCard, styles.addrCardActive, outOfDeliveryArea && styles.addrCardBlocked]}>
-                  <Text style={styles.addrPin}>{addrLabelIcon(addr.label)}</Text>
                   <View style={styles.flex}>
                     <View style={styles.addrLabelRow}>
                       <Text style={styles.addrLabelText}>{addr.label}</Text>
                       {outOfDeliveryArea ? (
                         <Badge label={t.cart.outOfDeliveryArea} tone="danger" />
                       ) : addrEta ? (
-                        <Text style={styles.addrEta}>🛵 ~{addrEta}</Text>
+                        <Text style={styles.addrEta}>~{addrEta}</Text>
                       ) : null}
                     </View>
                     <Text style={styles.addrLine}>{addr.line}</Text>
@@ -623,7 +647,7 @@ export function CartScreen({
                   </View>
                   {addresses.length > 1 ? (
                     <Pressable onPress={() => setShowAddrPicker(true)} hitSlop={8} style={styles.addrEditBtn}>
-                      <Text style={styles.addrEditIcon}>✎</Text>
+                      <Text style={styles.addrEditIcon}>{t.common.change}</Text>
                     </Pressable>
                   ) : null}
                 </View>
@@ -658,14 +682,12 @@ export function CartScreen({
           <PaymentOption
             active={payment === PaymentMethod.UPI_DIRECT}
             onPress={() => setPayment(PaymentMethod.UPI_DIRECT)}
-            emoji="📲"
             title={t.cart.upiTitle}
             subtitle={t.cart.upiSubtitle}
           />
           <PaymentOption
             active={payment === PaymentMethod.COD}
             onPress={() => setPayment(PaymentMethod.COD)}
-            emoji="💵"
             title={t.cart.codTitle}
             subtitle={t.cart.codSubtitle}
           />
@@ -722,7 +744,6 @@ export function CartScreen({
       >
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard}>
-            <Text style={styles.modalEmoji}>📍</Text>
             <Text style={styles.modalTitle}>{t.cart.farModalTitle}</Text>
             <Text style={styles.modalBody}>
               {t.cart.farModalBodyBefore}{' '}
@@ -775,7 +796,6 @@ export function CartScreen({
                     }}
                     style={[styles.addrCard, active && styles.addrCardActive]}
                   >
-                    <Text style={styles.addrPin}>{addrLabelIcon(addr.label)}</Text>
                     <View style={styles.flex}>
                       <View style={styles.addrLabelRow}>
                         <Text style={styles.addrLabelText}>{addr.label}</Text>
@@ -821,6 +841,8 @@ export function CartScreen({
             </View>
             <ScrollView style={styles.sheetScroll} showsVerticalScrollIndicator={false}>
               <AddressForm
+                shopGeo={shopGeo}
+                platformDelivery={platformDelivery}
                 onSaved={async (id) => {
                   setShowAddrForm(false);
                   await loadAddresses();
@@ -838,13 +860,6 @@ export function CartScreen({
   );
 }
 
-/** Map common address labels to icons; fallback to pin. */
-function addrLabelIcon(label: string): string {
-  const l = label.toLowerCase();
-  if (l === 'home') return '🏠';
-  if (l === 'work' || l === 'office') return '💼';
-  return '📍';
-}
 
 function Header({ onBack, title, subtitle }: { onBack: () => void; title: string; subtitle?: string }) {
   return (
@@ -890,19 +905,16 @@ function BillRow({
 function PaymentOption({
   active,
   onPress,
-  emoji,
   title,
   subtitle,
 }: {
   active: boolean;
   onPress: () => void;
-  emoji: string;
   title: string;
   subtitle: string;
 }) {
   return (
     <Pressable onPress={onPress} style={[styles.payOption, active && styles.payOptionActive]}>
-      <Text style={styles.payEmoji}>{emoji}</Text>
       <View style={styles.flex}>
         <Text style={styles.payTitle}>{title}</Text>
         <Text style={styles.paySubtitle}>{subtitle}</Text>
@@ -952,13 +964,13 @@ const styles = StyleSheet.create({
   sectionTitle: { fontSize: theme.font.h3, fontWeight: theme.weight.bold, color: theme.color.text, marginBottom: 2 },
   link: { color: theme.color.primary, fontWeight: theme.weight.semibold, fontSize: theme.font.small },
 
-  itemRow: { flexDirection: 'row', alignItems: 'center', gap: theme.space.md, paddingVertical: theme.space.sm },
+  itemRow: { flexDirection: 'row', alignItems: 'center', gap: theme.space.md, paddingVertical: 4 },
   itemThumb: { width: 52, height: 52, borderRadius: theme.radius.md, backgroundColor: theme.color.surfaceAlt },
   itemInfo: { flex: 1, gap: 2 },
   itemName: { fontSize: theme.font.body, fontWeight: theme.weight.semibold, color: theme.color.text },
   itemUnit: { fontSize: theme.font.small, color: theme.color.textMuted },
-  itemRight: { alignItems: 'flex-end', gap: 6 },
-  lineTotal: { fontSize: theme.font.body, fontWeight: theme.weight.bold, color: theme.color.text },
+  itemRight: { alignItems: 'center', gap: 4 },
+  lineTotal: { fontSize: theme.font.body, fontWeight: theme.weight.bold, color: theme.color.text, textAlign: 'center' },
 
   stepper: { flexDirection: 'row', alignItems: 'center', backgroundColor: theme.color.primary, borderRadius: theme.radius.md },
   stepBtn: { paddingHorizontal: theme.space.md, paddingVertical: 6 },
@@ -967,9 +979,6 @@ const styles = StyleSheet.create({
 
   clearBtn: { alignSelf: 'flex-start', paddingVertical: theme.space.sm },
   clearText: { color: theme.color.danger, fontWeight: theme.weight.semibold, fontSize: theme.font.small },
-
-  trashBtn: { padding: 4, alignItems: 'center', justifyContent: 'center' },
-  trashIcon: { fontSize: 16 },
 
   minGate: {
     marginHorizontal: theme.space.lg,

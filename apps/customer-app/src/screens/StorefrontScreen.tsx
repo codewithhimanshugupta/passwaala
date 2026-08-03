@@ -4,6 +4,7 @@ import {
   FlatList,
   Image,
   Linking,
+  Modal,
   Platform,
   Pressable,
   RefreshControl,
@@ -13,13 +14,12 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import type { ProductPublic } from '@passwaala/shared';
+import type { ProductPublic, ProductDetailPublic } from '@passwaala/shared';
 import { api } from '../api';
 import {
   addOne,
   clearCart,
   isDifferentShopError,
-  refreshCart,
   setQty,
   useCart,
 } from '../cart';
@@ -34,6 +34,7 @@ import {
   theme,
 } from '../theme';
 import { Badge, Button, ErrorState, Loading, Stars } from '../ui';
+import { ImageOrInitial } from '../ImageOrInitial';
 import { useLang } from '../i18n/LanguageContext';
 
 /**
@@ -64,13 +65,21 @@ export function StorefrontScreen({
   const [refreshing, setRefreshing] = useState(false);
   const [conflict, setConflict] = useState<{ productId: string; message: string } | null>(null);
 
+  // Lazy product detail: tapping a product expands it and fetches its
+  // description on demand (list view carries only name+price to stay light).
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [detailById, setDetailById] = useState<Record<string, ProductDetailPublic>>({});
+  // Fullscreen image preview (lightbox) — holds the tapped product's image + name.
+  const [preview, setPreview] = useState<{ uri: string; name: string } | null>(null);
+  const [detailLoadingId, setDetailLoadingId] = useState<string | null>(null);
+
   // Search + category drill-down. `query` is the raw input; a debounced effect
   // calls searchProducts. `activeCategory` is null for "All".
   const [query, setQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [searching, setSearching] = useState(false);
 
-  const { qtyByProduct, itemCount, totalPaise, cart } = useCart();
+  const { qtyByProduct, itemCount, totalPaise, shopId: cartShopId, shopName: cartShopName } = useCart();
 
   const load = useCallback(async () => {
     if (!shopId) return;
@@ -87,8 +96,6 @@ export function StorefrontScreen({
       setProducts(list);
       setReviews(revs);
       setCategories(cats);
-      // Cart requires auth — fire-and-forget so unauthenticated users can still browse.
-      void refreshCart().catch(() => undefined);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -149,8 +156,6 @@ export function StorefrontScreen({
         } else {
           setNotice((e as Error).message);
         }
-        // Revert to true server state on any error.
-        await refreshCart().catch(() => undefined);
       } finally {
         setPending(null);
       }
@@ -158,21 +163,57 @@ export function StorefrontScreen({
     [],
   );
 
-  const onAdd = (productId: string) => runMutation(productId, () => addOne(productId));
+  const onAdd = (productId: string) => {
+    const p = products.find((x) => x.id === productId);
+    return runMutation(productId, () =>
+      addOne(productId, p && shop ? {
+        shopId,
+        shopName: shop.name,
+        name: p.name,
+        unitPricePaise: p.pricePaise,
+        imageUrl: p.imageUrl,
+      } : undefined),
+    );
+  };
   const onSub = (productId: string, currentQty: number) =>
     runMutation(productId, () => setQty(productId, Math.max(0, currentQty - 1)));
+
+  // Toggle a product open/closed; on first open, lazily fetch its detail.
+  const onToggleDetail = useCallback(async (productId: string) => {
+    setExpandedId((cur) => (cur === productId ? null : productId));
+    if (detailById[productId]) return; // already loaded — just expand
+    setDetailLoadingId(productId);
+    try {
+      const detail = await api.productDetail(productId);
+      setDetailById((m) => ({ ...m, [productId]: detail }));
+    } catch {
+      // Non-fatal: expanding still shows the list info; detail just stays absent.
+    } finally {
+      setDetailLoadingId((cur) => (cur === productId ? null : cur));
+    }
+  }, [detailById]);
 
   async function onClearAndAdd() {
     if (!conflict) return;
     const productId = conflict.productId;
+    const p = products.find((x) => x.id === productId);
     setConflict(null);
-    await runMutation(productId, () => clearCart(productId));
+    await runMutation(productId, () =>
+      clearCart(p && shop ? {
+        productId,
+        shopId,
+        shopName: shop.name,
+        name: p.name,
+        unitPricePaise: p.pricePaise,
+        imageUrl: p.imageUrl,
+      } : undefined),
+    );
   }
 
   if (loading) return <Loading label={t.storefront.loadingShop} />;
   if (error) return <ErrorState message={error} onRetry={load} />;
 
-  const cartIsThisShop = cart.shop?.id === shopId;
+  const cartIsThisShop = cartShopId === shopId;
   const showCartBar = itemCount > 0;
 
   return (
@@ -180,8 +221,8 @@ export function StorefrontScreen({
       <FlatList
         data={products}
         keyExtractor={(p) => p.id}
-        numColumns={2}
-        key="grid-2"
+        numColumns={1}
+        key="list-1"
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         contentContainerStyle={[styles.list, showCartBar && styles.listWithBar]}
@@ -215,6 +256,11 @@ export function StorefrontScreen({
             busy={pending === item.id}
             onAdd={() => onAdd(item.id)}
             onSub={() => onSub(item.id, qtyByProduct[item.id] ?? 0)}
+            expanded={expandedId === item.id}
+            detail={detailById[item.id] ?? null}
+            detailLoading={detailLoadingId === item.id}
+            onToggleDetail={() => onToggleDetail(item.id)}
+            onPreviewImage={(uri) => setPreview({ uri, name: item.name })}
           />
         )}
         ListFooterComponent={<ReviewsSection reviews={reviews} />}
@@ -228,7 +274,7 @@ export function StorefrontScreen({
             </View>
             <View>
               <Text style={styles.cartBarLabel}>
-                {cartIsThisShop ? t.storefront.viewCart : t.storefront.cartOfShop(cart.shop?.name ?? '')}
+                {cartIsThisShop ? t.storefront.viewCart : t.storefront.cartOfShop(cartShopName ?? '')}
               </Text>
               <Text style={styles.cartBarTotal}>{formatRupees(totalPaise)}</Text>
             </View>
@@ -236,6 +282,19 @@ export function StorefrontScreen({
           <Text style={styles.cartBarArrow}>{t.storefront.checkout}</Text>
         </Pressable>
       ) : null}
+
+      {/* Fullscreen image preview (lightbox). Tap the ✕ or the backdrop to close. */}
+      <Modal visible={!!preview} transparent animationType="fade" onRequestClose={() => setPreview(null)}>
+        <Pressable style={styles.previewBackdrop} onPress={() => setPreview(null)}>
+          <Pressable style={styles.previewClose} onPress={() => setPreview(null)} hitSlop={10}>
+            <Text style={styles.previewCloseText}>✕</Text>
+          </Pressable>
+          {preview ? (
+            <Image source={{ uri: preview.uri }} style={styles.previewImage} resizeMode="contain" />
+          ) : null}
+          {preview ? <Text style={styles.previewName}>{preview.name}</Text> : null}
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -285,8 +344,9 @@ function StoreHeader({
   return (
     <View>
       <View style={styles.bannerWrap}>
-        <Image
-          source={{ uri: bannerImage(shop.id, shop.bannerUrl ?? shop.storefrontPhotoUrl, 480, 220, shop.name) }}
+        <ImageOrInitial
+          uri={bannerImage(shop.id, shop.bannerUrl ?? shop.storefrontPhotoUrl, 480, 220, shop.name)}
+          name={shop.name}
           style={styles.banner}
         />
         <View style={styles.bannerScrim} />
@@ -301,7 +361,7 @@ function StoreHeader({
       </View>
 
       <View style={styles.shopHead}>
-        <Image source={{ uri: logoImage(shop.id, shop.logoUrl, 96, shop.name) }} style={styles.shopLogo} />
+        <ImageOrInitial uri={logoImage(shop.id, shop.logoUrl, 96, shop.name)} name={shop.name} rounded style={styles.shopLogo} />
         <View style={styles.flex}>
           <Text style={styles.shopName}>{shop.name}</Text>
           <View style={styles.shopMetaRow}>
@@ -328,7 +388,7 @@ function StoreHeader({
         <View style={styles.contactBlock}>
           {addressText ? (
             <Text style={styles.contactLine} numberOfLines={2}>
-              📍 {addressText}
+              {addressText}
             </Text>
           ) : null}
           {shop.contactPhone ? (
@@ -337,7 +397,6 @@ function StoreHeader({
               style={({ pressed }) => [styles.contactBtnCall, pressed && styles.contactBtnPressed]}
               hitSlop={6}
             >
-              <Text style={styles.contactBtnIcon}>📞</Text>
               <Text style={styles.contactBtnCallText}>{t.storefront.call}</Text>
             </Pressable>
           ) : null}
@@ -345,18 +404,8 @@ function StoreHeader({
       ) : null}
 
       <View style={styles.infoStrip}>
-        <Badge
-          label={shop.deliveryFeePaise === 0 ? t.storefront.freeDelivery : t.storefront.delivery(formatRupees(shop.deliveryFeePaise))}
-          tone={shop.deliveryFeePaise === 0 ? 'success' : 'info'}
-        />
-        {shop.freeDeliveryAbovePaise ? (
-          <Badge label={t.storefront.freeAbove(formatRupees(shop.freeDeliveryAbovePaise))} tone="neutral" />
-        ) : null}
-        {shop.minOrderValuePaise > 0 ? (
-          <Badge label={t.storefront.minOrder(formatRupees(shop.minOrderValuePaise))} tone="warning" />
-        ) : null}
         {(shop as { activeOffer?: { title?: string } | null }).activeOffer?.title ? (
-          <Badge label={`🎁 ${(shop as { activeOffer: { title: string } }).activeOffer.title}`} tone="success" />
+          <Badge label={(shop as { activeOffer: { title: string } }).activeOffer.title} tone="success" />
         ) : null}
       </View>
 
@@ -376,7 +425,6 @@ function StoreHeader({
       {/* Search bar */}
       <View style={styles.searchWrap}>
         <View style={[styles.searchBar, query.length > 0 && styles.searchBarActive]}>
-          <Text style={styles.searchIcon}>🔍</Text>
           <TextInput
             style={styles.searchInput}
             placeholder={t.storefront.searchPlaceholder}
@@ -446,12 +494,22 @@ function ProductRow({
   busy,
   onAdd,
   onSub,
+  expanded,
+  detail,
+  detailLoading,
+  onToggleDetail,
+  onPreviewImage,
 }: {
   product: ProductPublic;
   qty: number;
   busy: boolean;
   onAdd: () => void;
   onSub: () => void;
+  expanded: boolean;
+  detail: ProductDetailPublic | null;
+  detailLoading: boolean;
+  onToggleDetail: () => void;
+  onPreviewImage: (uri: string) => void;
 }) {
   const { t } = useLang();
   const hasMrp = product.mrpPaise && product.mrpPaise > product.pricePaise;
@@ -469,58 +527,84 @@ function ProductRow({
         </View>
       ) : null}
 
-      {/* Image area */}
-      <View style={styles.productImageWrap}>
-        <Image
-          source={{ uri: productImage(product.id, product.imageUrl, 200, product.name) }}
-          style={styles.productImage}
-        />
-        {qty > 0 ? (
-          <View style={styles.inCartBadge}>
-            <Text style={styles.inCartText}>🛒 {qty} in cart</Text>
-          </View>
-        ) : null}
-      </View>
-
-      {/* Info */}
-      <View style={styles.productInfo}>
-        <Text style={styles.productName} numberOfLines={2}>{product.name}</Text>
-        {product.orderCount > 0 ? (
-          <Text style={styles.productPopular}>{t.storefront.ordered(product.orderCount)}</Text>
-        ) : null}
-        <View style={styles.productPriceRow}>
-          <Text style={styles.productPrice}>{formatRupees(product.pricePaise)}</Text>
-          {hasMrp ? (
-            <Text style={styles.productMrp}>{formatRupees(product.mrpPaise!)}</Text>
+      {/* Tapping anywhere on the card (except the image) toggles the lazy detail.
+          Tapping the image opens a fullscreen preview instead. */}
+      <Pressable style={styles.productTapArea} onPress={onToggleDetail}>
+        {/* Image — real image if present, else a clean initial card (no SVG).
+            When a real image exists, tapping it opens the fullscreen preview. */}
+        <Pressable
+          style={styles.productImageWrap}
+          onPress={() => {
+            const uri = productImage(product.id, product.imageUrl, 600, product.name);
+            if (product.imageUrl && uri) onPreviewImage(uri);
+            else onToggleDetail();
+          }}
+        >
+          <ImageOrInitial
+            uri={productImage(product.id, product.imageUrl, 200, product.name)}
+            name={product.name}
+            style={styles.productImage}
+          />
+          {qty > 0 ? (
+            <View style={styles.inCartBadge}>
+              <Text style={styles.inCartText}>{qty} in cart</Text>
+            </View>
           ) : null}
-        </View>
+        </Pressable>
 
-        {!orderable ? (
-          <View style={styles.outOfStockBadge}>
-            <Text style={styles.outOfStockText}>{t.storefront.outOfStock}</Text>
+        {/* Info */}
+        <View style={styles.productInfo}>
+          <Text style={styles.productName} numberOfLines={2}>{product.name}</Text>
+          {!expanded ? (
+            <Text style={styles.productHint}>{t.storefront.tapForDetails}</Text>
+          ) : null}
+          <View style={styles.productPriceRow}>
+            <Text style={styles.productPrice}>{formatRupees(product.pricePaise)}</Text>
+            {hasMrp ? (
+              <Text style={styles.productMrp}>{formatRupees(product.mrpPaise!)}</Text>
+            ) : null}
           </View>
-        ) : qty === 0 ? (
-          <Pressable
-            style={[styles.addBtn, busy && styles.addBtnBusy]}
-            onPress={onAdd}
-            disabled={busy}
-          >
-            {busy
-              ? <ActivityIndicator color="#fff" size="small" />
-              : <Text style={styles.addBtnText}>🛒  {t.storefront.add}</Text>}
-          </Pressable>
-        ) : (
-          <View style={styles.stepper}>
-            <Pressable style={styles.stepBtn} onPress={onSub} disabled={busy}>
-              <Text style={styles.stepText}>−</Text>
+
+          {!orderable ? (
+            <View style={styles.outOfStockBadge}>
+              <Text style={styles.outOfStockText}>{t.storefront.outOfStock}</Text>
+            </View>
+          ) : qty === 0 ? (
+            <Pressable
+              style={[styles.addBtn, busy && styles.addBtnBusy]}
+              onPress={onAdd}
+              disabled={busy}
+            >
+              {busy
+                ? <ActivityIndicator color="#fff" size="small" />
+                : <Text style={styles.addBtnText}>{t.storefront.add}</Text>}
             </Pressable>
-            <Text style={styles.qty}>{qty}</Text>
-            <Pressable style={styles.stepBtn} onPress={onAdd} disabled={busy}>
-              <Text style={styles.stepText}>+</Text>
-            </Pressable>
-          </View>
-        )}
-      </View>
+          ) : (
+            <View style={styles.stepper}>
+              <Pressable style={styles.stepBtn} onPress={onSub} disabled={busy}>
+                <Text style={styles.stepText}>−</Text>
+              </Pressable>
+              <Text style={styles.qty}>{qty}</Text>
+              <Pressable style={styles.stepBtn} onPress={onAdd} disabled={busy}>
+                <Text style={styles.stepText}>+</Text>
+              </Pressable>
+            </View>
+          )}
+        </View>
+      </Pressable>
+
+      {/* Lazy-loaded detail, shown only when this row is expanded. */}
+      {expanded ? (
+        <View style={styles.detailBlock}>
+          {detailLoading && !detail ? (
+            <ActivityIndicator size="small" color={theme.color.primary} />
+          ) : detail?.description ? (
+            <Text style={styles.detailText}>{detail.description}</Text>
+          ) : (
+            <Text style={styles.detailEmpty}>{t.storefront.noDetail}</Text>
+          )}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -771,23 +855,43 @@ const styles = StyleSheet.create({
 
   // ── Product grid card ──
   productCard: {
-    flex: 1,
-    maxWidth: '50%',
-    margin: 6,
+    marginHorizontal: 12,
+    marginVertical: 6,
+    padding: 10,
     backgroundColor: theme.color.surface,
     borderRadius: 16,
     borderWidth: 1,
     borderColor: theme.color.border,
     ...shadow.sm,
   },
+  productTapArea: {
+    flexDirection: 'row',
+    gap: 12,
+    alignItems: 'center',
+  },
+  detailBlock: {
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: theme.color.border,
+  },
+  detailText: {
+    fontSize: theme.font.small,
+    color: theme.color.textMuted,
+    lineHeight: 19,
+  },
+  detailEmpty: {
+    fontSize: theme.font.small,
+    color: theme.color.textFaint,
+    fontStyle: 'italic',
+  },
   productImageWrap: {
     position: 'relative',
-    aspectRatio: 1.1,
+    width: 84,
+    height: 84,
+    borderRadius: 12,
     overflow: 'hidden',
-    borderTopLeftRadius: 15,
-    borderTopRightRadius: 15,
-  },
-  productImage: {
+  },  productImage: {
     width: '100%',
     height: '100%',
   },
@@ -809,7 +913,7 @@ const styles = StyleSheet.create({
     color: '#2E7D32',
   },
   productInfo: {
-    padding: 10,
+    flex: 1,
     gap: 4,
   },
   productName: {
@@ -821,6 +925,11 @@ const styles = StyleSheet.create({
   productPopular: {
     fontSize: 10,
     color: '#E65100',
+    fontWeight: '600',
+  },
+  productHint: {
+    fontSize: 11,
+    color: theme.color.primary,
     fontWeight: '600',
   },
   productPriceRow: {
@@ -841,13 +950,16 @@ const styles = StyleSheet.create({
     textDecorationLine: 'line-through',
   },
   addBtn: {
+    alignSelf: 'flex-end',
     backgroundColor: theme.color.primary,
     borderRadius: 10,
-    paddingVertical: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 20,
     alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'center',
     gap: 6,
+    minWidth: 92,
   },
   addBtnBusy: { opacity: 0.6 },
   addBtnText: {
@@ -857,9 +969,11 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
   },
   outOfStockBadge: {
+    alignSelf: 'flex-end',
     backgroundColor: theme.color.dangerLight,
     borderRadius: 10,
     paddingVertical: 8,
+    paddingHorizontal: 14,
     alignItems: 'center',
   },
   outOfStockText: {
@@ -891,6 +1005,7 @@ const styles = StyleSheet.create({
 
   action: { minWidth: 92, alignItems: 'flex-end' },
   stepper: {
+    alignSelf: 'flex-end',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -898,9 +1013,9 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     paddingVertical: 2,
   },
-  stepBtn: { paddingHorizontal: 14, paddingVertical: 8 },
+  stepBtn: { paddingHorizontal: 16, paddingVertical: 8 },
   stepText: { color: theme.color.onPrimary, fontSize: theme.font.h2, fontWeight: "700" },
-  qty: { color: theme.color.onPrimary, fontWeight: "700", minWidth: 22, textAlign: 'center' },
+  qty: { color: theme.color.onPrimary, fontWeight: "700", minWidth: 28, textAlign: 'center', fontSize: theme.font.body },
 
   empty: { color: theme.color.textMuted, textAlign: 'center', marginTop: theme.space.xl, paddingHorizontal: theme.space.lg },
 
@@ -969,4 +1084,34 @@ const styles = StyleSheet.create({
   cartBarLabel: { color: '#D7F0E3', fontSize: theme.font.tiny, fontWeight: "500" },
   cartBarTotal: { color: theme.color.onPrimary, fontSize: theme.font.h3, fontWeight: "700" },
   cartBarArrow: { color: theme.color.onPrimary, fontWeight: "700", fontSize: theme.font.body },
+
+  // Fullscreen image preview (lightbox)
+  previewBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.92)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: theme.space.lg,
+  },
+  previewImage: { width: '100%', height: '70%' },
+  previewName: {
+    color: '#fff',
+    fontSize: theme.font.h3,
+    fontWeight: '700',
+    marginTop: theme.space.lg,
+    textAlign: 'center',
+  },
+  previewClose: {
+    position: 'absolute',
+    top: theme.space.xl,
+    right: theme.space.lg,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 10,
+  },
+  previewCloseText: { color: '#fff', fontSize: 20, fontWeight: '700' },
 });

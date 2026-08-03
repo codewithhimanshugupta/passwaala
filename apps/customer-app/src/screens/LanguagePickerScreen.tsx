@@ -16,8 +16,8 @@ const BRAND_LIGHT = '#EEEFFD';
 interface LangOption { code: Lang; name: string; native: string; flag: string; }
 
 const OPTIONS: LangOption[] = [
-  { code: 'en', name: 'English', native: 'English', flag: '🇬🇧' },
-  { code: 'hi', name: 'Hindi', native: 'हिंदी', flag: '🇮🇳' },
+  { code: 'en', name: 'English', native: 'English', flag: 'EN' },
+  { code: 'hi', name: 'Hindi', native: 'हिंदी', flag: 'हि' },
 ];
 
 export function LanguagePickerScreen({ onContinue }: { onContinue: () => void }) {
@@ -38,14 +38,11 @@ export function LanguagePickerScreen({ onContinue }: { onContinue: () => void })
             <Text style={s.bannerTitle}>Choose Your{'\n'}Language</Text>
             <Text style={s.bannerSub}>We'll personalize your{'\n'}experience accordingly.</Text>
           </View>
-          <Text style={s.bannerGlobe}>🌐</Text>
         </View>
 
         {/* Label row */}
         <View style={s.labelRow}>
-          <Text style={s.labelIcon}>🔡</Text>
           <Text style={s.labelText}>Select Language</Text>
-          <View style={s.flagBadge}><Text style={s.flagBadgeText}>🇮🇳</Text></View>
         </View>
 
         {/* Language options */}
@@ -65,9 +62,7 @@ export function LanguagePickerScreen({ onContinue }: { onContinue: () => void })
                   <Text style={[s.rowName, active && s.rowNameActive]}>{opt.name}</Text>
                   <Text style={[s.rowNative, active && s.rowNativeActive]}>{opt.native}</Text>
                 </View>
-                <View style={[s.radio, active && s.radioActive]}>
-                  {active ? <Text style={s.radioCheck}>✓</Text> : null}
-                </View>
+                <View style={[s.radio, active && s.radioActive]} />
               </Pressable>
             );
           })}
@@ -77,7 +72,7 @@ export function LanguagePickerScreen({ onContinue }: { onContinue: () => void })
       {/* Continue button pinned to bottom */}
       <View style={s.footer}>
         <Pressable style={s.btn} onPress={handleContinue}>
-          <Text style={s.btnText}>✓  CONTINUE</Text>
+          <Text style={s.btnText}>CONTINUE</Text>
         </Pressable>
       </View>
     </View>

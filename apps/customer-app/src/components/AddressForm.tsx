@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { haversineMeters, isWithinDeliveryRange, platformDeliveryFeePaise } from '@passwaala/shared';
 import { api } from '../api';
 import type { Address } from '../types';
 import { theme } from '../theme';
+import { formatDistance, formatRupees } from '../theme';
 import { Button } from '../ui';
 import { LocationPicker } from './LocationPicker';
 import type { PickedLocation } from './LocationPicker';
@@ -16,11 +18,21 @@ export function AddressForm({
   onSaved,
   onError,
   onCancel,
+  shopGeo,
+  deliveryRadiusMeters,
+  platformDelivery,
 }: {
   address?: Address;
   onSaved: (id: string) => void;
   onError: (msg: string) => void;
   onCancel?: () => void;
+  /** Optional shop location — when provided, the form checks the dropped pin is
+   *  within delivery range and previews the distance-based delivery fee live. */
+  shopGeo?: { lat: number; lng: number } | null;
+  /** Shop's serviceable radius (metres). Defaults to the shared max when omitted. */
+  deliveryRadiusMeters?: number;
+  /** Whether the shop uses PassWaala-rider (distance-tiered) delivery — drives the fee preview. */
+  platformDelivery?: boolean;
 }) {
   const { t } = useLang();
   const editing = !!address;
@@ -47,6 +59,24 @@ export function AddressForm({
   // Field-level errors shown inline; also a general error slot.
   const [errors, setErrors]     = useState<{ houseNo?: string; street?: string; area?: string; general?: string }>({});
 
+  // Live delivery serviceability + fee preview, computed from the dropped pin
+  // relative to the shop (only when the caller passes shopGeo — e.g. from cart).
+  const dropInRange = shopGeo
+    ? isWithinDeliveryRange(
+        { latitude: shopGeo.lat, longitude: shopGeo.lng },
+        { latitude: coords.lat, longitude: coords.lng },
+        deliveryRadiusMeters,
+      )
+    : true;
+  const dropDistanceMeters = shopGeo
+    ? haversineMeters({ latitude: shopGeo.lat, longitude: shopGeo.lng }, { latitude: coords.lat, longitude: coords.lng })
+    : null;
+  // Distance-tiered fee only meaningful for platform (PassWaala-rider) delivery.
+  const previewFeePaise =
+    shopGeo && platformDelivery && dropDistanceMeters != null && dropInRange
+      ? platformDeliveryFeePaise(dropDistanceMeters)
+      : null;
+
   function handlePick(loc: PickedLocation) {
     setCoords(loc);
     if (loc.street) setStreet(loc.street);
@@ -72,6 +102,12 @@ export function AddressForm({
 
   async function save() {
     if (!validate()) return;
+    // Block saving an address that's outside the shop's delivery range (only
+    // enforced when the cart passed shop context). The server also re-checks.
+    if (shopGeo && !dropInRange) {
+      setErrors({ general: t.addressForm.outOfRange });
+      return;
+    }
     const line = buildLine();
     setBusy(true);
     setErrors({});
@@ -126,6 +162,23 @@ export function AddressForm({
         </View>
         <LocationPicker initial={coords} onChange={handlePick} />
       </View>
+
+      {/* Live delivery serviceability + fee preview (only when cart passes shop context). */}
+      {shopGeo && !dropInRange ? (
+        <View style={styles.rangeError}>
+          <Text style={styles.rangeErrorText}>
+            {dropDistanceMeters != null
+              ? t.addressForm.outOfRangeAt(formatDistance(dropDistanceMeters) ?? '')
+              : t.addressForm.outOfRange}
+          </Text>
+        </View>
+      ) : shopGeo && previewFeePaise != null ? (
+        <View style={styles.feePreview}>
+          <Text style={styles.feePreviewText}>
+            {t.addressForm.deliveryFeePreview(formatRupees(previewFeePaise))}
+          </Text>
+        </View>
+      ) : null}
 
       {/* Address fields */}
       <Text style={styles.sectionLabel}>{t.addressForm.addressDetails}</Text>
@@ -201,6 +254,8 @@ export function AddressForm({
         </View>
       ) : null}
 
+      {errors.general ? <Text style={styles.generalError}>{errors.general}</Text> : null}
+
       <Button label={editing ? t.addressForm.saveChanges : t.addressForm.saveAddress} onPress={save} busy={busy} />
       {onCancel ? <Button label={t.common.cancel} onPress={onCancel} variant="ghost" /> : null}
     </View>
@@ -241,6 +296,22 @@ const styles = StyleSheet.create({
   },
   inputError: { borderColor: theme.color.danger, backgroundColor: theme.color.dangerLight },
   fieldError: { fontSize: theme.font.tiny, color: theme.color.danger, fontWeight: theme.weight.semibold },
+
+  rangeError: {
+    backgroundColor: theme.color.dangerLight,
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    borderColor: theme.color.danger,
+    padding: theme.space.md,
+  },
+  rangeErrorText: { fontSize: theme.font.small, color: theme.color.danger, fontWeight: theme.weight.semibold },
+  feePreview: {
+    backgroundColor: theme.color.surfaceAlt,
+    borderRadius: theme.radius.md,
+    padding: theme.space.md,
+  },
+  feePreviewText: { fontSize: theme.font.small, color: theme.color.text, fontWeight: theme.weight.semibold },
+  generalError: { fontSize: theme.font.small, color: theme.color.danger, fontWeight: theme.weight.semibold, textAlign: 'center' },
 
   preview: {
     backgroundColor: theme.color.primaryLight,

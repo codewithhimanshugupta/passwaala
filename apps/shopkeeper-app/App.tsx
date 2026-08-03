@@ -12,8 +12,10 @@ import { ProductsScreen } from './src/screens/ProductsScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 import { LedgerScreen } from './src/screens/LedgerScreen';
 import { api, hasSavedToken, logout, onAuthExpired } from './src/api';
+import { connectSocket, disconnectSocket, reconnectSocket } from './src/socket';
 import { formatRupees, theme } from './src/theme';
 import { Badge } from './src/ui';
+import { TabIcon } from './src/TabIcon';
 import { verificationMeta } from './src/status';
 import { useNewOrderAlerts } from './src/useNewOrderAlerts';
 import { unlockAudio } from './src/sound';
@@ -37,21 +39,13 @@ type Tab = 'home' | 'orders' | 'products' | 'settings' | 'ledger';
 /** 'all' = overview of all shops; a shop id = that shop's single-shop view */
 type ViewContext = 'all' | string;
 
-const TAB_ICONS: Record<Tab, string> = {
-  home: '⌂',
-  orders: '☰',
-  products: '▦',
-  settings: '⚙',
-  ledger: '₹',
-};
-
-function tabList(t: Strings): { key: Tab; label: string; icon: string }[] {
+function tabList(t: Strings): { key: Tab; label: string }[] {
   return [
-    { key: 'home', label: t.tabs.home, icon: TAB_ICONS.home },
-    { key: 'orders', label: t.tabs.orders, icon: TAB_ICONS.orders },
-    { key: 'products', label: t.tabs.products, icon: TAB_ICONS.products },
-    { key: 'settings', label: t.tabs.settings, icon: TAB_ICONS.settings },
-    { key: 'ledger', label: t.tabs.ledger, icon: TAB_ICONS.ledger },
+    { key: 'home', label: t.tabs.home },
+    { key: 'orders', label: t.tabs.orders },
+    { key: 'products', label: t.tabs.products },
+    { key: 'settings', label: t.tabs.settings },
+    { key: 'ledger', label: t.tabs.ledger },
   ];
 }
 
@@ -99,6 +93,14 @@ function AppRoot() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stage, shop]);
+
+  // Connect the realtime socket while in the app; disconnect otherwise.
+  useEffect(() => {
+    if (stage === 'app') {
+      connectSocket();
+      return () => disconnectSocket();
+    }
+  }, [stage]);
 
   /** After login (or on startup with a saved token), check for an owned shop. */
   const resolveShop = useCallback(async () => {
@@ -181,6 +183,9 @@ function AppRoot() {
       try {
         const { accessToken } = await api.switchShop(shopId);
         api.setToken(accessToken);
+        // Token is now scoped to the new shop — reconnect the socket so it joins
+        // the new shop's room and stops receiving the previous shop's events.
+        reconnectSocket();
         const myShop = (await api.myShop()) as MyShop;
         setShop(myShop);
         setViewContext(myShop.id);
@@ -523,9 +528,9 @@ function AllShopsDashboard({
   return (
     <ScrollView style={styles.allScroll} contentContainerStyle={styles.allContent}>
       <View style={styles.allGrid}>
-        <AllTile label="Total Shops" value={String(totalShops)} iconBg={theme.color.primarySoft} icon="🏪" />
-        <AllTile label="Open Now" value={String(openShops)} iconBg={theme.color.successSoft} icon="✅" accent />
-        <AllTile label="Approved" value={String(approvedShops)} iconBg={theme.color.accentSoft} icon="🏅" />
+        <AllTile label="Total Shops" value={String(totalShops)} iconBg={theme.color.primarySoft} icon="" />
+        <AllTile label="Open Now" value={String(openShops)} iconBg={theme.color.successSoft} icon="" accent />
+        <AllTile label="Approved" value={String(approvedShops)} iconBg={theme.color.accentSoft} icon="" />
       </View>
 
       <Text style={styles.allListTitle}>Your Shops</Text>
@@ -575,7 +580,7 @@ function BottomTabs({ active, onChange, t }: { active: Tab; onChange: (t: Tab) =
         const isActive = tab.key === active;
         return (
           <Pressable key={tab.key} style={styles.tabItem} onPress={() => onChange(tab.key)}>
-            <Text style={[styles.tabIcon, isActive && styles.tabActive]}>{tab.icon}</Text>
+            <TabIcon name={tab.key} color={isActive ? theme.color.accent : theme.color.textFaint} />
             <Text style={[styles.tabLabel, isActive && styles.tabActive]}>{tab.label}</Text>
           </Pressable>
         );
@@ -671,7 +676,6 @@ const styles = StyleSheet.create({
     paddingBottom: theme.space.md,
   },
   tabItem: { flex: 1, alignItems: 'center', gap: 2 },
-  tabIcon: { fontSize: 18, color: theme.color.textFaint },
   tabLabel: { fontSize: theme.font.tiny, fontWeight: '700', color: theme.color.textFaint },
   tabActive: { color: theme.color.accent },
 

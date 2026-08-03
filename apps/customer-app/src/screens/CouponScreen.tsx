@@ -94,7 +94,7 @@ function CouponCard({
             <Text style={s.cardCode}>{code}</Text>
             <Pressable onPress={selected ? onRemove : (locked ? undefined : onApply)}>
               <Text style={[s.applyBtn, selected && s.applyBtnApplied, locked && s.applyBtnLocked]}>
-                {selected ? 'APPLIED ✓' : 'APPLY'}
+                {selected ? 'APPLIED' : 'APPLY'}
               </Text>
             </Pressable>
           </View>

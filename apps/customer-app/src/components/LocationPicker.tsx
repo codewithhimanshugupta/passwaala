@@ -90,14 +90,18 @@ body{display:flex;flex-direction:column}
 /* ── Bottom bar ── */
 #bar{display:flex;align-items:center;gap:8px;padding:9px 12px;background:rgba(255,255,255,0.97);border-top:1px solid #E5E7EB;z-index:1000;flex-shrink:0}
 #addr{flex:1;font-size:13px;color:#374151;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#gps{background:#0B7A4B;color:#fff;border:none;border-radius:8px;padding:7px 12px;font-size:12px;font-weight:700;cursor:pointer;flex-shrink:0;white-space:nowrap}
+/* "Use my location" — a round blue control (maps-style) with a white locator
+   dot ring drawn in CSS. Floats above the map, bottom-right. */
+#gps{position:absolute;right:12px;bottom:70px;width:44px;height:44px;padding:0;border:none;border-radius:50%;background:#1A73E8;box-shadow:0 2px 8px rgba(0,0,0,0.3);cursor:pointer;z-index:1000;display:flex;align-items:center;justify-content:center}
 #gps:disabled{opacity:0.55;cursor:default}
+#gps .dot{width:16px;height:16px;border-radius:50%;border:3px solid #fff;box-sizing:border-box;position:relative}
+#gps .dot::after{content:'';position:absolute;top:50%;left:50%;width:4px;height:4px;border-radius:50%;background:#fff;transform:translate(-50%,-50%)}
 #pin-hint{position:absolute;top:58px;left:50%;transform:translateX(-50%);background:rgba(11,122,75,0.9);color:#fff;padding:5px 13px;border-radius:20px;font-size:12px;font-weight:600;z-index:1000;pointer-events:none;white-space:nowrap}
 </style>
 </head><body>
 <div id="search-wrap">
   <div id="search-row">
-    <span id="search-icon">🔍</span>
+    <span id="search-icon"></span>
     <input id="search-input" type="text" placeholder="" autocomplete="off" spellcheck="false"/>
     <button id="search-clear" onclick="clearSearch()">✕</button>
   </div>
@@ -105,9 +109,9 @@ body{display:flex;flex-direction:column}
 </div>
 <div id="map"></div>
 <div id="pin-hint"></div>
+<button id="gps" onclick="useGps()" aria-label=""><span class="dot"></span></button>
 <div id="bar">
   <span id="addr"></span>
-  <button id="gps" onclick="useGps()"></button>
 </div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
@@ -123,13 +127,13 @@ var L10N={
 };
 document.getElementById('search-input').placeholder=L10N.searchPlaceholder;
 document.getElementById('pin-hint').textContent=L10N.dragPin;
-document.getElementById('gps').textContent=L10N.myLocation;
+document.getElementById('gps').setAttribute('aria-label', L10N.myLocation);
 var LAT=${lat}, LNG=${lng};
 var map=L.map('map',{zoomControl:true,attributionControl:false});
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(map);
 map.setView([LAT,LNG],16);
 
-var pinIcon=L.divIcon({html:'<div style="font-size:34px;line-height:1;filter:drop-shadow(0 2px 5px rgba(0,0,0,.45))">📍</div>',className:'',iconSize:[34,34],iconAnchor:[17,34]});
+var pinIcon=L.divIcon({html:'<div style="width:22px;height:22px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:#0B7A4B;border:3px solid #fff;box-shadow:0 2px 5px rgba(0,0,0,.45)"></div>',className:'',iconSize:[28,28],iconAnchor:[14,28]});
 var marker=L.marker([LAT,LNG],{icon:pinIcon,draggable:true}).addTo(map);
 
 /* ── Reverse geocode → emit ── */
@@ -209,7 +213,7 @@ function doSearch(q){
         var main=r.name||a.road||a.neighbourhood||r.display_name.split(',')[0]||'';
         var sub=r.display_name.replace(main,'').replace(/^[,\\s]+/,'');
         return '<div class="dd-item" data-idx="'+i+'" onmousedown="pickIdx('+i+')">'
-          +'<span class="dd-pin">📍</span>'
+          +'<span class="dd-pin"></span>'
           +'<div><div class="dd-main">'+main+'</div><div class="dd-sub">'+sub+'</div></div>'
           +'</div>';
       }).join('');
@@ -342,11 +346,10 @@ function NativePicker({
   return (
     <View style={styles.nativeWrap}>
       <View style={styles.nativeBox}>
-        <Text style={styles.nativeMapEmoji}>🗺️</Text>
         <Text style={styles.nativeTitle}>{t.locationPicker.setLocation}</Text>
         <Text style={styles.nativeSub}>
           {picked
-            ? `📍 ${picked.lat.toFixed(5)}, ${picked.lng.toFixed(5)}`
+            ? `${picked.lat.toFixed(5)}, ${picked.lng.toFixed(5)}`
             : t.locationPicker.tapToUseGps}
         </Text>
       </View>

@@ -205,7 +205,7 @@ export function ProfileScreen({ onLogout }: { onLogout: () => void }) {
             <Text style={styles.avatarText}>{initials}</Text>
           </View>
           <Pressable onPress={startEditName} style={styles.editBadge}>
-            <Text style={styles.editBadgeText}>✎</Text>
+            <Text style={styles.editBadgeText}>{t.profile.edit}</Text>
           </Pressable>
         </View>
 
@@ -309,7 +309,7 @@ export function ProfileScreen({ onLogout }: { onLogout: () => void }) {
                     style={styles.addrActionBtn}
                     hitSlop={6}
                   >
-                    <Text style={styles.addrEditIcon}>✎</Text>
+                    <Text style={styles.addrEditIcon}>{t.profile.edit}</Text>
                   </Pressable>
                   <Pressable
                     onPress={() => removeAddress(addr.id)}
@@ -318,7 +318,7 @@ export function ProfileScreen({ onLogout }: { onLogout: () => void }) {
                     hitSlop={6}
                   >
                     <Text style={styles.addrDeleteIcon}>
-                      {deletingAddressId === addr.id ? '…' : '🗑'}
+                      {deletingAddressId === addr.id ? '…' : t.profile.delete}
                     </Text>
                   </Pressable>
                 </View>
@@ -355,7 +355,6 @@ export function ProfileScreen({ onLogout }: { onLogout: () => void }) {
               </View>
               <Button
                 label={copied ? t.profile.copied : t.profile.share}
-                icon={copied ? '✓' : '🔗'}
                 onPress={shareReferral}
                 variant="secondary"
                 size="sm"
@@ -422,7 +421,6 @@ export function ProfileScreen({ onLogout }: { onLogout: () => void }) {
       <Modal visible={confirmDelete} transparent animationType="fade" onRequestClose={() => setConfirmDelete(false)}>
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard}>
-            <Text style={styles.modalEmoji}>⚠️</Text>
             <Text style={styles.modalTitle}>{t.profile.deleteTitle}</Text>
             <Text style={styles.modalBody}>
               {t.profile.deleteBody}
@@ -439,9 +437,9 @@ export function ProfileScreen({ onLogout }: { onLogout: () => void }) {
 /** Map common address labels to icons; fallback to pin. */
 function profileAddrIcon(label: string): string {
   const l = label.toLowerCase();
-  if (l === 'home') return '🏠';
-  if (l === 'work' || l === 'office') return '💼';
-  return '📍';
+  if (l === 'home') return 'H';
+  if (l === 'work' || l === 'office') return 'W';
+  return 'O';
 }
 
 function Row({

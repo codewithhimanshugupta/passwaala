@@ -100,6 +100,18 @@ export class AdminController {
     return this.admin.listRiders(city);
   }
 
+  /** Full detail for one rider — profile + KYC (identity + documents) + recent orders. */
+  @Get('riders/:userId')
+  riderDetail(@Param('userId') userId: string) {
+    return this.admin.riderDetail(userId);
+  }
+
+  /** All platform customers with coin balance + order stats — for the admin customers console. */
+  @Get('customers')
+  listCustomers(@Query('q') q?: string) {
+    return this.admin.listCustomers({ q });
+  }
+
   /** All orders across the platform — live + completed, with OTPs and payment state. */
   @Get('orders')
   listAllOrders(@Query() page: PaginationQuery) {

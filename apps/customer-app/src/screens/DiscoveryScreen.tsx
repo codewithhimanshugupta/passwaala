@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   FlatList,
   Image,
   Modal,
@@ -17,6 +18,8 @@ import { api } from '../api';
 import type { ShopContactFields, Address } from '../types';
 import { bannerImage, logoImage, formatDistance, formatEta, formatRupees, shadow, theme } from '../theme';
 import { Badge, Button, EmptyState, ErrorState, Loading } from '../ui';
+import { ImageOrInitial } from '../ImageOrInitial';
+import { ChevronDown } from '../ChevronDown';
 import { useLang } from '../i18n/LanguageContext';
 import type { Strings } from '../i18n/strings';
 
@@ -24,19 +27,21 @@ import type { Strings } from '../i18n/strings';
 const DEFAULT_LAT = 25.4484;
 const DEFAULT_LNG = 78.5685;
 const DEFAULT_LABEL = 'Jhansi';
+/** Nearby shops fetched per page in list view (load more on scroll). */
+const PAGE_SIZE = 15;
 
 /** Resolved delivery location: either the GPS fix or the default fallback. */
 type Coords = { lat: number; lng: number };
 
 /** Category chips — slugs are API values (never localized); labels come from `t`. */
-function categoriesFor(t: Strings): { slug: string; label: string; emoji: string }[] {
+function categoriesFor(t: Strings): { slug: string; label: string }[] {
   return [
-    { slug: '', label: t.discovery.categoryAll, emoji: '🏪' },
-    { slug: 'kirana', label: t.discovery.categoryKirana, emoji: '🛒' },
-    { slug: 'dairy', label: t.discovery.categoryDairy, emoji: '🥛' },
-    { slug: 'medical', label: t.discovery.categoryMedical, emoji: '💊' },
-    { slug: 'fruits-veg', label: t.discovery.categoryFruitsVeg, emoji: '🥬' },
-    { slug: 'electronics', label: t.discovery.categoryElectronics, emoji: '🔌' },
+    { slug: '', label: t.discovery.categoryAll },
+    { slug: 'kirana', label: t.discovery.categoryKirana },
+    { slug: 'dairy', label: t.discovery.categoryDairy },
+    { slug: 'medical', label: t.discovery.categoryMedical },
+    { slug: 'fruits-veg', label: t.discovery.categoryFruitsVeg },
+    { slug: 'electronics', label: t.discovery.categoryElectronics },
   ];
 }
 
@@ -45,21 +50,35 @@ function categoriesFor(t: Strings): { slug: string; label: string; emoji: string
  * bar, category chips, sort toggle (distance/rating), open-now filter, and rich
  * shop cards with banner + logo, rating, distance and delivery info.
  */
+/** Delivery-location state, owned by App.tsx so it survives shop navigation. */
+export type LocState = {
+  coords: { lat: number; lng: number } | null;
+  placeName: string | null;
+  addressPicked: boolean;
+  gpsTried: boolean;
+};
+
 export function DiscoveryScreen({
   onOpenShop,
   viewMode = 'list',
   onViewModeChange,
   restoredShopId,
+  loc,
+  onLocChange,
 }: {
   onOpenShop: (shopId: string) => void;
   viewMode?: 'list' | 'map';
   onViewModeChange?: (mode: 'list' | 'map') => void;
   restoredShopId?: string | null;
+  loc: LocState;
+  onLocChange: (next: LocState) => void;
 }) {
   const { t } = useLang();
   const CATEGORIES = categoriesFor(t);
   const [shops, setShops] = useState<NearbyShop[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [canLoadMore, setCanLoadMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [category, setCategory] = useState('');
@@ -74,16 +93,13 @@ export function DiscoveryScreen({
   // City delivery radius from admin config (default 10km until loaded).
   const [cityRadius, setCityRadius] = useState(10000);
 
-  // Location: start with the default fallback, then try the browser's GPS. When
-  // it resolves we re-fetch nearby shops against the real position.
-  const [coords, setCoords] = useState<Coords>({ lat: DEFAULT_LAT, lng: DEFAULT_LNG });
-  const [usingDefault, setUsingDefault] = useState(true);
+  // Location is OWNED by App.tsx (via `loc`) so it persists across opening a
+  // shop and coming back. Derive the effective coords/label from it; fall back
+  // to the pilot default only for display until GPS or an address resolves.
+  const coords: Coords = loc.coords ?? { lat: DEFAULT_LAT, lng: DEFAULT_LNG };
+  const usingDefault = loc.coords == null;
+  const placeName = loc.placeName ?? DEFAULT_LABEL;
   const [locating, setLocating] = useState(false);
-
-  // Human-readable place name for the location bar (never raw coordinates).
-  // Reverse-geocoded from `coords`; cached by a "lat,lng" key so we don't refetch
-  // on every render. Falls back to the default label on any lookup failure.
-  const [placeName, setPlaceName] = useState<string>(DEFAULT_LABEL);
   const geocodedKey = useRef<string | null>(null);
 
   // City-level name (from the reverse-geocode) used to check serviceability.
@@ -109,30 +125,39 @@ export function DiscoveryScreen({
     const geo =
       typeof navigator !== 'undefined' && navigator.geolocation ? navigator.geolocation : null;
     if (!geo) {
-      // Geolocation unavailable (older RN / SSR) — keep the default silently.
-      setUsingDefault(true);
+      // Geolocation unavailable — mark tried; user can pick a saved address.
+      onLocChange({ ...loc, gpsTried: true });
       return;
     }
     setLocating(true);
     geo.getCurrentPosition(
       (pos) => {
-        setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-        setUsingDefault(false);
+        onLocChange({
+          coords: { lat: pos.coords.latitude, lng: pos.coords.longitude },
+          placeName: null, // reverse-geocode effect fills this
+          addressPicked: false,
+          gpsTried: true,
+        });
         setLocating(false);
       },
       () => {
-        // Permission denied / timeout / error — fall back to the default coords.
-        setCoords({ lat: DEFAULT_LAT, lng: DEFAULT_LNG });
-        setUsingDefault(true);
+        // Denied / timeout — do NOT silently jump to Jhansi. Just mark tried;
+        // the UI shows a "set location" prompt and the user can pick an address.
+        onLocChange({ ...loc, gpsTried: true });
         setLocating(false);
       },
       { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 },
     );
-  }, []);
+  }, [loc, onLocChange]);
 
+  // Auto-run GPS ONCE per session, and never when the user already picked an
+  // address (F1/F2). After the first attempt the chosen location sticks.
   useEffect(() => {
-    resolveLocation();
-  }, [resolveLocation]);
+    if (!loc.gpsTried && !loc.addressPicked) {
+      resolveLocation();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loc.gpsTried, loc.addressPicked]);
 
   // Load the serviceable-city list once on mount. On failure we leave it null
   // (unknown) so we never wrongly tell a user their city isn't covered.
@@ -163,15 +188,21 @@ export function DiscoveryScreen({
     setLoading(true);
     setError(null);
     try {
+      // List view paginates (first PAGE_SIZE, load more on scroll); map view
+      // needs all pins so it pulls a larger set.
+      const isMap = viewMode === 'map';
       const result = await api.nearbyShops({
         lat: coords.lat,
         lng: coords.lng,
-        radiusMeters: radiusOverride ?? (viewMode === 'map' ? mapRadius : cityRadius),
+        radiusMeters: Math.round(radiusOverride ?? (isMap ? mapRadius : cityRadius)),
         sort,
         openNow: openNow || undefined,
         category: category || undefined,
+        limit: isMap ? 50 : PAGE_SIZE,
+        offset: 0,
       });
       setShops(result);
+      setCanLoadMore(!isMap && result.length === PAGE_SIZE);
       // Restore the selected map shop when coming back from a shop screen.
       if (restoredShopId) {
         const restored = result.find(s => s.id === restoredShopId);
@@ -182,7 +213,31 @@ export function DiscoveryScreen({
     } finally {
       setLoading(false);
     }
-  }, [category, sort, openNow, coords, viewMode, mapRadius, cityRadius]);
+  }, [category, sort, openNow, coords, viewMode, mapRadius, cityRadius, restoredShopId]);
+
+  // Load the next page of shops (list view only) and append.
+  const loadMore = useCallback(async () => {
+    if (loadingMore || !canLoadMore || viewMode === 'map') return;
+    setLoadingMore(true);
+    try {
+      const next = await api.nearbyShops({
+        lat: coords.lat,
+        lng: coords.lng,
+        radiusMeters: Math.round(cityRadius),
+        sort,
+        openNow: openNow || undefined,
+        category: category || undefined,
+        limit: PAGE_SIZE,
+        offset: shops.length,
+      });
+      setShops((prev) => [...prev, ...next]);
+      setCanLoadMore(next.length === PAGE_SIZE);
+    } catch {
+      /* keep what's loaded; next scroll retries */
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [loadingMore, canLoadMore, viewMode, coords, cityRadius, sort, openNow, category, shops.length]);
 
   useEffect(() => {
     void load();
@@ -195,30 +250,33 @@ export function DiscoveryScreen({
 
   // Open a shop, but if it's pickup-only right now (no rider nearby for a
   // platform-delivery shop) first confirm the customer is OK with pickup.
-  const handleOpenShop = useCallback((shop: NearbyShop) => {
-    const sc = shop as NearbyShop & ShopContactFields;
-    const pickupOnly = sc.deliveryAvailable === false && sc.selfPickupEnabled !== false;
-    if (pickupOnly) {
-      setPickupOnlyShop(shop);
-      return;
+  // Open a shop. Delivery availability is now checked LAZILY here (one cheap
+  // per-shop call) rather than scanning all riders for every shop in the list.
+  // If a platform-delivery shop has no rider online right now but offers
+  // self-pickup, confirm the customer is OK with pickup first.
+  const handleOpenShop = useCallback(async (shop: NearbyShop) => {
+    try {
+      const avail = await api.shopDeliveryAvailable(shop.id);
+      if (!avail.deliveryAvailable && avail.selfPickupEnabled) {
+        setPickupOnlyShop(shop);
+        return;
+      }
+    } catch {
+      // If the check fails, don't block — just open the shop.
     }
     onOpenShop(shop.id);
   }, [onOpenShop]);
 
-  // When the map zooms/pans, expand radius if needed but never shrink below 20km.
-  // Reverse-geocode the current coords to a human place name (e.g. "Civil Lines,
-  // same fix never refetches; any failure keeps the default label.
+  // Reverse-geocode the current coords to a human place name; writes it back to
+  // the lifted loc.placeName (only when we have real GPS coords, not the default).
   useEffect(() => {
-    const key = `${coords.lat.toFixed(4)},${coords.lng.toFixed(4)}`;
-    if (geocodedKey.current === key) return;
-    geocodedKey.current = key;
-
-    // For the default fallback location, skip the network call and use the label.
     if (usingDefault) {
-      setPlaceName(DEFAULT_LABEL);
       setDetectedCity(DEFAULT_LABEL);
       return;
     }
+    const key = `${coords.lat.toFixed(4)},${coords.lng.toFixed(4)}`;
+    if (geocodedKey.current === key) return;
+    geocodedKey.current = key;
 
     let cancelled = false;
     (async () => {
@@ -228,14 +286,12 @@ export function DiscoveryScreen({
         if (!res.ok) throw new Error('geocode failed');
         const data = (await res.json()) as { address?: Record<string, string> };
         const name = buildPlaceName(data.address);
-        if (!cancelled && name) setPlaceName(name);
-        else if (!cancelled) setPlaceName(DEFAULT_LABEL);
+        if (!cancelled && name && !loc.addressPicked) {
+          onLocChange({ ...loc, placeName: name });
+        }
         if (!cancelled) setDetectedCity(buildCityName(data.address));
       } catch {
-        if (!cancelled) {
-          setPlaceName(DEFAULT_LABEL);
-          setDetectedCity(null);
-        }
+        if (!cancelled) setDetectedCity(null);
       }
     })();
 
@@ -266,18 +322,14 @@ export function DiscoveryScreen({
           <View style={styles.flex}>
             <Text style={styles.deliverLabel}>{t.discovery.deliveringTo}</Text>
             <Pressable
-              onPress={savedAddresses.length > 0 ? () => setShowAddrPicker(true) : (usingDefault ? resolveLocation : undefined)}
+              onPress={() => setShowAddrPicker(true)}
               disabled={locating}
               style={styles.locationRow}
             >
               <Text style={styles.locationValue} numberOfLines={1}>
                 {locating ? t.discovery.findingLocation : placeName}
               </Text>
-              {savedAddresses.length > 0 ? (
-                <Text style={styles.locationGpsHint}>▾</Text>
-              ) : usingDefault && !locating ? (
-                <Text style={styles.locationGpsHint}>· Tap for GPS</Text>
-              ) : null}
+              {!locating ? <ChevronDown size={18} color={theme.color.text} /> : null}
             </Pressable>
           </View>
           {/* Map/List toggle — segmented control */}
@@ -286,20 +338,19 @@ export function DiscoveryScreen({
               onPress={() => onViewModeChange?.('list')}
               style={[styles.viewToggleSeg, viewMode === 'list' && styles.viewToggleSegActive]}
             >
-              <Text style={[styles.viewToggleSegText, viewMode === 'list' && styles.viewToggleSegTextActive]}>☰</Text>
+              <Text style={[styles.viewToggleSegText, viewMode === 'list' && styles.viewToggleSegTextActive]}>List</Text>
             </Pressable>
             <Pressable
               onPress={() => onViewModeChange?.('map')}
               style={[styles.viewToggleSeg, viewMode === 'map' && styles.viewToggleSegActive]}
             >
-              <Text style={[styles.viewToggleSegText, viewMode === 'map' && styles.viewToggleSegTextActive]}>🗺</Text>
+              <Text style={[styles.viewToggleSegText, viewMode === 'map' && styles.viewToggleSegTextActive]}>Map</Text>
             </Pressable>
           </View>
         </View>
 
         {/* Search bar */}
         <View style={styles.searchBar}>
-          <Text style={styles.searchIcon}>🔍</Text>
           <TextInput
             style={styles.searchInput}
             placeholder={t.discovery.searchPlaceholder}
@@ -332,7 +383,6 @@ export function DiscoveryScreen({
                 onPress={() => setCategory(c.slug)}
                 style={[styles.chip, active && styles.chipActive]}
               >
-                <Text style={styles.chipEmoji}>{c.emoji}</Text>
                 <Text style={[styles.chipText, active && styles.chipTextActive]}>{c.label}</Text>
               </Pressable>
             );
@@ -371,7 +421,6 @@ export function DiscoveryScreen({
         <ErrorState message={error} onRetry={load} />
       ) : shops.length === 0 && cityUnserved ? (
         <EmptyState
-          emoji="📍"
           title={t.discovery.notAvailableTitle(detectedCity!)}
           subtitle={t.discovery.notAvailableSubtitle}
           action={
@@ -380,7 +429,6 @@ export function DiscoveryScreen({
             ) : (
               <Button
                 label={t.discovery.notifyMe}
-                icon="🔔"
                 variant="primary"
                 fullWidth={false}
                 onPress={() => setNotified(true)}
@@ -390,7 +438,6 @@ export function DiscoveryScreen({
         />
       ) : shops.length === 0 ? (
         <View style={styles.empty}>
-          <Text style={styles.emptyEmoji}>🔍</Text>
           <Text style={styles.emptyTitle}>{t.discovery.noMatchTitle}</Text>
           <Text style={styles.emptySub}>{t.discovery.noMatchSubtitle}</Text>
         </View>
@@ -411,8 +458,8 @@ export function DiscoveryScreen({
               <View style={styles.mapSheetHandle} />
               <View style={styles.mapSheetContent}>
                 <View style={styles.mapSheetThumbWrap}>
-                  <Image source={{ uri: bannerImage(selectedShop.id, selectedShop.storefrontPhotoUrl, 400, 200, selectedShop.name) }} style={styles.mapSheetThumb} />
-                  <Image source={{ uri: logoImage(selectedShop.id, (selectedShop as NearbyShop & ShopContactFields).logoUrl, 96, selectedShop.name) }} style={styles.mapSheetLogo} />
+                  <ImageOrInitial uri={bannerImage(selectedShop.id, selectedShop.storefrontPhotoUrl, 400, 200, selectedShop.name)} name={selectedShop.name} style={styles.mapSheetThumb} />
+                  <ImageOrInitial uri={logoImage(selectedShop.id, (selectedShop as NearbyShop & ShopContactFields).logoUrl, 96, selectedShop.name)} name={selectedShop.name} rounded style={styles.mapSheetLogo} />
                 </View>
                 <View style={styles.flex}>
                   <Text style={styles.mapSheetName} numberOfLines={1}>{selectedShop.name}</Text>
@@ -420,7 +467,7 @@ export function DiscoveryScreen({
                     {[(selectedShop as NearbyShop & ShopContactFields).addressLine, (selectedShop as NearbyShop & ShopContactFields).city].filter(Boolean).join(', ')}
                   </Text>
                   <View style={styles.mapSheetRow}>
-                    {selectedShop.offerText ? <Text style={styles.mapOfferTag}>🏷️ {selectedShop.offerText}</Text> : null}
+                    {selectedShop.offerText ? <Text style={styles.mapOfferTag}>{selectedShop.offerText}</Text> : null}
                     <Text style={styles.mapSheetDist}>{formatDistance(selectedShop.distanceMeters)} · {selectedShop.deliveryFeePaise === 0 ? t.common.free + ' delivery' : formatRupees(selectedShop.deliveryFeePaise)}</Text>
                   </View>
                 </View>
@@ -435,15 +482,15 @@ export function DiscoveryScreen({
                   const lng = sc.longitude != null ? Number(sc.longitude) : null;
                   if (lat && lng) { const url = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`; if (typeof window !== 'undefined') window.open(url, '_blank'); }
                 }}>
-                  <Text style={styles.mapBtnSecondaryText}>🧭 Directions</Text>
+                  <Text style={styles.mapBtnSecondaryText}>Directions</Text>
                 </Pressable>
                 {selectedShop.isOpen ? (
                   <Pressable style={styles.mapBtnPrimary} onPress={() => handleOpenShop(selectedShop)}>
-                    <Text style={styles.mapBtnPrimaryText}>🏬 Open Shop</Text>
+                    <Text style={styles.mapBtnPrimaryText}>Open Shop</Text>
                   </Pressable>
                 ) : (
                   <View style={[styles.mapBtnPrimary, styles.mapBtnDisabled]}>
-                    <Text style={styles.mapBtnDisabledText}>🔒 Currently Closed</Text>
+                    <Text style={styles.mapBtnDisabledText}>Currently Closed</Text>
                   </View>
                 )}
               </View>
@@ -461,6 +508,9 @@ export function DiscoveryScreen({
           showsVerticalScrollIndicator={false}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
           renderItem={({ item }) => <ShopCard shop={item} onPress={() => handleOpenShop(item)} />}
+          onEndReached={() => { if (!searchQuery.trim()) void loadMore(); }}
+          onEndReachedThreshold={0.5}
+          ListFooterComponent={loadingMore ? <ActivityIndicator style={{ marginVertical: 16 }} color={theme.color.primary} /> : null}
         />
       )}
 
@@ -511,14 +561,17 @@ export function DiscoveryScreen({
                   const lat = Number(addr.latitude);
                   const lng = Number(addr.longitude);
                   if (Number.isFinite(lat) && Number.isFinite(lng)) {
-                    setCoords({ lat, lng });
-                    setUsingDefault(false);
-                    setPlaceName(addr.line);
+                    // User explicitly picked an address → lock out GPS override (F2).
+                    onLocChange({
+                      coords: { lat, lng },
+                      placeName: addr.line,
+                      addressPicked: true,
+                      gpsTried: true,
+                    });
                   }
                   setShowAddrPicker(false);
                 }}
               >
-                <Text style={styles.addrPickerIcon}>{addr.label === 'Home' ? '🏠' : addr.label === 'Work' ? '🏢' : '📍'}</Text>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.addrPickerLabel}>{addr.label}</Text>
                   <Text style={styles.addrPickerLine} numberOfLines={1}>{addr.line}</Text>
@@ -526,7 +579,6 @@ export function DiscoveryScreen({
               </Pressable>
             ))}
             <Pressable style={styles.addrPickerGps} onPress={() => { resolveLocation(); setShowAddrPicker(false); }}>
-              <Text style={styles.addrPickerIcon}>📡</Text>
               <Text style={styles.addrPickerLabel}>Use current location</Text>
             </Pressable>
           </View>
@@ -591,7 +643,7 @@ var map=L.map('map',{zoomControl:true,attributionControl:false});
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(map);
 L.marker([${center.lat},${center.lng}],{icon:L.divIcon({html:'<div class="user-dot"></div>',className:'',iconSize:[18,18],iconAnchor:[9,9]})}).addTo(map);
 function makeIcon(s,active){
-  var inner=s.photo?'<img class="pin-img" src="'+s.photo+'" onerror="this.style.display=\\'none\\';this.parentNode.innerHTML=\\'<span class=pin-emoji>\\'+(s.isOpen?\\'🏬\\':\\'🔒\\')+\\'</span>\\'"/>':'<span class="pin-emoji">'+(s.isOpen?'🏬':'🔒')+'</span>';
+  var inner=s.photo?'<img class="pin-img" src="'+s.photo+'" onerror="this.style.display=\\'none\\';this.parentNode.innerHTML=\\'<span class=pin-emoji></span>\\'"/>':'<span class="pin-emoji"></span>';
   var cls='pin-wrap'+(active?' active':'')+(s.isOpen?'':' closed');
   return L.divIcon({html:'<div class="'+cls+'">'+inner+'</div>',className:'',iconSize:[44,44],iconAnchor:[22,22]});
 }
@@ -658,7 +710,7 @@ map.on('zoomend moveend',sendRadius);
       ref={iframeRef}
       srcDoc={doc.current}
       title="Nearby shops map"
-      style={{ border: '0', width: '100%', height: 'calc(100vh - 220px)', minHeight: '380px', display: 'block' }}
+      style={{ border: '0', width: '100%', height: 'calc(100dvh - 220px)', minHeight: '380px', display: 'block' }}
     />
   );
 }
@@ -668,9 +720,7 @@ function ShopCard({ shop, onPress }: { shop: NearbyShop; onPress: () => void }) 
   const distance = formatDistance(shop.distanceMeters);
   const eta = formatEta(shop.distanceMeters);
   const contact = shop as NearbyShop & ShopContactFields;
-  const addressText = [contact.addressLine, contact.city].filter(Boolean).join(', ');
-  const feeLabel = shop.deliveryFeePaise === 0 ? t.common.free : formatRupees(shop.deliveryFeePaise);
-  const metaParts = [eta, distance, `🛵 ${feeLabel}`].filter(Boolean) as string[];
+  const metaParts = [eta, distance].filter(Boolean) as string[];
   const offerTitle = (shop as NearbyShop & { activeOffer?: { title?: string } | null }).activeOffer?.title ?? shop.offerText;
 
   // Which fulfilment options are available right now.
@@ -683,8 +733,9 @@ function ShopCard({ shop, onPress }: { shop: NearbyShop; onPress: () => void }) 
       style={({ pressed }) => [styles.card, !shop.isOpen && styles.cardClosed, pressed && styles.pressed]}
     >
       <View style={styles.bannerWrap}>
-        <Image
-          source={{ uri: bannerImage(shop.id, shop.bannerUrl ?? shop.storefrontPhotoUrl, 400, 200, shop.name) }}
+        <ImageOrInitial
+          uri={bannerImage(shop.id, shop.bannerUrl ?? shop.storefrontPhotoUrl, 400, 200, shop.name)}
+          name={shop.name}
           style={styles.banner}
         />
         <View style={styles.bannerOverlay} />
@@ -704,8 +755,10 @@ function ShopCard({ shop, onPress }: { shop: NearbyShop; onPress: () => void }) 
 
       <View style={styles.cardBody}>
         <View style={styles.shopNameRow}>
-          <Image
-            source={{ uri: logoImage(shop.id, shop.logoUrl, 96, shop.name) }}
+          <ImageOrInitial
+            uri={logoImage(shop.id, shop.logoUrl, 96, shop.name)}
+            name={shop.name}
+            rounded
             style={styles.shopLogo}
           />
           <Text style={styles.shopName} numberOfLines={1}>{shop.name}</Text>
@@ -723,18 +776,10 @@ function ShopCard({ shop, onPress }: { shop: NearbyShop; onPress: () => void }) 
           <Text style={styles.optionNote}>{t.discovery.pickupOnlyNote}</Text>
         ) : null}
 
-        {addressText ? (
-          <Text style={styles.addressLine} numberOfLines={1}>📍 {addressText}</Text>
-        ) : null}
-
         {offerTitle ? (
           <View style={styles.offerRibbon}>
-            <Text style={styles.offerText} numberOfLines={1}>🏷️  {offerTitle}</Text>
+            <Text style={styles.offerText} numberOfLines={1}>{offerTitle}</Text>
           </View>
-        ) : null}
-
-        {shop.minOrderValuePaise > 0 ? (
-          <Text style={styles.minOrderNote}>{t.discovery.minOrder(formatRupees(shop.minOrderValuePaise))}</Text>
         ) : null}
       </View>
     </Pressable>
@@ -859,7 +904,6 @@ const styles = StyleSheet.create({
     borderColor: 'transparent',
   },
   chipActive: { backgroundColor: theme.color.primaryLight, borderColor: theme.color.primary },
-  chipEmoji: { fontSize: 13 },
   chipText: { fontSize: 11, fontWeight: "600", color: theme.color.textMuted },
   chipTextActive: { color: theme.color.primaryDark },
 
@@ -983,7 +1027,6 @@ const styles = StyleSheet.create({
   minOrderNote: { fontSize: theme.font.tiny, color: theme.color.textFaint, marginTop: 2 },
 
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: theme.space.xl, gap: theme.space.sm },
-  emptyEmoji: { fontSize: 44 },
   emptyTitle: { fontSize: theme.font.h3, fontWeight: "700", color: theme.color.text },
   emptySub: { fontSize: theme.font.body, color: theme.color.textMuted, textAlign: 'center' },
   notifiedText: {

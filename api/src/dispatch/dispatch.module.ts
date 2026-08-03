@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { DispatchService } from './dispatch.service';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { RealtimeModule } from '../realtime/realtime.module';
 
 /**
  * DispatchModule — the shared dispatch-engine boundary (rider assignment +
@@ -9,7 +10,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
  * future modules can inject the service against a stable seam.
  */
 @Module({
-  imports: [NotificationsModule],
+  imports: [NotificationsModule, RealtimeModule],
   providers: [DispatchService],
   exports: [DispatchService],
 })

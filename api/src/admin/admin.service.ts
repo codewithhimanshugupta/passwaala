@@ -78,14 +78,15 @@ export class AdminService {
         outstandingDuesPaise: true,
         creditLimitPaise: true,
         contactPhone: true,
-        // Owner's backup login OTP (decrypted below) so admin can help a
-        // locked-out shopkeeper sign in.
-        owner: { select: { loginOtpEnc: true } },
+        // Owner's login PIN + legacy backup OTP (decrypted below) so admin can
+        // help a locked-out shopkeeper sign in.
+        owner: { select: { loginOtpEnc: true, loginPinEnc: true } },
       },
     });
     return shops.map(({ owner, ...shop }) => ({
       ...shop,
       ownerLoginOtp: decryptOtp(owner?.loginOtpEnc) ?? null,
+      ownerLoginPin: decryptOtp(owner?.loginPinEnc) ?? null,
     }));
   }
 
@@ -382,11 +383,12 @@ export class AdminService {
       select: {
         userId: true,
         vehicle: true,
+        serviceCity: true,
         online: true,
         earningsPaise: true,
         duesPaise: true,
         creditLimitPaise: true,
-        user: { select: { name: true, phone: true, loginOtpEnc: true } },
+        user: { select: { name: true, phone: true, loginOtpEnc: true, loginPinEnc: true } },
       },
     });
 
@@ -460,7 +462,9 @@ export class AdminService {
       name: p.user?.name ?? null,
       phone: p.user?.phone ?? null,
       loginOtp: decryptOtp(p.user?.loginOtpEnc) ?? null,
+      loginPin: decryptOtp(p.user?.loginPinEnc) ?? null,
       vehicle: p.vehicle ?? null,
+      serviceCity: p.serviceCity ?? null,
       online: p.online,
       earningsPaise: p.earningsPaise,
       duesPaise: p.duesPaise,
@@ -478,10 +482,183 @@ export class AdminService {
       })),
     }));
 
-    // City filter: keep riders who have at least one order in a shop in that city.
+    // City filter: keep riders whose serviceCity matches, OR (legacy) who have at
+    // least one order in a shop in that city.
     return cityFilter
-      ? result.filter((r) => r.cities.some((c) => c.toLowerCase() === cityFilter))
+      ? result.filter(
+          (r) =>
+            r.serviceCity?.toLowerCase() === cityFilter ||
+            r.cities.some((c) => c.toLowerCase() === cityFilter),
+        )
       : result;
+  }
+
+  /**
+   * All platform customers with contact + coin balance + order stats, for the
+   * admin customers console. Newest-registered first. Optional `q` filters by
+   * name or phone (case-insensitive contains).
+   */
+  async listCustomers(opts?: { q?: string }) {
+    const q = opts?.q?.trim();
+    const customers = await this.prisma.user.findMany({
+      where: {
+        appType: 'CUSTOMER',
+        deletedAt: null,
+        ...(q
+          ? {
+              OR: [
+                { name: { contains: q, mode: 'insensitive' } },
+                { phone: { contains: q } },
+              ],
+            }
+          : {}),
+      },
+      orderBy: { createdAt: 'desc' },
+      // Cap to the 100 newest — there's no pagination UI yet.
+      take: 100,
+      select: {
+        id: true,
+        name: true,
+        phone: true,
+        shortId: true,
+        coinBalance: true,
+        createdAt: true,
+        loginPinEnc: true,
+        loginOtpEnc: true,
+      },
+    });
+
+    // Batch order stats for all customers in two groupBy queries (mirror
+    // listRiders' totalMap/todayMap approach) rather than N per-customer counts.
+    const customerIds = customers.map((c) => c.id);
+    const [totalCounts, deliveredCounts] = await Promise.all([
+      customerIds.length
+        ? this.prisma.order.groupBy({
+            by: ['customerId'],
+            where: { customerId: { in: customerIds }, deletedAt: null },
+            _count: { _all: true },
+          })
+        : [],
+      customerIds.length
+        ? this.prisma.order.groupBy({
+            by: ['customerId'],
+            where: { customerId: { in: customerIds }, status: 'DELIVERED', deletedAt: null },
+            _count: { _all: true },
+          })
+        : [],
+    ]);
+
+    const totalMap: Record<string, number> = {};
+    for (const r of totalCounts) if (r.customerId) totalMap[r.customerId] = r._count._all;
+    const deliveredMap: Record<string, number> = {};
+    for (const r of deliveredCounts) if (r.customerId) deliveredMap[r.customerId] = r._count._all;
+
+    return customers.map((c) => ({
+      userId: c.id,
+      name: c.name ?? null,
+      phone: c.phone ?? null,
+      shortId: c.shortId ?? null,
+      coinBalance: c.coinBalance,
+      joinedAt: c.createdAt,
+      loginPin: decryptOtp(c.loginPinEnc) ?? null,
+      loginOtp: decryptOtp(c.loginOtpEnc) ?? null,
+      totalOrders: totalMap[c.id] ?? 0,
+      deliveredOrders: deliveredMap[c.id] ?? 0,
+    }));
+  }
+
+  /**
+   * Full detail for ONE rider — profile + KYC (identity + document URLs) + a
+   * bounded slice of recent orders. Admin-only: exposes the private KYC record so
+   * support can verify a partner or investigate an incident. 404 if no such rider.
+   */
+  async riderDetail(userId: string) {
+    const profile = await this.prisma.riderProfile.findUnique({
+      where: { userId },
+      select: {
+        userId: true,
+        vehicle: true,
+        serviceCity: true,
+        online: true,
+        earningsPaise: true,
+        duesPaise: true,
+        creditLimitPaise: true,
+        createdAt: true,
+        user: { select: { name: true, phone: true, shortId: true, createdAt: true } },
+      },
+    });
+    if (!profile) throw new NotFoundException('Rider not found');
+
+    const kyc = await this.prisma.riderKyc.findUnique({
+      where: { userId },
+      select: {
+        fullName: true,
+        aadhaar: true,
+        pan: true,
+        dlNumber: true,
+        vehicleNumber: true,
+        emergencyName: true,
+        emergencyPhone: true,
+        photoUrl: true,
+        docUrls: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+    const recentOrders = await this.prisma.order.findMany({
+      where: { riderId: userId, deletedAt: null },
+      orderBy: { createdAt: 'desc' },
+      take: 20,
+      select: {
+        id: true,
+        status: true,
+        createdAt: true,
+        originalTotalPaise: true,
+        adjustedTotalPaise: true,
+        paymentMethod: true,
+        shop: { select: { name: true, city: true } },
+      },
+    });
+
+    return {
+      userId: profile.userId,
+      name: profile.user?.name ?? null,
+      phone: profile.user?.phone ?? null,
+      shortId: profile.user?.shortId ?? null,
+      serviceCity: profile.serviceCity ?? null,
+      vehicle: profile.vehicle ?? null,
+      online: profile.online,
+      earningsPaise: profile.earningsPaise,
+      duesPaise: profile.duesPaise,
+      creditLimitPaise: profile.creditLimitPaise,
+      joinedAt: profile.user?.createdAt ?? profile.createdAt,
+      kyc: kyc
+        ? {
+            fullName: kyc.fullName,
+            aadhaar: kyc.aadhaar,
+            pan: kyc.pan,
+            dlNumber: kyc.dlNumber,
+            vehicleNumber: kyc.vehicleNumber,
+            emergencyName: kyc.emergencyName,
+            emergencyPhone: kyc.emergencyPhone,
+            photoUrl: kyc.photoUrl,
+            docUrls: Array.isArray(kyc.docUrls) ? (kyc.docUrls as string[]) : [],
+            submittedAt: kyc.createdAt,
+            updatedAt: kyc.updatedAt,
+          }
+        : null,
+      recentOrders: recentOrders.map((o) => ({
+        orderId: o.id,
+        orderRef: o.id.slice(0, 8).toUpperCase(),
+        status: o.status,
+        createdAt: o.createdAt,
+        shopName: o.shop?.name ?? null,
+        city: o.shop?.city ?? null,
+        totalPaise: o.adjustedTotalPaise ?? o.originalTotalPaise,
+        paymentMethod: o.paymentMethod,
+      })),
+    };
   }
 
   /**

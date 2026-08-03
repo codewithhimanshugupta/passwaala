@@ -48,6 +48,14 @@ export class ProductsController {
     return this.products.listMine(shopId);
   }
 
+  /** Public: one product's DETAIL (lazy-loaded on tap). After 'mine' so the
+   * literal route wins; @Public so no auth needed to view a product. */
+  @Public()
+  @Get(':id')
+  publicDetail(@Param('id') id: string) {
+    return this.products.publicDetail(id);
+  }
+
   /** Shopkeeper: create a product in their OWN shop. */
   @Roles(UserRole.SHOPKEEPER)
   @Post()

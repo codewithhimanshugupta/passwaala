@@ -172,7 +172,7 @@ export function SettingsScreen({
           <View style={styles.sectionBody}>
             <View style={styles.toggleRow}>
               <View style={styles.flex}>
-                <Text style={styles.toggleLabel}>{shop.isOpen ? '🟢 Open — accepting orders' : '🔴 Closed — not accepting orders'}</Text>
+                <Text style={styles.toggleLabel}>{shop.isOpen ? 'Open — accepting orders' : 'Closed — not accepting orders'}</Text>
               </View>
               <Switch
                 value={shop.isOpen}
@@ -253,7 +253,7 @@ export function SettingsScreen({
                         onPress={() => { setSaved(false); setActiveOfferIds(prev => selected ? prev.filter(id => id !== offer.id) : [...prev, offer.id]); }}
                       >
                         <Text style={[styles.offerChipTxt, selected && styles.offerChipTxtActive]}>
-                          {selected ? '✓ ' : ''}{offer.title}
+                          {offer.title}
                         </Text>
                         {offer.minOrderPaise > 0 && <Text style={styles.offerChipMeta}>Min ₹{offer.minOrderPaise / 100}</Text>}
                         {offerStats[offer.id] > 0 && <Text style={styles.offerChipMeta}>Used {offerStats[offer.id]}× orders</Text>}
@@ -262,7 +262,7 @@ export function SettingsScreen({
                   })}
                 </View>
                 {activeOfferIds.length > 0 && (
-                  <Text style={styles.offerActiveNote}>✅ {activeOfferIds.length} coupon{activeOfferIds.length > 1 ? 's' : ''} enabled — customers pick at checkout</Text>
+                  <Text style={styles.offerActiveNote}>{activeOfferIds.length} coupon{activeOfferIds.length > 1 ? 's' : ''} enabled — customers pick at checkout</Text>
                 )}
               </>
             )}
@@ -368,7 +368,7 @@ function ProfileSection() {
         <Text style={styles.readonly}>{t.settings.phone(loading ? '…' : account?.phone ?? '—')}</Text>
         <View style={styles.coinRow}>
           <Text style={styles.coinLabel}>{t.settings.coinBalance}</Text>
-          <Badge label={`🪙 ${loading ? '…' : account?.coinBalance ?? 0}`} tone="accent" />
+          <Badge label={`${loading ? '…' : account?.coinBalance ?? 0}`} tone="accent" />
         </View>
         {error ? <ErrorText>{error}</ErrorText> : null}
         {saved ? <Banner tone="success" message={t.settings.nameSaved} /> : null}
@@ -428,11 +428,11 @@ function KycSection({ shop, onSubmitted }: { shop: MyShop; onSubmitted: (status:
           <Field label={t.settings.aadhaarPan} placeholder={t.settings.aadhaarPanPlaceholder} autoCapitalize="characters" value={aadhaarPan} onChangeText={setAadhaarPan} />
           <Field label={t.settings.gstOrLicence} placeholder={t.settings.gstOrLicencePlaceholder} value={gstOrLicence} onChangeText={setGstOrLicence} />
           <Field label={t.settings.fssai} placeholder={t.settings.fssaiPlaceholder} value={fssai} onChangeText={setFssai} />
-          <ImagePicker label={t.settings.bankProof} value={bankProofUrl.trim() || null} onUploaded={setBankProofUrl} hint={t.settings.bankProofHint} />
+          <ImagePicker label={t.settings.bankProof} value={bankProofUrl.trim() || null} onUploaded={setBankProofUrl} hint={t.settings.bankProofHint} uploadType="kyc" scopeId={shop.id} />
           {docUrls.map((doc, i) => (
             <View key={i} style={styles.docRow}>
               <View style={styles.flex}>
-                <ImagePicker label={t.settings.document(i + 1)} value={doc.trim() || null} onUploaded={(url) => updateDoc(i, url)} />
+                <ImagePicker label={t.settings.document(i + 1)} value={doc.trim() || null} onUploaded={(url) => updateDoc(i, url)} uploadType="kyc" scopeId={shop.id} />
               </View>
               {docUrls.length > 1 && <Pressable onPress={() => removeDoc(i)} style={styles.removeDoc} hitSlop={8}><Text style={styles.removeDocText}>{t.settings.remove}</Text></Pressable>}
             </View>
