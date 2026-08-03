@@ -2,6 +2,8 @@ import { Test } from '@nestjs/testing';
 import { NotImplementedException } from '@nestjs/common';
 import { DispatchService, DispatchRequest } from './dispatch.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { WebPushService } from '../notifications/web-push.service';
+import { RealtimeGateway } from '../realtime/realtime.gateway';
 
 /**
  * DispatchService smoke test — DB-free. The engine is an interface boundary for
@@ -16,6 +18,10 @@ describe('DispatchService', () => {
       providers: [
         DispatchService,
         { provide: PrismaService, useValue: {} },
+        // Dispatch pushes offers via web-push + the realtime gateway; mocks are
+        // enough for this smoke test (no offers are actually sent here).
+        { provide: WebPushService, useValue: { sendToUser: jest.fn() } },
+        { provide: RealtimeGateway, useValue: { emitJobOffered: jest.fn() } },
       ],
     }).compile();
 

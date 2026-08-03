@@ -1,5 +1,6 @@
 import { Test } from '@nestjs/testing';
 import { HealthController } from './health.controller';
+import { PrismaService } from '../prisma/prisma.service';
 import { OrderStatus, canTransition, computeGst } from '@passwaala/shared';
 
 /**
@@ -14,16 +15,19 @@ describe('HealthController', () => {
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
       controllers: [HealthController],
+      // check() is synchronous and doesn't touch the DB; the warm-ping path uses
+      // prisma only in the async DB check, so a mock provider is enough here.
+      providers: [{ provide: PrismaService, useValue: { $queryRawUnsafe: jest.fn().mockResolvedValue([{ '?column?': 1 }]) } }],
     }).compile();
     controller = moduleRef.get(HealthController);
   });
 
-  it('returns ok', () => {
-    expect(controller.check().status).toBe('ok');
+  it('returns ok', async () => {
+    expect((await controller.check()).status).toBe('ok');
   });
 
-  it('uses shared order-state-machine', () => {
-    expect(controller.check().sampleTransitionOk).toBe(true);
+  it('uses shared order-state-machine', async () => {
+    expect((await controller.check()).sampleTransitionOk).toBe(true);
     expect(canTransition(OrderStatus.DELIVERED, OrderStatus.PLACED)).toBe(false);
   });
 

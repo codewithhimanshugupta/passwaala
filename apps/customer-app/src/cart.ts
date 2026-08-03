@@ -122,15 +122,16 @@ export async function syncToServer(opts: { deliveryMode?: string; addressId?: st
     try { await api.clearCart(); } catch { /* ignore */ }
     return { empty: true, items: [] } as Cart;
   }
-  // Rebuild the server cart from local lines (single-shop; clear first).
-  try { await api.clearCart(); } catch { /* ignore */ }
-  for (const l of local.lines) {
-    await api.setCartQty(l.productId, l.qty).catch(async () => {
-      // setCartQty may 404 if the line isn't there yet — add then set.
-      await api.addToCart(l.productId, l.qty);
-    });
-  }
-  const cart = (await api.cart(opts)) as Cart;
+  // ONE round-trip: replace the whole server cart (shop + all lines) and get the
+  // authoritative bill back. Previously this did clear + one add-per-line + GET
+  // (N+2 heavy calls, ~9s each on the free tier) — this collapses it to one.
+  const cart = (await api.replaceCart({
+    shopId: local.shopId,
+    items: local.lines.map((l) => ({ productId: l.productId, qty: l.qty })),
+    deliveryMode: opts.deliveryMode,
+    addressId: opts.addressId,
+    selectedOfferId: opts.selectedOfferId,
+  })) as Cart;
   return cart;
 }
 

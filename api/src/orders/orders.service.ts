@@ -199,23 +199,27 @@ export class OrdersService {
         ? DeliveryMode.PLATFORM_RIDER
         : DeliveryMode.SELF_DELIVERY;
 
+    // Load the shop's city config ONCE (rider radius + delivery tiers) instead of
+    // querying the same serviceableCity row twice on the placement path. Only
+    // needed for platform-rider orders (self-pickup / self-delivery skip it).
+    let cityCfg: { riderCheckRadiusMeters: number | null; deliveryTiersJson: string | null } | null = null;
+    if (deliveryMode === DeliveryMode.PLATFORM_RIDER && cart.shop.city) {
+      cityCfg = await this.prisma.serviceableCity.findFirst({
+        where: { name: { equals: cart.shop.city, mode: 'insensitive' }, deletedAt: null },
+        select: { riderCheckRadiusMeters: true, deliveryTiersJson: true },
+      });
+    }
+
     // Hard guard: a PLATFORM_RIDER delivery can only be placed if at least one
     // rider is available near the shop right now. Otherwise no order should reach
     // the shop (the customer should pick self-pickup instead, if offered).
     // Short-circuit exists-check (LIMIT 1) — never scans all riders.
     if (deliveryMode === DeliveryMode.PLATFORM_RIDER) {
-      let riderRadius = 5000;
-      if (cart.shop.city) {
-        const cityCfg = await this.prisma.serviceableCity.findFirst({
-          where: { name: { equals: cart.shop.city, mode: 'insensitive' }, deletedAt: null },
-          select: { riderCheckRadiusMeters: true },
-        });
-        if (cityCfg?.riderCheckRadiusMeters) riderRadius = cityCfg.riderCheckRadiusMeters;
-      }
+      const riderRadius = cityCfg?.riderCheckRadiusMeters ?? 5000;
       const hit = await this.prisma.$queryRawUnsafe<Array<{ ok: number }>>(
         `SELECT 1 AS ok FROM "RiderProfile" rp JOIN "Shop" s ON s.id = $1
-           WHERE rp.online = TRUE AND rp.latitude IS NOT NULL AND rp.longitude IS NOT NULL AND s.geog IS NOT NULL
-             AND ST_DWithin(ST_SetSRID(ST_MakePoint(rp.longitude::float8, rp.latitude::float8),4326)::geography, s.geog, $2)
+           WHERE rp.online = TRUE AND rp.geog IS NOT NULL AND s.geog IS NOT NULL
+             AND ST_DWithin(rp.geog, s.geog, $2)
            LIMIT 1`,
         cart.shopId,
         riderRadius,
@@ -269,16 +273,9 @@ export class OrdersService {
         { latitude: cart.shop.latitude, longitude: cart.shop.longitude },
         dropCoords ?? { latitude: null, longitude: null },
       );
-      // Use city-configured tiers (same as cart preview) so cart and order agree.
-      const cityForFee = cart.shop.city;
-      const cityTierConfig = cityForFee
-        ? await this.prisma.serviceableCity.findFirst({
-            where: { deletedAt: null, name: { equals: cityForFee, mode: 'insensitive' } },
-            select: { deliveryTiersJson: true },
-          })
-        : null;
-      if (cityTierConfig?.deliveryTiersJson) {
-        const tiers: Array<{ maxKm: number; feePaise: number }> = JSON.parse(cityTierConfig.deliveryTiersJson);
+      // Reuse the city config already loaded above (no second DB round-trip).
+      if (cityCfg?.deliveryTiersJson) {
+        const tiers: Array<{ maxKm: number; feePaise: number }> = JSON.parse(cityCfg.deliveryTiersJson);
         const distKm = distanceMeters / 1000;
         const tier = tiers.find(t => distKm <= t.maxKm) ?? tiers[tiers.length - 1];
         deliveryFeePaise = tier.feePaise;
@@ -379,12 +376,16 @@ export class OrdersService {
       }
       // Decrement stock for each ordered item (inventory integrity — the sale
       // reduces available stock immediately, in the same atomic transaction).
-      for (const it of items) {
-        await tx.product.update({
-          where: { id: it.productId },
-          data: { stock: { decrement: it.qty } },
-        });
-      }
+      // Parallelised: the per-item updates are independent, so firing them
+      // together cuts N sequential round-trips to one await inside the tx.
+      await Promise.all(
+        items.map((it) =>
+          tx.product.update({
+            where: { id: it.productId },
+            data: { stock: { decrement: it.qty } },
+          }),
+        ),
+      );
       // Empty the server cart if this order came from one (client-cart path has none).
       if (cartId) {
         await tx.cartItem.deleteMany({ where: { cartId } });

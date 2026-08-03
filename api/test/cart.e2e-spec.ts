@@ -30,10 +30,12 @@ describe('Cart (e2e)', () => {
     const { productId } = await createProduct(shopId, { pricePaise: 5000 });
     const { token } = await createUser(app, UserRole.CUSTOMER);
 
+    // /cart/replace is the app's real sync path — sets the whole cart + returns
+    // the bill in one call. (/cart/items now returns only a light ack.)
     const res = await request(app.getHttpServer())
-      .post('/cart/items')
+      .post('/cart/replace')
       .set(...bearer(token))
-      .send({ productId, qty: 2 })
+      .send({ shopId, items: [{ productId, qty: 2 }] })
       .expect(201);
 
     expect(res.body.empty).toBe(false);
@@ -70,9 +72,9 @@ describe('Cart (e2e)', () => {
     const { token } = await createUser(app, UserRole.CUSTOMER);
 
     const res = await request(app.getHttpServer())
-      .post('/cart/items')
+      .post('/cart/replace')
       .set(...bearer(token))
-      .send({ productId, qty: 1 }) // 5000 < 20000
+      .send({ shopId, items: [{ productId, qty: 1 }] }) // 5000 < 20000
       .expect(201);
 
     expect(res.body.meetsMinOrder).toBe(false);
@@ -89,9 +91,9 @@ describe('Cart (e2e)', () => {
     const { token } = await createUser(app, UserRole.CUSTOMER);
 
     const res = await request(app.getHttpServer())
-      .post('/cart/items')
+      .post('/cart/replace')
       .set(...bearer(token))
-      .send({ productId, qty: 2 }) // 10000 >= 9000 → free delivery
+      .send({ shopId, items: [{ productId, qty: 2 }] }) // 10000 >= 9000 → free delivery
       .expect(201);
 
     expect(res.body.bill.deliveryFeePaise).toBe(0);

@@ -62,10 +62,65 @@ export class CartService {
       update: { qty: { increment: dto.qty } },
     });
 
-    return this.view(customerId);
+    // Return a LIGHT ack, not the heavy view(): the client cart is local now and
+    // discards this response — computing the full bill here wasted ~6s per add.
+    return { ok: true as const };
   }
 
-  /** Set an exact quantity for a line, or remove it when qty = 0. */
+  /**
+   * Replace the ENTIRE cart in one call: set the shop + all lines, then return
+   * the view once. This is the fast checkout path — the client used to do
+   * clear + one add-per-line (each recomputing the ~6s view) + a final GET,
+   * which was N+2 heavy round-trips. This is a single request + one view.
+   */
+  async replaceCart(
+    customerId: string,
+    dto: { shopId: string; items: Array<{ productId: string; qty: number }> },
+    viewOpts: { deliveryMode?: DeliveryMode; addressId?: string; selectedOfferId?: string } = {},
+  ) {
+    const items = (dto.items ?? []).filter((i) => i.qty > 0);
+    if (items.length === 0) {
+      await this.clear(customerId);
+      return this.view(customerId, viewOpts);
+    }
+
+    // Validate every product belongs to the given shop + is available. shopId is
+    // derived from the products, never trusted blindly.
+    const productIds = items.map((i) => i.productId);
+    const products = await this.prisma.product.findMany({
+      where: { id: { in: productIds }, deletedAt: null, available: true },
+      select: { id: true, shopId: true },
+    });
+    const byId = new Map(products.map((p) => [p.id, p]));
+    for (const it of items) {
+      const p = byId.get(it.productId);
+      if (!p) throw new NotFoundException('One or more products are unavailable');
+      if (p.shopId !== dto.shopId) {
+        throw new ConflictException('All items must be from the same shop.');
+      }
+    }
+
+    // Atomically rebuild the cart: drop the old one, create fresh with all lines.
+    await this.prisma.$transaction(async (tx) => {
+      const existing = await tx.cart.findFirst({
+        where: { customerId, deletedAt: null },
+        select: { id: true },
+      });
+      if (existing) {
+        await tx.cartItem.deleteMany({ where: { cartId: existing.id } });
+        await tx.cart.delete({ where: { id: existing.id } });
+      }
+      await tx.cart.create({
+        data: {
+          customerId,
+          shopId: dto.shopId,
+          items: { create: items.map((i) => ({ productId: i.productId, qty: i.qty })) },
+        },
+      });
+    });
+
+    return this.view(customerId, viewOpts);
+  }
   async setQty(customerId: string, productId: string, qty: number) {
     const cart = await this.prisma.cart.findFirst({
       where: { customerId, deletedAt: null },
@@ -95,7 +150,8 @@ export class CartService {
       }
       await this.prisma.cartItem.update({ where: { id: line.id }, data: { qty } });
     }
-    return this.view(customerId);
+    // Light ack (see addItem) — the client holds the cart locally.
+    return { ok: true as const };
   }
 
   /** Clear the cart entirely (also used when switching shops). */
@@ -241,9 +297,9 @@ export class CartService {
         const nearbyRiders = await this.prisma.$queryRaw<{ count: bigint }[]>`
           SELECT COUNT(*) as count FROM "RiderProfile" rp
           WHERE rp.online = true
-          AND rp.latitude IS NOT NULL AND rp.longitude IS NOT NULL
+          AND rp.geog IS NOT NULL
           AND ST_DWithin(
-            ST_SetSRID(ST_MakePoint(rp.longitude::float8, rp.latitude::float8), 4326)::geography,
+            rp.geog,
             ST_SetSRID(ST_MakePoint(${shopLng}, ${shopLat}), 4326)::geography,
             ${radius}
           )

@@ -44,7 +44,7 @@ describe('Products (e2e)', () => {
     const created = await request(app.getHttpServer())
       .post('/products')
       .set(...bearer(token))
-      .send({ name: 'Amul Butter', pricePaise: 5500, mrpPaise: 6000, stock: 10 })
+      .send({ name: 'Amul Butter', pricePaise: 5500, mrpPaise: 6000, stock: 10, weightGrams: 500 })
       .expect(201);
     expect(created.body.shopId).toBe(shopId);
     expect(created.body.pricePaise).toBe(5500);
@@ -115,7 +115,7 @@ describe('Products (e2e)', () => {
     await request(app.getHttpServer())
       .post('/products')
       .set(...bearer(custToken))
-      .send({ name: 'X', pricePaise: 1, mrpPaise: 1 })
+      .send({ name: 'X', pricePaise: 1, mrpPaise: 1, weightGrams: 100 })
       .expect(403);
   });
 

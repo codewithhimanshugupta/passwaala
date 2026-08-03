@@ -3,6 +3,7 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import helmet from 'helmet';
+import compression from 'compression';
 import { AppModule } from './app.module';
 import { UPLOADS_DIR } from './uploads/upload.controller';
 
@@ -16,6 +17,12 @@ async function bootstrap(): Promise<void> {
   // helmet with cross-origin resource policy relaxed so uploaded images load in
   // the web apps (different origin/port) during local dev.
   app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
+
+  // Gzip/brotli-compress JSON responses. On real mobile networks this shrinks
+  // list payloads (shops, orders, products) by ~70-80%, a big win over the wire
+  // (no effect on localhost where bandwidth is free — which is why deployed felt
+  // slower than local). Skips small bodies automatically.
+  app.use(compression());
 
   // Serve uploaded media statically at /uploads/<filename> (local dev storage;
   // swappable for R2/CDN in prod — the URL contract stays the same).

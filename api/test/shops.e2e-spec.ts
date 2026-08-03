@@ -19,6 +19,7 @@ describe('Shops (e2e)', () => {
     latitude: 28.6139,
     longitude: 77.209,
     upiVpa: 'testkirana@upi',
+    city: 'Jhansi',
   };
 
   beforeAll(async () => {
@@ -27,6 +28,14 @@ describe('Shops (e2e)', () => {
 
   beforeEach(async () => {
     await resetDb();
+    // Registration now gates on a serviceable city — seed one so /shops accepts.
+    // upsert (not create): ServiceableCity isn't in resetDb's truncate set, so a
+    // plain create would hit the unique-name constraint on the 2nd test.
+    await prisma.serviceableCity.upsert({
+      where: { name: 'Jhansi' },
+      create: { name: 'Jhansi', enabled: true },
+      update: { enabled: true },
+    });
   });
 
   afterAll(async () => {

@@ -89,6 +89,9 @@ export function DiscoveryScreen({
   // Pickup-only confirmation: set to the shop the user tapped that has no
   // delivery available right now (rider offline) but does offer self-pickup.
   const [pickupOnlyShop, setPickupOnlyShop] = useState<NearbyShop | null>(null);
+  // The shop whose storefront is currently being opened (delivery-availability
+  // check in flight) — drives a spinner on the tapped card for instant feedback.
+  const [openingShopId, setOpeningShopId] = useState<string | null>(null);
   const [mapRadius, setMapRadius] = useState(10000);
   // City delivery radius from admin config (default 10km until loaded).
   const [cityRadius, setCityRadius] = useState(10000);
@@ -255,15 +258,18 @@ export function DiscoveryScreen({
   // If a platform-delivery shop has no rider online right now but offers
   // self-pickup, confirm the customer is OK with pickup first.
   const handleOpenShop = useCallback(async (shop: NearbyShop) => {
+    setOpeningShopId(shop.id); // instant feedback: spinner on the tapped card
     try {
       const avail = await api.shopDeliveryAvailable(shop.id);
       if (!avail.deliveryAvailable && avail.selfPickupEnabled) {
         setPickupOnlyShop(shop);
+        setOpeningShopId(null);
         return;
       }
     } catch {
       // If the check fails, don't block — just open the shop.
     }
+    setOpeningShopId(null);
     onOpenShop(shop.id);
   }, [onOpenShop]);
 
@@ -507,7 +513,7 @@ export function DiscoveryScreen({
           keyExtractor={(s) => s.id}
           showsVerticalScrollIndicator={false}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-          renderItem={({ item }) => <ShopCard shop={item} onPress={() => handleOpenShop(item)} />}
+          renderItem={({ item }) => <ShopCard shop={item} busy={openingShopId === item.id} onPress={() => handleOpenShop(item)} />}
           onEndReached={() => { if (!searchQuery.trim()) void loadMore(); }}
           onEndReachedThreshold={0.5}
           ListFooterComponent={loadingMore ? <ActivityIndicator style={{ marginVertical: 16 }} color={theme.color.primary} /> : null}
@@ -715,7 +721,7 @@ map.on('zoomend moveend',sendRadius);
   );
 }
 
-function ShopCard({ shop, onPress }: { shop: NearbyShop; onPress: () => void }) {
+function ShopCard({ shop, busy, onPress }: { shop: NearbyShop; busy?: boolean; onPress: () => void }) {
   const { t } = useLang();
   const distance = formatDistance(shop.distanceMeters);
   const eta = formatEta(shop.distanceMeters);
@@ -730,8 +736,14 @@ function ShopCard({ shop, onPress }: { shop: NearbyShop; onPress: () => void }) 
   return (
     <Pressable
       onPress={onPress}
+      disabled={busy}
       style={({ pressed }) => [styles.card, !shop.isOpen && styles.cardClosed, pressed && styles.pressed]}
     >
+      {busy ? (
+        <View style={styles.cardLoadingOverlay}>
+          <ActivityIndicator color={theme.color.primary} />
+        </View>
+      ) : null}
       <View style={styles.bannerWrap}>
         <ImageOrInitial
           uri={bannerImage(shop.id, shop.bannerUrl ?? shop.storefrontPhotoUrl, 400, 200, shop.name)}
@@ -975,6 +987,14 @@ const styles = StyleSheet.create({
     ...shadow.md,
   },
   cardClosed: { opacity: 0.6 },
+  cardLoadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(255,255,255,0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 5,
+    borderRadius: theme.radius.lg,
+  },
   bannerWrap: { position: 'relative' },
   banner: { width: '100%', height: 180, backgroundColor: theme.color.surfaceAlt },
   bannerOverlay: {

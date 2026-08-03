@@ -906,6 +906,11 @@ model RiderProfile {
   online        Boolean @default(false)
   latitude      Decimal? @db.Decimal(9, 6)
   longitude     Decimal? @db.Decimal(9, 6)
+  /// PostGIS geography(Point,4326), derived from longitude/latitude by the app on
+  /// write (syncRiderGeog). GIST-indexed so rider-proximity checks (cart
+  /// availability, go-online, order placement) never seq-scan. Declared
+  /// Unsupported so Prisma leaves the out-of-band column + index alone.
+  geog          Unsupported("geography(Point, 4326)")?
   earningsPaise Int      @default(0) // accrued delivery earnings (paise)
   // Uncleared COD cash the rider has collected and owes onward. Blocks taking
   // new orders / going online once it hits the credit limit (admin clears it).

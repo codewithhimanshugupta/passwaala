@@ -13,6 +13,7 @@ import { AuthPayload } from '../auth/auth-payload';
 import { CartService } from './cart.service';
 import { AddToCartDto } from './dto/add-to-cart.dto';
 import { CartViewQuery } from './dto/cart-view.query';
+import { ReplaceCartDto } from './dto/replace-cart.dto';
 
 /**
  * CartController — the shopping cart, scoped to the authenticated user
@@ -43,6 +44,24 @@ export class CartController {
   @Post('items')
   addItem(@CurrentUser() user: AuthPayload, @Body() dto: AddToCartDto) {
     return this.cart.addItem(user.sub, dto);
+  }
+
+  /**
+   * Replace the ENTIRE cart in one request (shop + all lines) and return the
+   * view once. The fast checkout-sync path — replaces the old clear + N adds +
+   * GET sequence that cost N+2 heavy round-trips.
+   */
+  @Post('replace')
+  replace(@CurrentUser() user: AuthPayload, @Body() dto: ReplaceCartDto) {
+    return this.cart.replaceCart(
+      user.sub,
+      { shopId: dto.shopId, items: dto.items },
+      {
+        deliveryMode: dto.deliveryMode,
+        addressId: dto.addressId,
+        selectedOfferId: dto.selectedOfferId,
+      },
+    );
   }
 
   /** Set an exact quantity for a line (0 removes it). */

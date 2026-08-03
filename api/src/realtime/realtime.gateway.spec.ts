@@ -1,4 +1,5 @@
 import { Test } from '@nestjs/testing';
+import { JwtService } from '@nestjs/jwt';
 import { OrderStatus } from '@passwaala/shared';
 import {
   RealtimeGateway,
@@ -18,7 +19,12 @@ describe('RealtimeGateway', () => {
 
   beforeEach(async () => {
     const moduleRef = await Test.createTestingModule({
-      providers: [RealtimeGateway],
+      providers: [
+        RealtimeGateway,
+        // The gateway authenticates handshakes with JwtService; a mock suffices
+        // for these emit-routing tests (no real socket connects here).
+        { provide: JwtService, useValue: { verifyAsync: jest.fn() } },
+      ],
     }).compile();
 
     gateway = moduleRef.get(RealtimeGateway);

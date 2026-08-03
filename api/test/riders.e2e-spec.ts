@@ -66,7 +66,7 @@ describe('Rider delivery (e2e)', () => {
       data: {
         customerId: customer.id, shopId, status: OrderStatus.READY,
         paymentMethod: PaymentMethod.COD, deliveryMode: DeliveryMode.PLATFORM_RIDER,
-        originalTotalPaise: 6180, platformFeePaise: 1180, idempotencyKey: 'rider-1',
+        originalTotalPaise: 6180, platformFeePaise: 1180, deliveryFeePaise: 3000, idempotencyKey: 'rider-1',
         pickupOtp: '5678', riderPickupOtp: '4321',
         items: { create: [{ productId, nameSnapshot: 'X', pricePaiseSnapshot: 5000, qty: 1 }] },
       },

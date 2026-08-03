@@ -51,7 +51,7 @@ describe('Owner admin management (e2e)', () => {
     expect(invite.body.status).toBe('PENDING_OWNER_APPROVAL');
 
     // Invited user exists but is still CUSTOMER (not yet an admin).
-    let user = await prisma.user.findUnique({ where: { phone: '+919888800001' } });
+    let user = await prisma.user.findFirst({ where: { phone: '+919888800001' } });
     expect(user?.role).toBe(UserRole.CUSTOMER);
 
     // Approve → becomes ADMIN.
@@ -59,7 +59,7 @@ describe('Owner admin management (e2e)', () => {
       .post(`/owner/admins/${inviteId}/approve`)
       .set(...bearer(ownerToken))
       .expect(201);
-    user = await prisma.user.findUnique({ where: { phone: '+919888800001' } });
+    user = await prisma.user.findFirst({ where: { phone: '+919888800001' } });
     expect(user?.role).toBe(UserRole.ADMIN);
 
     // Revoke → back to CUSTOMER.
@@ -67,7 +67,7 @@ describe('Owner admin management (e2e)', () => {
       .post(`/owner/admins/${inviteId}/revoke`)
       .set(...bearer(ownerToken))
       .expect(201);
-    user = await prisma.user.findUnique({ where: { phone: '+919888800001' } });
+    user = await prisma.user.findFirst({ where: { phone: '+919888800001' } });
     expect(user?.role).toBe(UserRole.CUSTOMER);
   });
 

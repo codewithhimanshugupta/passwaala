@@ -7,6 +7,8 @@ import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { LedgerService } from '../ledger/ledger.service';
 import { ReferralsService } from '../referrals/referrals.service';
 import { DispatchService } from '../dispatch/dispatch.service';
+import { DisputesService } from '../disputes/disputes.service';
+import { WebPushService } from '../notifications/web-push.service';
 
 /**
  * OrdersService unit tests — DB-free. Exercises the REAL transition guard
@@ -25,6 +27,8 @@ describe('OrdersService', () => {
         { provide: LedgerService, useValue: { accrueOnDelivery: jest.fn() } },
         { provide: ReferralsService, useValue: { qualifyOnDelivery: jest.fn() } },
         { provide: DispatchService, useValue: { startForOrder: jest.fn(), offerNext: jest.fn(), tick: jest.fn() } },
+        { provide: DisputesService, useValue: { openSystemDispute: jest.fn() } },
+        { provide: WebPushService, useValue: { sendToUser: jest.fn() } },
       ],
     }).compile();
 

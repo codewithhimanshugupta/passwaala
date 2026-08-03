@@ -46,7 +46,7 @@ describe('AuthService', () => {
     // Reach into the store to learn the generated code (test-only).
     const code = (service as unknown as {
       otpStore: Map<string, { code: string; expiresAt: number }>;
-    }).otpStore.get('+919876543210')!.code;
+    }).otpStore.get('+919876543210:CUSTOMER')!.code;
 
     const result = await service.verifyOtp('+919876543210', code);
 
@@ -93,7 +93,7 @@ describe('AuthService', () => {
       service.requestOtp('+919876543210');
       const entry = (service as unknown as {
         otpStore: Map<string, { code: string; expiresAt: number }>;
-      }).otpStore.get('+919876543210')!;
+      }).otpStore.get('+919876543210:CUSTOMER')!;
       // Force expiry into the past.
       entry.expiresAt = Date.now() - 1;
 
@@ -112,7 +112,7 @@ describe('AuthService', () => {
       service.requestOtp('+919876543210');
       const code = (service as unknown as {
         otpStore: Map<string, { code: string; expiresAt: number }>;
-      }).otpStore.get('+919876543210')!.code;
+      }).otpStore.get('+919876543210:CUSTOMER')!.code;
 
       await service.verifyOtp('+919876543210', code);
       await expect(service.verifyOtp('+919876543210', code)).rejects.toBeInstanceOf(

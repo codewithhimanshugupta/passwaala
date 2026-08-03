@@ -527,11 +527,11 @@ function ProductRow({
         </View>
       ) : null}
 
-      {/* Tapping anywhere on the card (except the image) toggles the lazy detail.
-          Tapping the image opens a fullscreen preview instead. */}
-      <Pressable style={styles.productTapArea} onPress={onToggleDetail}>
-        {/* Image — real image if present, else a clean initial card (no SVG).
-            When a real image exists, tapping it opens the fullscreen preview. */}
+      {/* Row: [image] [name+price — tap toggles detail] [add/stepper controls].
+          The controls are OUTSIDE the toggle Pressable so tapping +/- never also
+          fires the detail toggle (which previously caused a double-action). */}
+      <View style={styles.productTapArea}>
+        {/* Image — tapping a real image opens the fullscreen preview. */}
         <Pressable
           style={styles.productImageWrap}
           onPress={() => {
@@ -552,8 +552,8 @@ function ProductRow({
           ) : null}
         </Pressable>
 
-        {/* Info */}
-        <View style={styles.productInfo}>
+        {/* Name + price — tapping this text area toggles the lazy detail. */}
+        <Pressable style={styles.productInfo} onPress={onToggleDetail}>
           <Text style={styles.productName} numberOfLines={2}>{product.name}</Text>
           {!expanded ? (
             <Text style={styles.productHint}>{t.storefront.tapForDetails}</Text>
@@ -564,7 +564,10 @@ function ProductRow({
               <Text style={styles.productMrp}>{formatRupees(product.mrpPaise!)}</Text>
             ) : null}
           </View>
+        </Pressable>
 
+        {/* Add / stepper — independent controls (not inside the toggle area). */}
+        <View style={styles.productActions}>
           {!orderable ? (
             <View style={styles.outOfStockBadge}>
               <Text style={styles.outOfStockText}>{t.storefront.outOfStock}</Text>
@@ -591,7 +594,7 @@ function ProductRow({
             </View>
           )}
         </View>
-      </Pressable>
+      </View>
 
       {/* Lazy-loaded detail, shown only when this row is expanded. */}
       {expanded ? (
@@ -915,6 +918,10 @@ const styles = StyleSheet.create({
   productInfo: {
     flex: 1,
     gap: 4,
+  },
+  productActions: {
+    justifyContent: 'center',
+    alignItems: 'flex-end',
   },
   productName: {
     fontSize: 13,

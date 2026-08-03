@@ -166,11 +166,8 @@ export class RidersService {
       if (dto.latitude != null && dto.longitude != null) {
         const nearbyShop = await this.prisma.$queryRaw<Array<{ city: string }>>`
           SELECT city FROM "Shop"
-          WHERE "deletedAt" IS NULL AND "isOpen" = true
-          ORDER BY ST_Distance(
-            ST_MakePoint(longitude::float8, latitude::float8)::geography,
-            ST_MakePoint(${dto.longitude}::float8, ${dto.latitude}::float8)::geography
-          )
+          WHERE "deletedAt" IS NULL AND "isOpen" = true AND geog IS NOT NULL
+          ORDER BY geog <-> ST_SetSRID(ST_MakePoint(${dto.longitude}::float8, ${dto.latitude}::float8), 4326)::geography
           LIMIT 1
         `;
         const riderCity = nearbyShop[0]?.city;
@@ -203,7 +200,21 @@ export class RidersService {
       },
       select: { online: true },
     });
+    // Maintain the GIST-indexed geog column so proximity checks stay index-backed.
+    if (dto.latitude != null && dto.longitude != null) {
+      await this.syncRiderGeog(userId, dto.longitude, dto.latitude);
+    }
     return { online: updated.online };
+  }
+
+  /** Maintain the PostGIS geog point on RiderProfile from lon/lat (raw SQL — Unsupported type). */
+  private async syncRiderGeog(userId: string, longitude: number, latitude: number): Promise<void> {
+    await this.prisma.$executeRawUnsafe(
+      `UPDATE "RiderProfile" SET geog = ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography WHERE "userId" = $3`,
+      longitude,
+      latitude,
+      userId,
+    );
   }
 
   /**
@@ -220,6 +231,7 @@ export class RidersService {
       where: { userId },
       data: { latitude, longitude },
     });
+    await this.syncRiderGeog(userId, longitude, latitude);
     return { ok: true };
   }
 

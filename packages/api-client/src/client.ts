@@ -234,6 +234,20 @@ export class PasswaalaApiClient {
   addToCart(productId: string, qty: number): Promise<unknown> {
     return this.post('/cart/items', { productId, qty });
   }
+  /**
+   * Replace the ENTIRE server cart in one request (shop + all lines) and get the
+   * bill view back once. The fast checkout sync — one round-trip instead of
+   * clear + one-add-per-line + GET.
+   */
+  replaceCart(body: {
+    shopId: string;
+    items: Array<{ productId: string; qty: number }>;
+    deliveryMode?: string;
+    addressId?: string;
+    selectedOfferId?: string;
+  }): Promise<unknown> {
+    return this.post('/cart/replace', body);
+  }
   setCartQty(productId: string, qty: number): Promise<unknown> {
     return this.patch(`/cart/items/${productId}`, { qty });
   }
