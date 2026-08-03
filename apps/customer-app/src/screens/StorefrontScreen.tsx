@@ -33,7 +33,7 @@ import {
   shadow,
   theme,
 } from '../theme';
-import { Badge, Button, ErrorState, Loading, Stars } from '../ui';
+import { Badge, Button, ErrorState, Loading, StorefrontSkeleton, Stars } from '../ui';
 import { ImageOrInitial } from '../ImageOrInitial';
 import { useLang } from '../i18n/LanguageContext';
 
@@ -165,8 +165,15 @@ export function StorefrontScreen({
 
   const onAdd = (productId: string) => {
     const p = products.find((x) => x.id === productId);
+    // Guard: never add a product that's gone/unavailable (deleted or out of
+    // stock). The server also re-validates at placement, but block it up front
+    // so the customer isn't allowed to build a cart around a dead product.
+    if (!p || !p.available || !p.inStock) {
+      setNotice(t.storefront.outOfStock);
+      return Promise.resolve();
+    }
     return runMutation(productId, () =>
-      addOne(productId, p && shop ? {
+      addOne(productId, shop ? {
         shopId,
         shopName: shop.name,
         name: p.name,
@@ -210,7 +217,7 @@ export function StorefrontScreen({
     );
   }
 
-  if (loading) return <Loading label={t.storefront.loadingShop} />;
+  if (loading) return <StorefrontSkeleton />;
   if (error) return <ErrorState message={error} onRetry={load} />;
 
   const cartIsThisShop = cartShopId === shopId;

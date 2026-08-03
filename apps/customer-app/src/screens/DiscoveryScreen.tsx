@@ -17,7 +17,7 @@ import type { NearbyShop } from '@passwaala/api-client';
 import { api } from '../api';
 import type { ShopContactFields, Address } from '../types';
 import { bannerImage, logoImage, formatDistance, formatEta, formatRupees, shadow, theme } from '../theme';
-import { Badge, Button, EmptyState, ErrorState, Loading } from '../ui';
+import { Badge, Button, EmptyState, ErrorState, SkeletonBlock } from '../ui';
 import { ImageOrInitial } from '../ImageOrInitial';
 import { ChevronDown } from '../ChevronDown';
 import { useLang } from '../i18n/LanguageContext';
@@ -422,7 +422,7 @@ export function DiscoveryScreen({
       </View>
 
       {loading ? (
-        <Loading label={t.discovery.findingShops} />
+        <ShopListSkeleton />
       ) : error ? (
         <ErrorState message={error} onRetry={load} />
       ) : shops.length === 0 && cityUnserved ? (
@@ -718,6 +718,23 @@ map.on('zoomend moveend',sendRadius);
       title="Nearby shops map"
       style={{ border: '0', width: '100%', height: 'calc(100dvh - 220px)', minHeight: '380px', display: 'block' }}
     />
+  );
+}
+
+/** Placeholder shop-card list shown while the first page of shops loads. */
+function ShopListSkeleton() {
+  return (
+    <View style={styles.list}>
+      {[0, 1, 2, 3, 4].map((i) => (
+        <View key={i} style={styles.card}>
+          <SkeletonBlock width="100%" height={120} radius={0} />
+          <View style={styles.cardBody}>
+            <SkeletonBlock width="60%" height={18} />
+            <SkeletonBlock width="40%" height={13} style={{ marginTop: theme.space.xs }} />
+          </View>
+        </View>
+      ))}
+    </View>
   );
 }
 

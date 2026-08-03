@@ -5,7 +5,7 @@ import type { PlaceOrderResult } from '@passwaala/shared';
 import { api } from '../api';
 import type { OrderDetail } from '../types';
 import { estimateOrderMinutes, formatMinutesBand, formatRupees, haversineMeters, shadow, theme } from '../theme';
-import { Badge, Button, Divider, ErrorState, Loading } from '../ui';
+import { Badge, Button, Divider, ErrorState, SkeletonBlock } from '../ui';
 import { TrackingMap } from '../components/TrackingMap';
 import { UpiQr } from '../components/UpiQr';
 import { DisputeModal, type DisputeModalHandle } from '../components/DisputeModal';
@@ -330,7 +330,7 @@ export function OrderTrackingScreen({
     }
   }
 
-  if (loading) return <Loading label={t.orderTracking.loadingOrder} />;
+  if (loading) return <OrderTrackingSkeleton />;
   if (error && !order) return <ErrorState message={error} onRetry={load} />;
   if (!order) return <ErrorState message={t.orderTracking.orderNotFound} onRetry={load} />;
 
@@ -802,6 +802,28 @@ export function OrderTrackingScreen({
         </View>
       </Modal>
     </ScrollView>
+  );
+}
+
+/** Placeholder scaffold (status timeline) shown while the order loads. */
+function OrderTrackingSkeleton() {
+  return (
+    <View style={styles.root}>
+      <View style={styles.section}>
+        <SkeletonBlock width="45%" height={16} style={{ marginBottom: theme.space.md }} />
+        {[0, 1, 2, 3].map((i) => (
+          <View key={i} style={styles.timelineRow}>
+            <View style={styles.timelineGutter}>
+              <SkeletonBlock width={40} height={40} radius={theme.radius.pill} />
+            </View>
+            <View style={styles.timelineBody}>
+              <SkeletonBlock width="55%" height={16} />
+              <SkeletonBlock width="75%" height={13} style={{ marginTop: theme.space.xs }} />
+            </View>
+          </View>
+        ))}
+      </View>
+    </View>
   );
 }
 

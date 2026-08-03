@@ -232,6 +232,56 @@ export function Loading({ label }: { label?: string }) {
   );
 }
 
+/** A single grey placeholder block (skeleton). Width can be a % or number. */
+export function SkeletonBlock({
+  width = '100%',
+  height = 16,
+  radius = 8,
+  style,
+}: {
+  width?: number | string;
+  height?: number;
+  radius?: number;
+  style?: object;
+}) {
+  return (
+    <View
+      style={[
+        { width: width as never, height, borderRadius: radius, backgroundColor: theme.color.surfaceAlt },
+        style,
+      ]}
+    />
+  );
+}
+
+/**
+ * StorefrontSkeleton — placeholder scaffold shown while a shop's catalog loads,
+ * instead of a bare spinner: a banner block + a few product-row skeletons so the
+ * screen has shape immediately (feels faster on the slow tier).
+ */
+export function StorefrontSkeleton() {
+  return (
+    <View style={{ flex: 1, backgroundColor: theme.color.surface }}>
+      <SkeletonBlock width="100%" height={160} radius={0} />
+      <View style={{ padding: theme.space.lg, gap: theme.space.md }}>
+        <SkeletonBlock width="55%" height={22} />
+        <SkeletonBlock width="35%" height={14} />
+        <SkeletonBlock width="100%" height={44} radius={theme.radius.md} />
+        {[0, 1, 2, 3, 4].map((i) => (
+          <View key={i} style={s.skelRow}>
+            <SkeletonBlock width={84} height={84} radius={12} />
+            <View style={{ flex: 1, gap: 8 }}>
+              <SkeletonBlock width="70%" height={16} />
+              <SkeletonBlock width="40%" height={14} />
+              <SkeletonBlock width={90} height={30} radius={theme.radius.md} />
+            </View>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
+
 export function ErrorState({
   message,
   onRetry,
@@ -366,6 +416,7 @@ const s = StyleSheet.create({
   stateTitle: { fontSize: theme.font.h3, fontWeight: theme.weight.bold, color: theme.color.text },
   stateMuted: { fontSize: theme.font.body, color: theme.color.textMuted, textAlign: 'center' },
   stateAction: { marginTop: theme.space.md },
+  skelRow: { flexDirection: 'row', gap: theme.space.md, alignItems: 'center' },
 
   starsRow: { flexDirection: 'row', alignItems: 'center', gap: 1 },
   starGlyph: { fontWeight: theme.weight.bold },

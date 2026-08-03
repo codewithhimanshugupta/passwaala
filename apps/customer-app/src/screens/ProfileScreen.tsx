@@ -5,7 +5,7 @@ import type { Account, Address, ReferralInfo } from '../types';
 import { AddressForm } from '../components/AddressForm';
 import { LanguagePicker } from '../components/LanguagePicker';
 import { shadow, theme } from '../theme';
-import { Badge, Button, CoinChip, ErrorState, Loading } from '../ui';
+import { Badge, Button, CoinChip, ErrorState, SkeletonBlock } from '../ui';
 import { useLang } from '../i18n/LanguageContext';
 
 /**
@@ -190,7 +190,7 @@ export function ProfileScreen({ onLogout }: { onLogout: () => void }) {
     ]);
   }
 
-  if (loading) return <Loading label={t.profile.loadingProfile} />;
+  if (loading) return <ProfileSkeleton />;
   if (error && !account) return <ErrorState message={error} onRetry={load} />;
 
   const initials = (account?.name || account?.phone || '?').slice(0, 2).toUpperCase();
@@ -431,6 +431,28 @@ export function ProfileScreen({ onLogout }: { onLogout: () => void }) {
         </View>
       </Modal>
     </ScrollView>
+  );
+}
+
+/** Placeholder scaffold shown while the profile loads. */
+function ProfileSkeleton() {
+  return (
+    <View style={styles.root}>
+      <View style={styles.hero}>
+        <View style={styles.avatarWrap}>
+          <SkeletonBlock width={88} height={88} radius={theme.radius.pill} />
+        </View>
+        <SkeletonBlock width={140} height={20} style={{ marginTop: theme.space.sm }} />
+        <SkeletonBlock width={100} height={14} style={{ marginTop: theme.space.xs }} />
+      </View>
+      {[0, 1, 2].map((i) => (
+        <View key={i} style={styles.section}>
+          <SkeletonBlock width="40%" height={16} />
+          <SkeletonBlock width="100%" height={14} style={{ marginTop: theme.space.md }} />
+          <SkeletonBlock width="70%" height={14} style={{ marginTop: theme.space.sm }} />
+        </View>
+      ))}
+    </View>
   );
 }
 

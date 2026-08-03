@@ -90,7 +90,13 @@ export async function setQty(productId: string, qty: number): Promise<void> {
     const line = local.lines.find((l) => l.productId === productId);
     if (line) line.qty = qty;
   }
-  if (local.lines.length === 0) local = { ...EMPTY };
+  // Decrementing the last item empties the cart entirely — reset local state AND
+  // clear the server cart (best-effort, background) so nothing lingers to cause a
+  // stale "items from another shop" conflict on the next add.
+  if (local.lines.length === 0) {
+    local = { ...EMPTY };
+    void api.clearCart().catch(() => undefined);
+  }
   persist();
 }
 

@@ -14,7 +14,7 @@ import { api } from '../api';
 import { loadFromServer } from '../cart';
 import type { OrderHistoryItem } from '../types';
 import { formatRupees, shadow, theme } from '../theme';
-import { Badge, Button, EmptyState, ErrorState, Loading } from '../ui';
+import { Badge, Button, EmptyState, ErrorState, SkeletonBlock } from '../ui';
 import { useLang } from '../i18n/LanguageContext';
 import type { Strings } from '../i18n/strings';
 
@@ -108,7 +108,14 @@ export function OrdersScreen({
     );
   }
 
-  if (loading) return <Loading label={t.orders.loadingOrders} />;
+  if (loading) {
+    return (
+      <View style={styles.root}>
+        <ScreenHeader />
+        <OrdersSkeleton />
+      </View>
+    );
+  }
   if (error) return <ErrorState message={error} onRetry={load} />;
   if (orders.length === 0) {
     return (
@@ -172,6 +179,29 @@ export function OrdersScreen({
           />
         )}
       />
+    </View>
+  );
+}
+
+/** Placeholder order-row list shown while the first page loads. */
+function OrdersSkeleton() {
+  return (
+    <View style={styles.list}>
+      {[0, 1, 2, 3].map((i) => (
+        <View key={i} style={styles.card}>
+          <View style={styles.cardCategoryRow}>
+            <SkeletonBlock width={90} height={12} />
+            <SkeletonBlock width={70} height={20} radius={theme.radius.pill} />
+          </View>
+          <View style={styles.cardMain}>
+            <SkeletonBlock width={48} height={48} radius={theme.radius.md} />
+            <View style={styles.flex}>
+              <SkeletonBlock width="60%" height={16} />
+              <SkeletonBlock width="80%" height={13} style={{ marginTop: theme.space.xs }} />
+            </View>
+          </View>
+        </View>
+      ))}
     </View>
   );
 }
