@@ -284,7 +284,7 @@ export function RidersScreen() {
                   <Stat label={t.riders.codLimit} value={formatRupees(rider.creditLimitPaise)} />
                   <Stat label="Total orders" value={String(rider.totalDeliveries)} />
                   <Stat label="Today" value={String(rider.todayDeliveries)} />
-                  {rider.loginPin ? <Stat label="Login PIN" value={rider.loginPin} /> : rider.loginOtp ? <Stat label="Login OTP" value={rider.loginOtp} /> : null}
+                  {rider.loginPin ? <Stat label="Login PIN" value={rider.loginPin} /> : null}
                 </View>
 
                 {/* Active orders */}

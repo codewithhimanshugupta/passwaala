@@ -313,7 +313,7 @@ export function ShopsScreen() {
                         <PanelStat label="Credit Limit" value={formatRupees(shop.creditLimitPaise)} />
                         <PanelStat label="Commission" value={`${ratePct(shop.commissionRate)}%`} />
                         {shop.contactPhone ? <PanelStat label="Phone" value={shop.contactPhone} /> : null}
-                        {shop.ownerLoginPin ? <PanelStat label="Login PIN" value={shop.ownerLoginPin} /> : shop.ownerLoginOtp ? <PanelStat label="Login OTP" value={shop.ownerLoginOtp} /> : null}
+                        {shop.ownerLoginPin ? <PanelStat label="Login PIN" value={shop.ownerLoginPin} /> : null}
                       </View>
 
                       {/* Commission setter */}

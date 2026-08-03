@@ -129,7 +129,7 @@ export function CustomersScreen() {
                 <Stat label="Coins" value={String(c.coinBalance)} />
                 <Stat label="Total orders" value={String(c.totalOrders)} />
                 <Stat label="Delivered" value={String(c.deliveredOrders)} />
-                {c.loginPin ? <Stat label="Login PIN" value={c.loginPin} /> : c.loginOtp ? <Stat label="Login OTP" value={c.loginOtp} /> : null}
+                {c.loginPin ? <Stat label="Login PIN" value={c.loginPin} /> : null}
               </View>
             </View>
           ))}
