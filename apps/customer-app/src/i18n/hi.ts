@@ -236,6 +236,9 @@ export const hi: Strings = {
     theShop: 'दुकान',
     outsideAreaBody: (dist: string, shop: string) =>
       `यह पता ${shop} से ${dist} दूर है — इसकी डिलीवरी सीमा से परे। कोई नज़दीकी पता चुनें, या दुकान से लेने के लिए सेल्फ-पिकअप पर स्विच करें।`,
+    outOfDeliveryRange:
+      'यह पता दुकान के डिलीवरी क्षेत्र के बाहर है। ऑर्डर करने के लिए पता बदलें।',
+    outOfRangeTag: 'सीमा के बाहर',
     farConfirmed: (dist: string) => `आपके स्थान से ${dist} · पुष्टि की गई`,
     paymentMethod: 'भुगतान का तरीका',
     upiTitle: 'UPI (सीधे दुकान को)',

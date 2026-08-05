@@ -252,7 +252,7 @@ function ProductRow({
           <Text style={styles.edit}>{t.products.edit}</Text>
         </Pressable>
         <Pressable onPress={onDelete} disabled={deleting} style={styles.deleteBtn} hitSlop={8}>
-          {deleting ? <ActivityIndicator size="small" color={theme.color.danger} /> : <Text style={styles.delete}>{t.products.delete}</Text>}
+          <Text style={styles.delete}>{t.products.delete}</Text>
         </Pressable>
       </View>
     </View>

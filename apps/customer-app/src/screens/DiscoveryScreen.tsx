@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import type { NearbyShop } from '@passwaala/api-client';
 import { api } from '../api';
+import { prefetchCheckout, getPrefetchedCheckout } from '../checkoutPrefetch';
 import type { ShopContactFields, Address } from '../types';
 import { bannerImage, logoImage, formatDistance, formatEta, formatRupees, shadow, theme } from '../theme';
 import { Badge, Button, EmptyState, ErrorState, SkeletonBlock } from '../ui';
@@ -23,14 +24,11 @@ import { ChevronDown } from '../ChevronDown';
 import { useLang } from '../i18n/LanguageContext';
 import type { Strings } from '../i18n/strings';
 
-/** Fallback customer location if GPS is unavailable — Jhansi city center. */
-const DEFAULT_LAT = 25.4484;
-const DEFAULT_LNG = 78.5685;
-const DEFAULT_LABEL = 'Jhansi';
 /** Nearby shops fetched per page in list view (load more on scroll). */
 const PAGE_SIZE = 15;
 
-/** Resolved delivery location: either the GPS fix or the default fallback. */
+/** Resolved delivery location coordinates. Null until GPS or a saved address
+ *  resolves — there is NO hardcoded city fallback. */
 type Coords = { lat: number; lng: number };
 
 /** Category chips — slugs are API values (never localized); labels come from `t`. */
@@ -65,6 +63,7 @@ export function DiscoveryScreen({
   restoredShopId,
   loc,
   onLocChange,
+  locHydrated = true,
 }: {
   onOpenShop: (shopId: string) => void;
   viewMode?: 'list' | 'map';
@@ -72,6 +71,9 @@ export function DiscoveryScreen({
   restoredShopId?: string | null;
   loc: LocState;
   onLocChange: (next: LocState) => void;
+  /** True once the persisted location has been read from storage — the auto-GPS
+   *  effect waits for this so it can't override a restored choice. */
+  locHydrated?: boolean;
 }) {
   const { t } = useLang();
   const CATEGORIES = categoriesFor(t);
@@ -94,17 +96,18 @@ export function DiscoveryScreen({
   const [cityRadius, setCityRadius] = useState(10000);
 
   // Location is OWNED by App.tsx (via `loc`) so it persists across opening a
-  // shop and coming back. Derive the effective coords/label from it; fall back
-  // to the pilot default only for display until GPS or an address resolves.
-  const coords: Coords = loc.coords ?? { lat: DEFAULT_LAT, lng: DEFAULT_LNG };
-  const usingDefault = loc.coords == null;
-  const placeName = loc.placeName ?? DEFAULT_LABEL;
+  // shop and coming back, AND across reloads (persisted to IndexedDB). There is
+  // NO hardcoded city fallback: coords is null until the user's real GPS fix or
+  // a saved address resolves. When null we prompt them to set a location.
+  const coords: Coords | null = loc.coords;
+  const hasLocation = coords != null;
+  const placeName = loc.placeName;
   const [locating, setLocating] = useState(false);
   const geocodedKey = useRef<string | null>(null);
 
   // City-level name (from the reverse-geocode) used to check serviceability.
-  // Null while unknown; defaults to the fallback label for the default location.
-  const [detectedCity, setDetectedCity] = useState<string | null>(DEFAULT_LABEL);
+  // Null until we reverse-geocode the user's real coords.
+  const [detectedCity, setDetectedCity] = useState<string | null>(null);
 
   // Cities PassWaala currently operates in (enabled city names), loaded once on
   // mount. Null while loading / on failure — we then treat the city as unknown
@@ -114,11 +117,17 @@ export function DiscoveryScreen({
   // "Notify me" acknowledgement for the not-available empty state.
   const [notified, setNotified] = useState(false);
 
-  // Saved addresses for the delivery location picker.
-  const [savedAddresses, setSavedAddresses] = useState<Address[]>([]);
+  // Saved addresses for the delivery location picker. Seed instantly from the
+  // checkout prefetch cache (shared with the cart) if it's warm, so opening
+  // "change address" on the home screen is instant; otherwise fetch + warm it.
+  const [savedAddresses, setSavedAddresses] = useState<Address[]>(
+    () => getPrefetchedCheckout()?.addresses ?? [],
+  );
   const [showAddrPicker, setShowAddrPicker] = useState(false);
   useEffect(() => {
-    api.addresses().then((list) => setSavedAddresses(list as Address[])).catch(() => undefined);
+    prefetchCheckout()
+      .then((d) => setSavedAddresses(d.addresses))
+      .catch(() => undefined);
   }, []);
 
   const resolveLocation = useCallback(() => {
@@ -151,13 +160,14 @@ export function DiscoveryScreen({
   }, [loc, onLocChange]);
 
   // Auto-run GPS ONCE per session, and never when the user already picked an
-  // address (F1/F2). After the first attempt the chosen location sticks.
+  // address (F1/F2) or before the persisted location has hydrated. After the
+  // first attempt the chosen location sticks (and is persisted across reloads).
   useEffect(() => {
-    if (!loc.gpsTried && !loc.addressPicked) {
+    if (locHydrated && !loc.gpsTried && !loc.addressPicked) {
       resolveLocation();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loc.gpsTried, loc.addressPicked]);
+  }, [locHydrated, loc.gpsTried, loc.addressPicked]);
 
   // Load the serviceable-city list once on mount. On failure we leave it null
   // (unknown) so we never wrongly tell a user their city isn't covered.
@@ -185,6 +195,12 @@ export function DiscoveryScreen({
   }, [detectedCity]);
 
   const load = useCallback(async (radiusOverride?: number) => {
+    if (!coords) {
+      // No location yet — nothing to search; the UI shows a "set location" prompt.
+      setShops([]);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -217,7 +233,7 @@ export function DiscoveryScreen({
 
   // Load the next page of shops (list view only) and append.
   const loadMore = useCallback(async () => {
-    if (loadingMore || !canLoadMore || viewMode === 'map') return;
+    if (loadingMore || !canLoadMore || viewMode === 'map' || !coords) return;
     setLoadingMore(true);
     try {
       const next = await api.nearbyShops({
@@ -275,10 +291,11 @@ export function DiscoveryScreen({
   }, [onOpenShop]);
 
   // Reverse-geocode the current coords to a human place name; writes it back to
-  // the lifted loc.placeName (only when we have real GPS coords, not the default).
+  // the lifted loc.placeName. Only runs once we have real coords (GPS or a
+  // saved address) — there is no default location to label.
   useEffect(() => {
-    if (usingDefault) {
-      setDetectedCity(DEFAULT_LABEL);
+    if (!coords) {
+      setDetectedCity(null);
       return;
     }
     const key = `${coords.lat.toFixed(4)},${coords.lng.toFixed(4)}`;
@@ -305,11 +322,12 @@ export function DiscoveryScreen({
     return () => {
       cancelled = true;
     };
-  }, [coords, usingDefault]);
+  }, [coords]);
 
-  // Only block when GPS-resolved city is confirmed unserved — never when using default location
+  // Only block when a GPS-resolved city is confirmed unserved — never when we
+  // have no location yet (we then prompt the user to set one instead).
   const cityUnserved =
-    !usingDefault &&
+    hasLocation &&
     !!detectedCity &&
     serviceableCities !== null &&
     !serviceableCities.some((c) => {
@@ -334,7 +352,9 @@ export function DiscoveryScreen({
               style={styles.locationRow}
             >
               <Text style={styles.locationValue} numberOfLines={1}>
-                {locating ? t.discovery.findingLocation : placeName}
+                {locating
+                  ? t.discovery.findingLocation
+                  : placeName ?? t.locationPicker.setLocation}
               </Text>
               {!locating ? <ChevronDown size={18} color={theme.color.text} /> : null}
             </Pressable>
@@ -422,7 +442,20 @@ export function DiscoveryScreen({
         </View>
       </View>
 
-      {loading ? (
+      {!hasLocation && !locating ? (
+        <EmptyState
+          title={t.locationPicker.setLocation}
+          subtitle={t.locationPicker.tapToUseGps}
+          action={
+            <Button
+              label={t.locationPicker.useMyLocation}
+              variant="primary"
+              fullWidth={false}
+              onPress={resolveLocation}
+            />
+          }
+        />
+      ) : loading ? (
         <ShopListSkeleton />
       ) : error ? (
         <ErrorState message={error} onRetry={load} />
@@ -452,7 +485,7 @@ export function DiscoveryScreen({
         <View style={styles.mapWrap}>
           <ShopsMap
             shops={shops.filter((s) => !searchQuery.trim() || s.name.toLowerCase().includes(searchQuery.toLowerCase()))}
-            center={coords}
+            center={coords ?? { lat: 0, lng: 0 }}
             selected={selectedShop}
             onSelect={setSelectedShop}
             onRadiusChange={(r) => {

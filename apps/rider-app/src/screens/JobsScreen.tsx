@@ -477,7 +477,6 @@ export function JobsScreen({ online }: { online: boolean }) {
           <JobCard
             key={job.id}
             job={job}
-            accepting={acceptingId === job.id}
             disabled={acceptingId !== null}
             secondsLeft={secondsLeftFor(job)}
             onAccept={() => accept(job.id)}
@@ -558,14 +557,12 @@ function ActiveCard({
 
 function JobCard({
   job,
-  accepting,
   disabled,
   secondsLeft,
   onAccept,
   onDecline,
 }: {
   job: RiderJob;
-  accepting: boolean;
   disabled: boolean;
   secondsLeft: number | null;
   onAccept: () => void;
@@ -612,8 +609,7 @@ function JobCard({
         <Button
           label={t.jobs.acceptDelivery}
           onPress={onAccept}
-          busy={accepting}
-          disabled={disabled && !accepting}
+          disabled={disabled}
           style={styles.flex}
         />
         {isOffer ? (

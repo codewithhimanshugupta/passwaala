@@ -445,11 +445,7 @@ function ActionButton({
       onPress={onPress}
       disabled={busy}
     >
-      {busy ? (
-        <ActivityIndicator color={fg} />
-      ) : (
-        <Text style={[styles.actionBtnText, { color: fg }]}>{label}</Text>
-      )}
+      <Text style={[styles.actionBtnText, { color: fg }]}>{label}</Text>
     </Pressable>
   );
 }

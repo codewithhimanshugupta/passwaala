@@ -327,7 +327,52 @@ export class ShopsService {
     if (!shop) {
       throw new BadRequestException('Shop not found');
     }
-    return this.toPublicView(shop);
+    // Preload everything the cart needs to compute the bill LOCALLY (no server
+    // round-trip at checkout): the city's delivery fee-tiers + rider radius, the
+    // city offer templates, and this shop's active coupons. Fetched in parallel.
+    const [cityCfg, cityOffers, shopCoupons] = await Promise.all([
+      shop.city
+        ? this.prisma.serviceableCity.findFirst({
+            where: {
+              deletedAt: null,
+              OR: [
+                { name: { equals: shop.city, mode: 'insensitive' } },
+                { name: { in: shop.city.split(',').map((p) => p.trim()) } },
+              ],
+            },
+            select: { deliveryTiersJson: true, riderCheckRadiusMeters: true, deliveryRadiusMeters: true },
+          })
+        : Promise.resolve(null),
+      shop.city
+        ? this.prisma.offerTemplate.findMany({
+            where: { city: { name: { equals: shop.city, mode: 'insensitive' } }, active: true, deletedAt: null },
+            select: { id: true, title: true, type: true, value: true, minOrderPaise: true },
+            orderBy: { createdAt: 'asc' },
+          })
+        : Promise.resolve([]),
+      this.prisma.coupon.findMany({
+        where: { shopIds: { has: shop.id }, active: true, deletedAt: null },
+        select: { id: true, code: true, description: true, type: true, value: true, minOrderPaise: true },
+      }),
+    ]);
+    const couponOffers = shopCoupons.map((c) => ({
+      id: c.id,
+      title: c.code + (c.description ? ` — ${c.description}` : ''),
+      type: c.type,
+      value: c.value,
+      minOrderPaise: c.minOrderPaise,
+    }));
+    return {
+      ...this.toPublicView(shop),
+      // Delivery fee-tier config so the client computes the exact distance fee.
+      deliveryTiers: cityCfg?.deliveryTiersJson ? JSON.parse(cityCfg.deliveryTiersJson) : null,
+      riderCheckRadiusMeters: cityCfg?.riderCheckRadiusMeters ?? null,
+      // Admin-set serviceable delivery radius (metres) — the client blocks a drop
+      // outside this circle with an "out of delivery range" message.
+      deliveryRadiusMeters: cityCfg?.deliveryRadiusMeters ?? null,
+      // The full offer/coupon list so the cart shows + applies offers instantly.
+      availableOffers: [...cityOffers, ...couponOffers],
+    };
   }
 
   /**

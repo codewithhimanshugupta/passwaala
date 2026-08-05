@@ -239,6 +239,9 @@ export const en = {
     theShop: 'the shop',
     outsideAreaBody: (dist: string, shop: string) =>
       `This address is ${dist} from ${shop} — beyond its delivery range. Choose a closer address, or switch to Self-pickup to collect it from the shop.`,
+    outOfDeliveryRange:
+      "This address is outside the shop's delivery area. Change the address to place your order.",
+    outOfRangeTag: 'Out of range',
     farConfirmed: (dist: string) => `${dist} from your location · confirmed`,
     paymentMethod: 'Payment method',
     upiTitle: 'UPI (Direct to shop)',

@@ -24,6 +24,16 @@ export interface ShopContactFields {
   deliveryAvailable?: boolean;
   /** True when no delivery/rider option is available for this shop right now. */
   deliveryUnavailable?: boolean;
+  /** Distance fee-tiers for platform-rider delivery (from the shop's city). Lets
+   *  the cart compute the exact delivery fee locally with no server round-trip. */
+  deliveryTiers?: Array<{ maxKm: number; feePaise: number }> | null;
+  riderCheckRadiusMeters?: number | null;
+  /** Admin-set serviceable delivery radius (metres). A drop outside this circle
+   *  is out-of-range: block placement + show "change address". */
+  deliveryRadiusMeters?: number | null;
+  /** Full offer/coupon list for this shop (city offers + shop coupons), preloaded
+   *  so the cart shows + applies offers instantly. */
+  availableOffers?: Array<{ id: string; title: string; type: string; value: number; minOrderPaise: number }>;
 }
 export type ShopView = ShopPublic & ShopContactFields;
 

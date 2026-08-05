@@ -17,6 +17,7 @@ import { connectSocket, disconnectSocket } from './src/socket';
 import type { Account } from './src/types';
 import { resetCartStore, useCart } from './src/cart';
 import { clearCheckoutPrefetch } from './src/checkoutPrefetch';
+import { idbGet, idbSet } from './src/idbKv';
 import { TabIcon } from './src/TabIcon';
 import { shadow, theme } from './src/theme';
 import { LanguageProvider, useLang } from './src/i18n/LanguageContext';
@@ -128,6 +129,45 @@ const confirmedStyles = StyleSheet.create({
  */
 type Tab = 'home' | 'cart' | 'orders' | 'profile';
 
+/**
+ * Persisted delivery-location state. Saved to IndexedDB (mirrored to
+ * localStorage for a synchronous startup read) so the location the user chose
+ * sticks across refreshes / reopening the PWA until they change it — no
+ * silent re-run of GPS on every launch, and no hardcoded city fallback.
+ */
+type LocState = {
+  coords: { lat: number; lng: number } | null;
+  placeName: string | null;
+  addressPicked: boolean;
+  gpsTried: boolean;
+};
+
+const LOC_STORAGE_KEY = 'pw.deliveryLoc.v1';
+const EMPTY_LOC: LocState = {
+  coords: null,
+  placeName: null,
+  addressPicked: false,
+  gpsTried: false,
+};
+
+/** Synchronous startup read from the localStorage mirror (IDB hydrates after). */
+function readLocMirror(): LocState {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const raw = localStorage.getItem(LOC_STORAGE_KEY);
+      if (raw) return { ...EMPTY_LOC, ...(JSON.parse(raw) as Partial<LocState>) };
+    }
+  } catch {
+    /* ignore — fall back to empty (prompt-to-set) */
+  }
+  return EMPTY_LOC;
+}
+
+/** Persist to IndexedDB (idbSet mirrors to localStorage for the next startup). */
+function persistLoc(next: LocState): void {
+  void idbSet(LOC_STORAGE_KEY, next);
+}
+
 type Stack =
   | { name: 'tabs' }
   | { name: 'shop'; shopId: string }
@@ -160,15 +200,45 @@ function AppRoot() {
   //   placeName  — human label for the location bar
   //   addressPicked — true once the user chose a saved address (locks out GPS override)
   //   gpsTried   — so we auto-run GPS only once per session
-  const [loc, setLoc] = useState<{
-    coords: { lat: number; lng: number } | null;
-    placeName: string | null;
-    addressPicked: boolean;
-    gpsTried: boolean;
-  }>({ coords: null, placeName: null, addressPicked: false, gpsTried: false });
+  //
+  // Persisted to IndexedDB (mirrored to localStorage for a synchronous startup
+  // read) so the chosen location survives a refresh / reopening the PWA — it
+  // sticks until the user changes it, instead of re-running GPS every launch.
+  const [loc, setLoc] = useState<LocState>(() => readLocMirror());
+  // Once we've loaded a persisted location, suppress the auto-GPS effect so it
+  // can't override the restored choice before hydration settles.
+  const [locHydrated, setLocHydrated] = useState(false);
   // Name used in the location permission greeting after onboarding.
   const [onboardedName, setOnboardedName] = useState<string | null>(null);
   const [showLocationPerm, setShowLocationPerm] = useState(false);
+
+  // A setLoc that also persists, so DiscoveryScreen's changes stick across
+  // reloads. Accepts a value or updater, mirrors React's setState contract.
+  const changeLoc = useCallback((next: LocState | ((prev: LocState) => LocState)) => {
+    setLoc((prev) => {
+      const resolved = typeof next === 'function' ? (next as (p: LocState) => LocState)(prev) : next;
+      persistLoc(resolved);
+      return resolved;
+    });
+  }, []);
+
+  // Hydrate the durable IndexedDB copy on mount (the sync mirror read above is
+  // best-effort). Reconcile only if IDB actually holds a saved location.
+  useEffect(() => {
+    let alive = true;
+    void idbGet<LocState>(LOC_STORAGE_KEY)
+      .then((stored) => {
+        if (alive && stored && (stored.coords || stored.gpsTried || stored.addressPicked)) {
+          setLoc((prev) => ({ ...prev, ...stored }));
+        }
+      })
+      .finally(() => {
+        if (alive) setLocHydrated(true);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   // Name onboarding gate: after login we fetch me() to decide whether to show
   // the one-time "What's your name?" screen (no name yet) before the tabs.
@@ -355,7 +425,8 @@ function AppRoot() {
             onViewModeChange={setDiscoveryViewMode}
             restoredShopId={discoverySelectedShopId}
             loc={loc}
-            onLocChange={setLoc}
+            onLocChange={changeLoc}
+            locHydrated={locHydrated}
           />
       )}
       {tab === 'cart' && (

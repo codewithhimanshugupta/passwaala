@@ -42,7 +42,6 @@ export function DashboardScreen({
   onGoToProducts: () => void;
 }) {
   const { t } = useLang();
-  const [toggling, setToggling] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [stats, setStats] = useState<ShopStats | null>(null);
   const [totalProducts, setTotalProducts] = useState<number | null>(null);
@@ -86,7 +85,6 @@ export function DashboardScreen({
     // Optimistic: flip the store status immediately so the toggle feels instant.
     // Reconcile with the server's echoed value on success; roll back on failure.
     const prev = shop.isOpen;
-    setToggling(true);
     setError(null);
     onShopChange({ ...shop, isOpen: next });
     try {
@@ -95,8 +93,6 @@ export function DashboardScreen({
     } catch (e) {
       onShopChange({ ...shop, isOpen: prev }); // rollback
       setError((e as Error).message || t.dashboard.statusDefaultError);
-    } finally {
-      setToggling(false);
     }
   }
 
@@ -209,7 +205,7 @@ export function DashboardScreen({
           <Switch
             value={isApproved && shop.isOpen}
             onValueChange={toggleOpen}
-            disabled={!isApproved || toggling}
+            disabled={!isApproved}
             trackColor={{ false: theme.color.borderStrong, true: theme.color.primary }}
             thumbColor={theme.color.white}
           />

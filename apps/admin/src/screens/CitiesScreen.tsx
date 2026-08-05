@@ -711,7 +711,7 @@ function CityRow({ city, admins, busy, onToggle, onAddAdmin, onUpdate }: {
             style={[styles.actionBtn, { backgroundColor: city.enabled ? theme.color.critical : theme.color.good }]}
             onPress={onToggle} disabled={busy}
           >
-            {busy ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.actionBtnText}>{city.enabled ? 'Disable' : 'Enable'}</Text>}
+            <Text style={styles.actionBtnText}>{city.enabled ? 'Disable' : 'Enable'}</Text>
           </Pressable>
           {admins.length === 0 && (
             <Pressable style={[styles.actionBtn, { backgroundColor: theme.color.accent }]} onPress={onAddAdmin}>

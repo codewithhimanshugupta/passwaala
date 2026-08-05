@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Image,
   Modal,
@@ -9,10 +9,10 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { PaymentMethod, DeliveryMode, MAX_DELIVERY_RADIUS_METERS, isWithinDeliveryRange } from '@passwaala/shared';
+import { PaymentMethod, DeliveryMode, OfferType, computeBill, platformDeliveryFeePaise } from '@passwaala/shared';
 import type { PlaceOrderResult } from '@passwaala/shared';
 import { api } from '../api';
-import { clearCart, setQty, useCart, syncToServer, resetCartStore } from '../cart';
+import { clearCart, setQty, useCart, resetCartStore } from '../cart';
 import type { Address, ShopView } from '../types';
 import { AddressForm } from '../components/AddressForm';
 import { CouponScreen } from './CouponScreen';
@@ -44,11 +44,13 @@ export function CartScreen({
   const { t } = useLang();
   const localCart = useCart();
   const itemCount = localCart.itemCount;
-  // The server-computed cart/bill, produced by syncing the local cart up. Held
-  // locally here (the shopping cart itself is client-side now — see cart.ts).
-  const [cart, setCart] = useState<any>({ empty: itemCount === 0, items: [] });
-  // riderAvailable: false when no rider online near shop — from cart API response
-  const riderAvailableFromCart = (cart as { riderAvailable?: boolean }).riderAvailable !== false;
+  // The shop's fee/offer/coords config — fetched ONCE from api.shop(). Items and
+  // subtotal come from the LOCAL cart; the bill is computed entirely on-device
+  // (see computedBill below) with NO server sync until the order is placed.
+  const [shopData, setShopData] = useState<ShopView | null>(null);
+  // riderAvailable: false when no rider is online near the shop. Fetched from the
+  // lightweight delivery-availability endpoint (not a cart sync).
+  const [riderAvailableFromCart, setRiderAvailableFromCart] = useState(true);
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [selectedAddress, setSelectedAddress] = useState<string | null>(null);
   const [payment, setPayment] = useState<PaymentMethod>(PaymentMethod.UPI_DIRECT);
@@ -64,13 +66,6 @@ export function CartScreen({
   const [useCoins, setUseCoins] = useState(false);
   const [selectedOfferId, setSelectedOfferId] = useState<string | null>(null);
   const [showCoupons, setShowCoupons] = useState(false);
-  // Shop coords (for the delivery-time estimate) — fetched once we know the shop.
-  const [shopGeo, setShopGeo] = useState<{ lat: number; lng: number } | null>(null);
-  // Whether this shop delivers via PassWaala riders (distance-tiered fee) vs
-  // self-delivery (flat shop fee). Drives the bill-fee label/refetch.
-  const [platformDelivery, setPlatformDelivery] = useState(false);
-  // Whether a rider is online near the shop — false = platform delivery unavailable
-  const [riderAvailable, setRiderAvailable] = useState(true);
   // Customer's current GPS position (best-effort) for the soft "far from your
   // current location" warning. Null until/if geolocation resolves.
   const [currentGeo, setCurrentGeo] = useState<{ lat: number; lng: number } | null>(null);
@@ -78,7 +73,21 @@ export function CartScreen({
   // proceed anyway. Reset whenever they switch to a different address.
   const [farConfirmed, setFarConfirmed] = useState(false);
   // Once the user has manually chosen an address, stop auto-selecting the nearest.
+  // The "far from your location" popup ONLY activates after a manual pick — the
+  // address the user arrived with (pre-selected on home) must never trigger it.
   const [addressPickedManually, setAddressPickedManually] = useState(false);
+
+  // Shop coords (for the delivery-time estimate + distance-tiered fee), derived
+  // from the fetched shop config.
+  const shopGeo = (() => {
+    if (!shopData) return null;
+    const lat = shopData.latitude != null ? Number(shopData.latitude) : NaN;
+    const lng = shopData.longitude != null ? Number(shopData.longitude) : NaN;
+    return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null;
+  })();
+  // Whether this shop delivers via PassWaala riders (distance-tiered fee) vs
+  // self-delivery (flat shop fee).
+  const platformDelivery = shopData?.platformDeliveryEnabled === true;
 
   const loadAddresses = useCallback(async () => {
     // Use the prefetched addresses (warmed on the shop screen) if fresh — the
@@ -121,20 +130,22 @@ export function CartScreen({
     }
   }, [loadAddresses]);
 
-  // Fetch the shop's coordinates so we can estimate a delivery time at checkout.
-  const shopId = cart.shop?.id;
+  // Fetch the shop's fee/offer/coords config ONCE (drives the entire locally-
+  // computed bill). Also fetch rider availability (a lightweight check) so the
+  // "no rider nearby" banner still works — neither call touches the cart.
+  const shopId = localCart.shopId;
   useEffect(() => {
     if (!shopId) return;
     let alive = true;
     void api
       .shop(shopId)
       .then((s) => {
-        const shop = s as ShopView;
-        const lat = shop.latitude != null ? Number(shop.latitude) : NaN;
-        const lng = shop.longitude != null ? Number(shop.longitude) : NaN;
-        if (alive && Number.isFinite(lat) && Number.isFinite(lng)) setShopGeo({ lat, lng });
-        if (alive) setPlatformDelivery(shop.platformDeliveryEnabled === true);
+        if (alive) setShopData(s as ShopView);
       })
+      .catch(() => undefined);
+    void api
+      .shopDeliveryAvailable(shopId)
+      .then((d) => { if (alive) setRiderAvailableFromCart(d.deliveryAvailable !== false); })
       .catch(() => undefined);
     return () => { alive = false; };
   }, [shopId]);
@@ -183,49 +194,16 @@ export function CartScreen({
   // Auto-switch to self-pickup if platform delivery becomes unavailable
   useEffect(() => {
     if (platformDelivery && !riderAvailableFromCart && fulfilment === DeliveryMode.SELF_DELIVERY) {
-      if (cart?.shop?.selfPickupEnabled !== false) {
+      if (shopData?.selfPickupEnabled !== false) {
         setFulfilment(DeliveryMode.SELF_PICKUP);
       }
     }
-  }, [platformDelivery, riderAvailableFromCart, fulfilment, cart?.shop?.selfPickupEnabled]);
-  // delivery fee matches exactly what the server will charge (distance-tiered
-  // for a platform-rider delivery; flat for self-delivery; ₹0 for pickup).
-  // Debounced so rapid +/- taps collapse into a single background sync — the
-  // line list already updates instantly from the local cart.
-  const cartSig = localCart.lines
-    .map((l) => `${l.productId}:${l.qty}`)
-    .join('|');
-  // Monotonic sync counter: only the LATEST sync's result is applied. On a slow
-  // connection several syncs can be in flight at once (address auto-select, then
-  // platformDelivery loads, etc.); without this, a stale 15s response could clobber
-  // a newer one. We tag each sync and ignore any that isn't the most recent.
-  const syncSeq = useRef(0);
-  useEffect(() => {
-    if (itemCount === 0) { setCart({ empty: true, items: [] }); return; }
-    const pickup = fulfilment === DeliveryMode.SELF_PICKUP;
-    const mode = pickup
-      ? DeliveryMode.SELF_PICKUP
-      : platformDelivery
-        ? DeliveryMode.PLATFORM_RIDER
-        : DeliveryMode.SELF_DELIVERY;
-    const handle = setTimeout(() => {
-      const seq = ++syncSeq.current;
-      void syncToServer({
-        deliveryMode: mode,
-        addressId: pickup ? undefined : selectedAddress ?? undefined,
-        selectedOfferId: selectedOfferId ?? undefined,
-      }).then((fresh) => {
-        if (seq === syncSeq.current) setCart(fresh); // ignore superseded responses
-      }).catch(() => undefined);
-    }, 350);
-    return () => clearTimeout(handle);
-  }, [cartSig, itemCount, fulfilment, selectedAddress, platformDelivery, selectedOfferId]);
+  }, [platformDelivery, riderAvailableFromCart, fulfilment, shopData?.selfPickupEnabled]);
 
   async function changeQty(productId: string, qty: number) {
     setError(null);
-    // Instant, local-only update — the line list renders from the local cart so
-    // the +/- reflects immediately. The bill re-syncs to the server in the
-    // background (debounced effect below); we never block the buttons on it.
+    // Instant, local-only update — the line list AND the bill both render from
+    // the local cart, so +/- reflects immediately with no server round-trip.
     await setQty(productId, qty);
   }
 
@@ -246,47 +224,33 @@ export function CartScreen({
       return;
     }
     // Serviceable-area guard (client mirror of the server check): block a
-    // delivery whose drop is outside the shop's radius. Recomputed here so the
-    // button handler is authoritative even if render-derived values lag.
+    // delivery whose drop is outside the shop's admin-set delivery radius.
+    // Recomputed here so the handler is authoritative even if render values lag.
     if (!isPickupMode && selectedAddress) {
       const addr = addresses.find((a) => a.id === selectedAddress);
-      if (addr && shopGeo) {
-        const drop = { latitude: Number(addr.latitude), longitude: Number(addr.longitude) };
-        if (
-          Number.isFinite(Number(addr.latitude)) &&
-          Number.isFinite(Number(addr.longitude)) &&
-          !isWithinDeliveryRange({ latitude: shopGeo.lat, longitude: shopGeo.lng }, drop)
-        ) {
-          setError(
-            t.cart.outsideAreaError,
-          );
-          return;
+      if (addr && shopGeo && deliveryRadiusMeters != null) {
+        const alat = Number(addr.latitude);
+        const alng = Number(addr.longitude);
+        if (Number.isFinite(alat) && Number.isFinite(alng)) {
+          const dist = haversineMeters(shopGeo, { lat: alat, lng: alng });
+          if (Number.isFinite(dist) && dist > deliveryRadiusMeters) {
+            setError(t.cart.outOfDeliveryRange);
+            return;
+          }
         }
       }
     }
     setPlacing(true);
     setError(null);
     try {
-      // Ensure the server cart matches the local cart before placing (the bill
-      // sync is debounced, so a fast tap→place could otherwise race). This also
-      // refreshes the authoritative bill one last time.
-      const mode = isPickupMode
-        ? DeliveryMode.SELF_PICKUP
-        : platformDelivery ? DeliveryMode.PLATFORM_RIDER : DeliveryMode.SELF_DELIVERY;
-      // Bump the sync counter so the reactive bill-sync effect can't apply a
-      // stale response over this authoritative pre-placement sync.
-      const seq = ++syncSeq.current;
-      const fresh = await syncToServer({
-        deliveryMode: mode,
-        addressId: isPickupMode ? undefined : selectedAddress ?? undefined,
-        selectedOfferId: selectedOfferId ?? undefined,
-      });
-      if (seq === syncSeq.current) setCart(fresh);
+      // NO pre-placement server sync — the local cart IS the source of truth. The
+      // server re-validates stock/price/fee/offer from these client items, so we
+      // pass { shopId, items } straight through (client-cart path in place()).
       const idempotencyKey = `pw-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
       const userNote = notes.trim();
       // Coins redeem against the item subtotal only (1 coin = ₹1). Cap
       // client-side to min(balance, subtotal); the server re-caps anyway.
-      const subtotalRupees = Math.floor(((fresh as { bill?: { subtotalPaise?: number } }).bill?.subtotalPaise ?? 0) / 100);
+      const subtotalRupees = Math.floor(localCart.totalPaise / 100);
       const appliedCoins = useCoins ? Math.min(coinBalance, subtotalRupees) : 0;
       const result = await api.placeOrder({
         deliveryMode: fulfilment,
@@ -297,7 +261,10 @@ export function CartScreen({
         notes: userNote || undefined,
         redeemCoins: appliedCoins > 0 ? appliedCoins : 0,
         offerId: selectedOfferId ?? undefined,
-      });
+        // Client cart pushed at placement (the ONLY moment items reach the server).
+        shopId: localCart.shopId ?? undefined,
+        items: localCart.lines.map((l) => ({ productId: l.productId, qty: l.qty })),
+      } as Parameters<typeof api.placeOrder>[0]);
       // Order placed — clear the local cart.
       resetCartStore();
       onPlaced(result);
@@ -321,12 +288,73 @@ export function CartScreen({
     );
   }
 
-  const bill = cart.bill;
-  const meetsMin = cart.meetsMinOrder ?? true;
-  const toMin = cart.amountToMinOrderPaise ?? 0;
   const isPickup = fulfilment === DeliveryMode.SELF_PICKUP;
-  // Self-pickup waives delivery entirely in the shown bill. The server total
-  // includes the delivery fee, so we subtract it locally for display.
+  // The offers/coupons the customer can apply (city offers + shop coupons),
+  // preloaded on the shop object — no separate fetch.
+  const availableOffers = shopData?.availableOffers ?? [];
+  const activeOffer = availableOffers.find((o) => o.id === selectedOfferId) ?? null;
+
+  // Admin-set serviceable delivery radius (metres) for this shop's city. When
+  // set, a drop beyond it is out of range (blocks delivery placement).
+  const deliveryRadiusMeters =
+    shopData?.deliveryRadiusMeters != null ? Number(shopData.deliveryRadiusMeters) : null;
+
+  // Selected drop point (for the fee, the ETA, and the radius/far checks).
+  const selectedAddr = addresses.find((a) => a.id === selectedAddress);
+  const dropGeo = selectedAddr
+    ? { lat: Number(selectedAddr.latitude), lng: Number(selectedAddr.longitude) }
+    : null;
+  const dropValid = !!dropGeo && Number.isFinite(dropGeo.lat) && Number.isFinite(dropGeo.lng);
+
+  // ── Delivery fee (computed entirely on-device) ──
+  //  - SELF_PICKUP        → ₹0
+  //  - self-delivery      → the shop's flat fee (+ its free-delivery-above waiver)
+  //  - PLATFORM_RIDER     → distance-tiered fee from the shop's deliveryTiers
+  const deliveryTiers = shopData?.deliveryTiers ?? null;
+  let deliveryFeeInput = 0;
+  let freeDeliveryAbovePaise: number | null | undefined = null;
+  if (isPickup) {
+    deliveryFeeInput = 0;
+    freeDeliveryAbovePaise = null;
+  } else if (platformDelivery) {
+    if (shopGeo && dropValid && dropGeo) {
+      const distKm = haversineMeters(shopGeo, dropGeo) / 1000;
+      if (deliveryTiers && deliveryTiers.length > 0) {
+        const tier = deliveryTiers.find((tr) => distKm <= tr.maxKm) ?? deliveryTiers[deliveryTiers.length - 1];
+        deliveryFeeInput = tier.feePaise;
+      } else {
+        deliveryFeeInput = platformDeliveryFeePaise(distKm * 1000);
+      }
+    } else if (deliveryTiers && deliveryTiers.length > 0) {
+      // No address chosen yet — show the smallest tier as an indicative fee.
+      deliveryFeeInput = Math.min(...deliveryTiers.map((tr) => tr.feePaise));
+    } else {
+      deliveryFeeInput = 0;
+    }
+    freeDeliveryAbovePaise = null;
+  } else {
+    deliveryFeeInput = shopData?.deliveryFeePaise ?? 0;
+    freeDeliveryAbovePaise = shopData?.freeDeliveryAbovePaise ?? null;
+  }
+
+  // The itemized bill, computed with the SAME math the server uses. Subtotal +
+  // items come from the local cart; fees + offer come from the shop config.
+  const bill = shopData
+    ? computeBill({
+        subtotalPaise: localCart.totalPaise,
+        deliveryFeePaise: deliveryFeeInput,
+        freeDeliveryAbovePaise,
+        offerType: (activeOffer?.type as OfferType | undefined) ?? null,
+        offerValue: activeOffer?.value ?? null,
+        offerMinOrderPaise: activeOffer?.minOrderPaise ?? null,
+      })
+    : null;
+
+  // Min-order gate — from the shop's minOrderValuePaise vs the local subtotal.
+  const minOrderValuePaise = shopData?.minOrderValuePaise ?? 0;
+  const meetsMin = localCart.totalPaise >= minOrderValuePaise;
+  const toMin = Math.max(0, minOrderValuePaise - localCart.totalPaise);
+
   const shownDeliveryFeePaise = isPickup ? 0 : bill?.deliveryFeePaise ?? 0;
   const freeDeliveryApplied = !isPickup && bill?.deliveryFeePaise === 0;
   // Coins redeem against the item subtotal only (1 coin = ₹1). Cap the applied
@@ -335,19 +363,12 @@ export function CartScreen({
   const subtotalRupees = Math.floor((bill?.subtotalPaise ?? 0) / 100);
   const appliedCoins = useCoins ? Math.min(coinBalance, subtotalRupees) : 0;
   const coinDiscountPaise = appliedCoins * 100;
-  const shownTotalPaise = bill
-    ? (isPickup ? bill.totalPaise - bill.deliveryFeePaise : bill.totalPaise) - coinDiscountPaise
-    : 0;
+  const shownTotalPaise = bill ? bill.totalPaise - coinDiscountPaise : 0;
 
   // Checkout time estimate: prep (scales with qty) + travel (shop → drop) for
-  // delivery, or prep-only "Ready in ~" for pickup. Needs the shop coords and,
-  // for delivery, the selected address coords.
-  const selectedAddr = addresses.find((a) => a.id === selectedAddress);
-  const dropGeo = selectedAddr
-    ? { lat: Number(selectedAddr.latitude), lng: Number(selectedAddr.longitude) }
-    : null;
+  // delivery, or prep-only "Ready in ~" for pickup.
   const travelMeters =
-    !isPickup && shopGeo && dropGeo && Number.isFinite(dropGeo.lat) && Number.isFinite(dropGeo.lng)
+    !isPickup && shopGeo && dropValid && dropGeo
       ? haversineMeters(shopGeo, dropGeo)
       : isPickup
         ? 0
@@ -356,37 +377,36 @@ export function CartScreen({
   const estBand = formatMinutesBand(estMinutes);
 
   // ── Serviceable-area guard (hard block) ──
-  // A delivery drop must be within the shop's delivery radius. Farther (usually a
-  // different city) → order blocked. Only evaluated once we know both shop + drop
-  // coords; unknown coords never block (the server re-checks authoritatively).
+  // A delivery drop must be within the shop's admin-set delivery radius. Farther
+  // (usually a different city) → order blocked. Only evaluated once we know the
+  // shop coords, the drop coords, AND the radius; unknown values never block (the
+  // server re-checks authoritatively).
+  const shopDropMeters =
+    shopGeo && dropValid && dropGeo ? haversineMeters(shopGeo, dropGeo) : null;
   const outOfDeliveryArea =
     !isPickup &&
-    !!shopGeo &&
-    !!dropGeo &&
-    Number.isFinite(dropGeo.lat) &&
-    Number.isFinite(dropGeo.lng) &&
-    !isWithinDeliveryRange(
-      { latitude: shopGeo.lat, longitude: shopGeo.lng },
-      { latitude: dropGeo.lat, longitude: dropGeo.lng },
-    );
-  const shopDropMeters =
-    shopGeo && dropGeo && Number.isFinite(dropGeo.lat) && Number.isFinite(dropGeo.lng)
-      ? haversineMeters(shopGeo, dropGeo)
-      : null;
+    deliveryRadiusMeters != null &&
+    shopDropMeters != null &&
+    Number.isFinite(shopDropMeters) &&
+    shopDropMeters > deliveryRadiusMeters;
 
   // ── Soft "far from your current location" warning ──
   // If the chosen address is well away from where the customer physically is
-  // right now, warn (but allow proceeding). Threshold: 2 km.
+  // right now, warn (but allow proceeding). Threshold: 2 km. Only activates once
+  // the user has MANUALLY picked an address — the one they arrived with (auto-
+  // selected from home) must never trigger the popup.
   const FAR_FROM_ME_METERS = 2000;
   const meToDropMeters =
-    !isPickup && currentGeo && dropGeo && Number.isFinite(dropGeo.lat) && Number.isFinite(dropGeo.lng)
+    !isPickup && currentGeo && dropValid && dropGeo
       ? haversineMeters(currentGeo, dropGeo)
       : null;
   const farFromCurrent =
-    meToDropMeters != null && meToDropMeters > FAR_FROM_ME_METERS && !outOfDeliveryArea;
+    addressPickedManually &&
+    meToDropMeters != null &&
+    meToDropMeters > FAR_FROM_ME_METERS &&
+    !outOfDeliveryArea;
   // Block placing until the far-warning is acknowledged (soft gate).
   const needsFarAck = farFromCurrent && !farConfirmed;
-  const availableOffers = (cart as { availableOffers?: Array<{ id: string; title: string; type: string; value: number; minOrderPaise: number }> }).availableOffers ?? [];
 
   // Show coupon screen as a full-screen overlay
   if (showCoupons) {
@@ -395,7 +415,7 @@ export function CartScreen({
         offers={availableOffers}
         selectedOfferId={selectedOfferId}
         subtotalPaise={bill?.subtotalPaise ?? 0}
-        shopId={cart.shop?.id}
+        shopId={localCart.shopId ?? undefined}
         onApply={(id) => setSelectedOfferId(id)}
         onApplyCoupon={(code) => { /* TODO: pass coupon code to order placement */ }}
         onBack={() => setShowCoupons(false)}
@@ -405,16 +425,11 @@ export function CartScreen({
 
   return (
     <View style={styles.root}>
-      <Header onBack={onBack} title={t.cart.title} subtitle={cart.shop?.name ?? localCart.shopName ?? undefined} />
+      <Header onBack={onBack} title={t.cart.title} subtitle={shopData?.name ?? localCart.shopName ?? undefined} />
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        {/* Items — rendered from the LOCAL cart so +/- is instant (the bill
-            below re-syncs to the server in the background). */}
+        {/* Items — rendered from the LOCAL cart (the only source of truth). */}
         <View style={styles.section}>
           {localCart.lines.map((item) => {
-            // Prefer the server line's availability flag when we have it.
-            const serverLine = (cart.items as Array<{ productId: string; available?: boolean }> | undefined)
-              ?.find((s) => s.productId === item.productId);
-            const available = serverLine?.available !== false;
             const lineTotalPaise = item.unitPricePaise * item.qty;
             return (
               <View key={item.productId} style={styles.itemRow}>
@@ -426,7 +441,6 @@ export function CartScreen({
                   <Text style={styles.itemUnit}>
                     {t.cart.each(formatRupees(item.unitPricePaise))}
                   </Text>
-                  {!available ? <Badge label={t.cart.unavailable} tone="danger" /> : null}
                 </View>
                 <View style={styles.itemRight}>
                   <View style={styles.stepper}>
@@ -472,7 +486,7 @@ export function CartScreen({
 
         {/* Fulfilment: delivery vs self-pickup. Hide the whole section when
             self-pickup is disabled — no choice to offer, delivery is the only option. */}
-        {cart?.shop?.selfPickupEnabled !== false ? (
+        {shopData?.selfPickupEnabled !== false ? (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>{t.cart.howWouldYouLikeIt}</Text>
           {/* Warn when platform delivery is selected but no rider is available */}
@@ -511,14 +525,14 @@ export function CartScreen({
         ) : null}
 
         {/* Offer / coupon picker — Swiggy-style entry row */}
-        {(cart as { availableOffers?: Array<{ id: string; title: string; type: string; value: number; minOrderPaise: number }> }).availableOffers?.length ? (
+        {availableOffers.length ? (
           <View style={styles.section}>
             <Pressable style={styles.couponRow} onPress={() => setShowCoupons(true)}>
               <View style={styles.couponMid}>
                 {selectedOfferId && bill?.offerApplied && bill.discountPaise > 0 ? (
                   <>
                     <Text style={styles.couponAppliedTitle}>
-                      {(cart as { activeOffer?: { title?: string } | null }).activeOffer?.title ?? 'Offer applied'}
+                      {activeOffer?.title ?? 'Offer applied'}
                     </Text>
                     <Text style={styles.couponSaving}>
                       {formatRupees(bill.discountPaise)} off applied
@@ -528,7 +542,7 @@ export function CartScreen({
                   <>
                     <Text style={styles.couponTitle}>{t.cart.applyOffer}</Text>
                     <Text style={styles.couponSub}>
-                      {(cart as { availableOffers?: unknown[] }).availableOffers?.length} offers available
+                      {availableOffers.length} offers available
                     </Text>
                   </>
                 )}
@@ -553,7 +567,7 @@ export function CartScreen({
             <BillRow label={t.cart.itemSubtotal} value={formatRupees(bill.subtotalPaise)} />
             {bill.offerApplied && bill.discountPaise > 0 ? (
               <BillRow
-                label={(cart as { activeOffer?: { title?: string } | null }).activeOffer?.title ?? 'Offer discount'}
+                label={activeOffer?.title ?? 'Offer discount'}
                 value={`-${formatRupees(bill.discountPaise)}`}
                 valueTone="success"
               />
@@ -634,9 +648,11 @@ export function CartScreen({
               <View style={styles.flex}>
                 <Text style={styles.pickupCardTitle}>{t.cart.collectFromShop}</Text>
                 <Text style={styles.pickupCardSub}>
-                  {cart.shop?.name
-                    ? t.cart.pickupFromShop(cart.shop.name)
-                    : t.cart.pickupFromShopGeneric}
+                  {shopData?.name
+                    ? t.cart.pickupFromShop(shopData.name)
+                    : localCart.shopName
+                      ? t.cart.pickupFromShop(localCart.shopName)
+                      : t.cart.pickupFromShopGeneric}
                 </Text>
               </View>
             </View>
@@ -695,10 +711,11 @@ export function CartScreen({
             {outOfDeliveryArea ? (
               <View style={styles.blockBanner}>
                 <Text style={styles.blockTitle}>{t.cart.outsideAreaTitle}</Text>
+                <Text style={styles.blockText}>{t.cart.outOfDeliveryRange}</Text>
                 <Text style={styles.blockText}>
                   {t.cart.outsideAreaBody(
                     (shopDropMeters != null ? formatDistance(shopDropMeters) : null) ?? t.cart.tooFar,
-                    cart.shop?.name ?? t.cart.theShop,
+                    shopData?.name ?? localCart.shopName ?? t.cart.theShop,
                   )}
                 </Text>
               </View>
@@ -831,30 +848,40 @@ export function CartScreen({
                 const active = addr.id === selectedAddress;
                 const g = { lat: Number(addr.latitude), lng: Number(addr.longitude) };
                 const valid = Number.isFinite(g.lat) && Number.isFinite(g.lng);
+                // For DELIVERY, an address beyond the shop's admin-set radius is
+                // out of range and NOT selectable. Self-pickup ignores the radius
+                // (any address is fine — the customer collects from the shop).
+                const shopDist = shopGeo && valid ? haversineMeters(shopGeo, g) : null;
                 const outArea =
-                  !!shopGeo && valid &&
-                  !isWithinDeliveryRange({ latitude: shopGeo.lat, longitude: shopGeo.lng }, { latitude: g.lat, longitude: g.lng });
+                  !isPickup &&
+                  deliveryRadiusMeters != null &&
+                  shopDist != null &&
+                  Number.isFinite(shopDist) &&
+                  shopDist > deliveryRadiusMeters;
                 const meDist = currentGeo && valid ? haversineMeters(currentGeo, g) : null;
                 return (
                   <Pressable
                     key={addr.id}
+                    disabled={outArea}
                     onPress={() => {
+                      if (outArea) return; // out-of-range addresses are non-selectable
                       setSelectedAddress(addr.id);
                       setAddressPickedManually(true);
                       setShowAddrPicker(false);
                     }}
-                    style={[styles.addrCard, active && styles.addrCardActive]}
+                    style={[styles.addrCard, active && styles.addrCardActive, outArea && styles.addrCardDisabled]}
                   >
                     <View style={styles.flex}>
                       <View style={styles.addrLabelRow}>
                         <Text style={styles.addrLabelText}>{addr.label}</Text>
-                        {outArea ? <Badge label={t.cart.outOfArea} tone="danger" /> : null}
+                        {outArea ? <Badge label={t.cart.outOfRangeTag} tone="danger" /> : null}
                         {meDist != null ? (
                           <Text style={styles.addrEta}>{t.cart.distanceAway(formatDistance(meDist) ?? '')}</Text>
                         ) : null}
                       </View>
                       <Text style={styles.addrLine}>{addr.line}</Text>
                       {addr.landmark ? <Text style={styles.addrLandmark}>{t.common.near} {addr.landmark}</Text> : null}
+                      {outArea ? <Text style={styles.addrOutOfRangeNote}>{t.cart.outOfDeliveryRange}</Text> : null}
                     </View>
                     <View style={[styles.radio, active && styles.radioActive]}>
                       {active ? <View style={styles.radioDot} /> : null}
@@ -1140,6 +1167,8 @@ const styles = StyleSheet.create({
   },
   addrCardActive: { borderColor: theme.color.primary, backgroundColor: theme.color.primaryLight },
   addrCardBlocked: { borderColor: theme.color.danger, backgroundColor: theme.color.dangerLight },
+  addrCardDisabled: { opacity: 0.55 },
+  addrOutOfRangeNote: { fontSize: theme.font.tiny, color: theme.color.danger, marginTop: 4, fontWeight: theme.weight.semibold },
   addrLabelRow: { flexDirection: 'row', alignItems: 'center', gap: theme.space.sm, marginBottom: 4, flexWrap: 'wrap' },
   addrLabelText: { fontSize: theme.font.small, fontWeight: theme.weight.bold, color: theme.color.text },
   addrEta: { fontSize: theme.font.tiny, color: theme.color.primary, fontWeight: theme.weight.semibold },

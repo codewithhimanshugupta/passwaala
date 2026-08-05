@@ -753,25 +753,25 @@ function OrderCard({
 
       {actions.length > 0 ? (
         <View style={styles.actions}>
-          {busy ? (
-            <ActivityIndicator color={theme.color.accent} />
-          ) : (
-            actions.map((next) => (
-              <Button
-                key={next}
-                label={
-                  next === OrderStatus.DELIVERED
-                    ? order.deliveryMode === DeliveryMode.SELF_PICKUP
-                      ? t.orders.markCollected
-                      : t.orders.markDelivered
-                    : actionLabel(next, t)
-                }
-                small
-                variant={next === OrderStatus.REJECTED || next === OrderStatus.CANCELLED ? 'danger' : 'accent'}
-                onPress={() => onAction(next)}
-              />
-            ))
-          )}
+          {/* advance() is optimistic — the card updates status (and usually leaves
+              this tab) instantly, so no spinner. `busy` stays only as a double-tap
+              guard so the same action can't fire twice mid-request. */}
+          {actions.map((next) => (
+            <Button
+              key={next}
+              label={
+                next === OrderStatus.DELIVERED
+                  ? order.deliveryMode === DeliveryMode.SELF_PICKUP
+                    ? t.orders.markCollected
+                    : t.orders.markDelivered
+                  : actionLabel(next, t)
+              }
+              small
+              variant={next === OrderStatus.REJECTED || next === OrderStatus.CANCELLED ? 'danger' : 'accent'}
+              disabled={busy}
+              onPress={() => onAction(next)}
+            />
+          ))}
         </View>
       ) : null}
       <DisputeModal orderId={order.id} orderCreatedAt={order.createdAt} senderRole="SHOP" inline={true} />

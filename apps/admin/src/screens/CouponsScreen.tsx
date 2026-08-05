@@ -328,7 +328,7 @@ export function CouponsScreen() {
                   <Text style={s.editBtnText}>Edit</Text>
                 </Pressable>
                 <Pressable style={s.delBtn} onPress={() => handleDelete(c.id)} disabled={deleting === c.id}>
-                  {deleting === c.id ? <ActivityIndicator color={theme.color.critical} size="small" /> : <Text style={s.delBtnText}>✕</Text>}
+                  <Text style={s.delBtnText}>✕</Text>
                 </Pressable>
               </View>
             </View>

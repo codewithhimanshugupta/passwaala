@@ -416,7 +416,7 @@ export function ShopsScreen() {
                           )}
                           {shop.verificationStatus === 'SUSPENDED' && (
                             <Pressable style={[styles.panelBtn, { backgroundColor: theme.color.good }]} onPress={() => reactivate(shop)} disabled={busy}>
-                              {busy ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.panelBtnText}>Reactivate</Text>}
+                              <Text style={styles.panelBtnText}>Reactivate</Text>
                             </Pressable>
                           )}
                         </View>

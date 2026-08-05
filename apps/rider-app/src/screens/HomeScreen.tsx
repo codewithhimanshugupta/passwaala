@@ -110,17 +110,11 @@ export function HomeScreen({
         disabled={toggling}
         style={[styles.toggle, online ? styles.toggleOnline : styles.toggleOffline, toggling && styles.dim]}
       >
-        {toggling ? (
-          <ActivityIndicator color={theme.color.white} size="large" />
-        ) : (
-          <>
-            <View style={[styles.statusDot, { backgroundColor: online ? '#8DEBB6' : theme.color.textFaint }]} />
-            <Text style={styles.toggleStatus}>{online ? t.home.online : t.home.offline}</Text>
-            <Text style={styles.toggleHint}>
-              {online ? t.home.tapOffline : t.home.tapOnline}
-            </Text>
-          </>
-        )}
+        <View style={[styles.statusDot, { backgroundColor: online ? '#8DEBB6' : theme.color.textFaint }]} />
+        <Text style={styles.toggleStatus}>{online ? t.home.online : t.home.offline}</Text>
+        <Text style={styles.toggleHint}>
+          {online ? t.home.tapOffline : t.home.tapOnline}
+        </Text>
       </Pressable>
 
       {online ? (
