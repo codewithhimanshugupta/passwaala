@@ -38,6 +38,9 @@ import { ImageOrInitial } from '../ImageOrInitial';
 import { prefetchCheckout } from '../checkoutPrefetch';
 import { useLang } from '../i18n/LanguageContext';
 
+/** Products rendered per page (client-side pagination; grows on scroll). */
+const PRODUCT_PAGE = 5;
+
 /**
  * StorefrontScreen — a shop's catalog (plan → Catalog & Product). Banner header,
  * product list with thumbnails + MRP strike-through, the signature inline +/-
@@ -57,6 +60,8 @@ export function StorefrontScreen({
   const { t } = useLang();
   const [shop, setShop] = useState<ShopView | null>(null);
   const [products, setProducts] = useState<ProductPublic[]>([]);
+  // Client-side pagination: render PRODUCT_PAGE rows at a time, grow on scroll.
+  const [visibleCount, setVisibleCount] = useState(PRODUCT_PAGE);
   const [reviews, setReviews] = useState<Review[]>([]);
   const [categories, setCategories] = useState<Array<{ id: string; name: string }>>([]);
   const [loading, setLoading] = useState(true);
@@ -110,6 +115,12 @@ export function StorefrontScreen({
       .then(setCategories)
       .catch(() => undefined);
   }, [shopId]);
+
+  // Reset pagination to the first page whenever the product list changes
+  // (initial load, search, or category filter) so we start at PRODUCT_PAGE rows.
+  useEffect(() => {
+    setVisibleCount(PRODUCT_PAGE);
+  }, [products]);
 
   useEffect(() => {
     void load();
@@ -234,11 +245,13 @@ export function StorefrontScreen({
   return (
     <View style={styles.root}>
       <FlatList
-        data={products}
+        data={products.slice(0, visibleCount)}
         keyExtractor={(p) => p.id}
         numColumns={1}
         key="list-1"
         showsVerticalScrollIndicator={false}
+        onEndReachedThreshold={0.5}
+        onEndReached={() => setVisibleCount((n) => (n < products.length ? n + PRODUCT_PAGE : n))}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         contentContainerStyle={[styles.list, showCartBar && styles.listWithBar]}
         ListHeaderComponent={

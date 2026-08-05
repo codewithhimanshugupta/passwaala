@@ -33,10 +33,12 @@ import { useLang } from '../i18n/LanguageContext';
 export function CartScreen({
   onBack,
   onBrowse,
+  onOpenShop,
   onPlaced,
 }: {
   onBack: () => void;
   onBrowse: () => void;
+  onOpenShop: (shopId: string) => void;
   onPlaced: (result: PlaceOrderResult) => void;
 }) {
   const { t } = useLang();
@@ -447,9 +449,16 @@ export function CartScreen({
               </View>
             );
           })}
-          <Pressable onPress={onClearCart} style={styles.clearBtn}>
-            <Text style={styles.clearText}>{t.cart.clearCart}</Text>
-          </Pressable>
+          <View style={styles.cartActionsRow}>
+            {localCart.shopId ? (
+              <Pressable onPress={() => onOpenShop(localCart.shopId!)} style={styles.addMoreBtn}>
+                <Text style={styles.addMoreText}>+ {t.cart.addMoreItems}</Text>
+              </Pressable>
+            ) : null}
+            <Pressable onPress={onClearCart} style={styles.clearBtn}>
+              <Text style={styles.clearText}>{t.cart.clearCart}</Text>
+            </Pressable>
+          </View>
         </View>
 
         {/* Min-order gate */}
@@ -1020,6 +1029,9 @@ const styles = StyleSheet.create({
 
   clearBtn: { alignSelf: 'flex-start', paddingVertical: theme.space.sm },
   clearText: { color: theme.color.danger, fontWeight: theme.weight.semibold, fontSize: theme.font.small },
+  cartActionsRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  addMoreBtn: { alignSelf: 'flex-start', paddingVertical: theme.space.sm },
+  addMoreText: { color: theme.color.primary, fontWeight: theme.weight.semibold, fontSize: theme.font.small },
 
   minGate: {
     marginHorizontal: theme.space.lg,

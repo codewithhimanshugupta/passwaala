@@ -203,6 +203,7 @@ export const en = {
     outsideAreaError:
       "This address is outside the shop's delivery area. Choose an address closer to the shop, or pick Self-pickup.",
     clearCart: 'Clear cart',
+    addMoreItems: 'Add more items',
     each: (amount: string) => `${amount} each`,
     unavailable: 'Unavailable',
     minGate: (amount: string) => `Add ${amount} more to meet the minimum order value.`,

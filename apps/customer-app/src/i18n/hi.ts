@@ -200,6 +200,7 @@ export const hi: Strings = {
     outsideAreaError:
       'यह पता दुकान के डिलीवरी क्षेत्र के बाहर है। दुकान के पास कोई पता चुनें, या सेल्फ-पिकअप चुनें।',
     clearCart: 'कार्ट खाली करें',
+    addMoreItems: 'और आइटम जोड़ें',
     each: (amount: string) => `${amount} प्रति`,
     unavailable: 'अनुपलब्ध',
     minGate: (amount: string) => `न्यूनतम ऑर्डर मूल्य पूरा करने के लिए ${amount} और जोड़ें।`,

@@ -362,6 +362,7 @@ function AppRoot() {
         <CartScreen
           onBack={() => goTab('home')}
           onBrowse={() => goTab('home')}
+          onOpenShop={(shopId) => setStack({ name: 'shop', shopId })}
           onPlaced={(result) => setStack({ name: 'confirmed', orderId: result.orderId, result })}
         />
       )}
