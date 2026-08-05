@@ -89,9 +89,6 @@ export function DiscoveryScreen({
   // Pickup-only confirmation: set to the shop the user tapped that has no
   // delivery available right now (rider offline) but does offer self-pickup.
   const [pickupOnlyShop, setPickupOnlyShop] = useState<NearbyShop | null>(null);
-  // The shop whose storefront is currently being opened (delivery-availability
-  // check in flight) — drives a spinner on the tapped card for instant feedback.
-  const [openingShopId, setOpeningShopId] = useState<string | null>(null);
   const [mapRadius, setMapRadius] = useState(10000);
   // City delivery radius from admin config (default 10km until loaded).
   const [cityRadius, setCityRadius] = useState(10000);
@@ -257,20 +254,24 @@ export function DiscoveryScreen({
   // per-shop call) rather than scanning all riders for every shop in the list.
   // If a platform-delivery shop has no rider online right now but offers
   // self-pickup, confirm the customer is OK with pickup first.
-  const handleOpenShop = useCallback(async (shop: NearbyShop) => {
-    setOpeningShopId(shop.id); // instant feedback: spinner on the tapped card
-    try {
-      const avail = await api.shopDeliveryAvailable(shop.id);
-      if (!avail.deliveryAvailable && avail.selfPickupEnabled) {
-        setPickupOnlyShop(shop);
-        setOpeningShopId(null);
-        return;
-      }
-    } catch {
-      // If the check fails, don't block — just open the shop.
-    }
-    setOpeningShopId(null);
+  // Open the shop IMMEDIATELY — never block navigation on a network call. If the
+  // shop is platform-delivery, check rider availability in the BACKGROUND and, if
+  // none is available (but self-pickup is on), surface the pickup-only prompt
+  // without having made the user wait to enter the shop.
+  const handleOpenShop = useCallback((shop: NearbyShop) => {
     onOpenShop(shop.id);
+    const contact = shop as NearbyShop & ShopContactFields;
+    // Only platform-delivery shops can be rider-unavailable; self-delivery is
+    // always available, so skip the check entirely for them.
+    if (contact.platformDeliveryEnabled) {
+      void api.shopDeliveryAvailable(shop.id)
+        .then((avail) => {
+          if (!avail.deliveryAvailable && avail.selfPickupEnabled) {
+            setPickupOnlyShop(shop);
+          }
+        })
+        .catch(() => undefined);
+    }
   }, [onOpenShop]);
 
   // Reverse-geocode the current coords to a human place name; writes it back to
@@ -513,7 +514,7 @@ export function DiscoveryScreen({
           keyExtractor={(s) => s.id}
           showsVerticalScrollIndicator={false}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-          renderItem={({ item }) => <ShopCard shop={item} busy={openingShopId === item.id} onPress={() => handleOpenShop(item)} />}
+          renderItem={({ item }) => <ShopCard shop={item} onPress={() => handleOpenShop(item)} />}
           onEndReached={() => { if (!searchQuery.trim()) void loadMore(); }}
           onEndReachedThreshold={0.5}
           ListFooterComponent={loadingMore ? <ActivityIndicator style={{ marginVertical: 16 }} color={theme.color.primary} /> : null}

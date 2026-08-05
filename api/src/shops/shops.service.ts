@@ -499,21 +499,17 @@ export class ShopsService {
 
     // Short-circuit: is there AT LEAST ONE online rider within range of the shop?
     // LIMIT 1 → Postgres stops at the first hit; never scans/ranks all riders.
-    // RiderProfile has lat/lng (no geog column), so build the point inline.
+    // Uses the GIST-indexed rp.geog column (maintained on write) so this is an
+    // index probe, not a per-row ST_MakePoint computation over every rider.
     const hit = await this.prisma.$queryRawUnsafe<Array<{ ok: number }>>(
       `
       SELECT 1 AS ok
         FROM "RiderProfile" rp
         JOIN "Shop" s ON s.id = $1
        WHERE rp.online = TRUE
-         AND rp.latitude IS NOT NULL
-         AND rp.longitude IS NOT NULL
+         AND rp.geog IS NOT NULL
          AND s.geog IS NOT NULL
-         AND ST_DWithin(
-               ST_SetSRID(ST_MakePoint(rp.longitude::float8, rp.latitude::float8), 4326)::geography,
-               s.geog,
-               $2
-             )
+         AND ST_DWithin(rp.geog, s.geog, $2)
        LIMIT 1
       `,
       shopId,
