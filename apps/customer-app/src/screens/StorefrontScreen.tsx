@@ -86,21 +86,29 @@ export function StorefrontScreen({
     setLoading(true);
     setError(null);
     try {
-      const [shopData, list, revs, cats] = await Promise.all([
+      // FIRST PAINT only needs the shop + its products — fetch those together and
+      // render as soon as they arrive. Reviews + categories aren't needed for the
+      // initial view, so they load in the BACKGROUND (below) and populate when
+      // ready. This gets the storefront on screen faster on the slow tier.
+      const [shopData, list] = await Promise.all([
         api.shop(shopId) as Promise<ShopView>,
         api.shopProducts(shopId),
-        api.shopReviews(shopId) as Promise<Review[]>,
-        api.shopCategories(shopId).catch(() => []),
       ]);
       setShop(shopData);
       setProducts(list);
-      setReviews(revs);
-      setCategories(cats);
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setLoading(false);
     }
+    // Background (non-blocking): reviews + categories. Failures are non-fatal —
+    // the storefront is already usable without them.
+    void (api.shopReviews(shopId) as Promise<Review[]>)
+      .then(setReviews)
+      .catch(() => undefined);
+    void api.shopCategories(shopId)
+      .then(setCategories)
+      .catch(() => undefined);
   }, [shopId]);
 
   useEffect(() => {
