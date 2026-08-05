@@ -67,14 +67,18 @@ export function PaymentClaimsScreen() {
 
   async function approve(claim: PaymentClaim) {
     setBusyId(claim.id);
+    // Optimistic: remove the claim from the pending list immediately; restore it
+    // (and surface the error) if the server call fails.
+    const prev = claims;
+    setClaims((list) => list.filter((c) => c.id !== claim.id));
     try {
       await api.adminApprovePaymentClaim(claim.id);
       const who = claim.entityType === 'SHOP'
         ? (claim.shopName ?? t.paymentClaims.shopDefault)
         : (claim.riderName ?? claim.riderPhone ?? t.paymentClaims.riderDefault);
       flash(t.paymentClaims.confirmedFlash(formatRupees(claim.amountPaise), who));
-      await load();
     } catch (e) {
+      setClaims(prev); // rollback
       if (e instanceof ApiError && e.status === 403) flash(t.paymentClaims.denied);
       else flash(t.paymentClaims.failed((e as Error).message));
     } finally {

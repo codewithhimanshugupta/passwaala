@@ -212,6 +212,11 @@ export function OrderFeedScreen({
   async function advance(orderId: string, shopId: string, status: OrderStatus, reason?: string, otpCode?: string) {
     setBusyId(orderId);
     setError(null);
+    // Optimistic: move the order to the new status in the local list right away so
+    // the card reflects the transition instantly. On success we reload from the
+    // server (authoritative); on failure we restore the prior list + show an error.
+    const prevOrders = orders;
+    setOrders((list) => list.map((o) => (o.id === orderId ? { ...o, status } : o)));
     try {
       if (advanceOrderOverride) {
         await advanceOrderOverride(orderId, shopId, status, reason, otpCode);
@@ -220,6 +225,7 @@ export function OrderFeedScreen({
       }
       await load();
     } catch (e) {
+      setOrders(prevOrders); // rollback
       setError((e as Error).message);
     } finally {
       setBusyId(null);

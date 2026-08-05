@@ -19,8 +19,8 @@ import { api } from '../api';
 import {
   addOne,
   clearCart,
+  decOne,
   isDifferentShopError,
-  setQty,
   useCart,
 } from '../cart';
 import type { Review, ShopView } from '../types';
@@ -182,8 +182,8 @@ export function StorefrontScreen({
       } : undefined),
     );
   };
-  const onSub = (productId: string, currentQty: number) =>
-    runMutation(productId, () => setQty(productId, Math.max(0, currentQty - 1)));
+  const onSub = (productId: string) =>
+    runMutation(productId, () => decOne(productId));
 
   // Toggle a product open/closed; on first open, lazily fetch its detail.
   const onToggleDetail = useCallback(async (productId: string) => {
@@ -262,7 +262,7 @@ export function StorefrontScreen({
             qty={qtyByProduct[item.id] ?? 0}
             busy={pending === item.id}
             onAdd={() => onAdd(item.id)}
-            onSub={() => onSub(item.id, qtyByProduct[item.id] ?? 0)}
+            onSub={() => onSub(item.id)}
             expanded={expandedId === item.id}
             detail={detailById[item.id] ?? null}
             detailLoading={detailLoadingId === item.id}

@@ -173,10 +173,17 @@ export function JobsScreen({ online }: { online: boolean }) {
   async function accept(orderId: string) {
     setAcceptingId(orderId);
     setError(null);
+    // Optimistic: drop the job from the available list immediately so a tapped
+    // card doesn't linger. A job can be claimed by someone else first, so if
+    // the server rejects it we restore the list and surface "already taken".
+    // The per-item acceptingId flag guards against a double-tap.
+    const prevJobs = jobs;
+    setJobs((list) => list.filter((j) => j.id !== orderId));
     try {
       await api.riderAccept(orderId);
-      await load();
+      await load(); // reconcile: pulls the claimed order into the active section
     } catch (e) {
+      setJobs(prevJobs); // rollback
       setError((e as Error).message);
     } finally {
       setAcceptingId(null);
@@ -186,10 +193,15 @@ export function JobsScreen({ online }: { online: boolean }) {
   async function decline(orderId: string) {
     setAcceptingId(orderId);
     setError(null);
+    // Optimistic: remove the declined offer from the list right away; restore
+    // it (and show the error) if the server declines to record the decline.
+    const prevJobs = jobs;
+    setJobs((list) => list.filter((j) => j.id !== orderId));
     try {
       await api.riderDeclineJob(orderId);
       await load();
     } catch (e) {
+      setJobs(prevJobs); // rollback
       setError((e as Error).message);
     } finally {
       setAcceptingId(null);

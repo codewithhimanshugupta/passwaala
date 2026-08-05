@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { VerificationStatus } from '@passwaala/shared';
 import { api } from '../api';
 import { formatRupees, placeholderImage, theme } from '../theme';
@@ -83,12 +83,17 @@ export function DashboardScreen({
 
   async function toggleOpen(next: boolean) {
     if (!isApproved) return;
+    // Optimistic: flip the store status immediately so the toggle feels instant.
+    // Reconcile with the server's echoed value on success; roll back on failure.
+    const prev = shop.isOpen;
     setToggling(true);
     setError(null);
+    onShopChange({ ...shop, isOpen: next });
     try {
       const res = await api.setStoreOpen(next);
       onShopChange({ ...shop, isOpen: (res as { isOpen: boolean }).isOpen });
     } catch (e) {
+      onShopChange({ ...shop, isOpen: prev }); // rollback
       setError((e as Error).message || t.dashboard.statusDefaultError);
     } finally {
       setToggling(false);
@@ -201,17 +206,13 @@ export function DashboardScreen({
                 : t.dashboard.notLive}
             </Text>
           </View>
-          {toggling ? (
-            <ActivityIndicator color={theme.color.primary} />
-          ) : (
-            <Switch
-              value={isApproved && shop.isOpen}
-              onValueChange={toggleOpen}
-              disabled={!isApproved}
-              trackColor={{ false: theme.color.borderStrong, true: theme.color.primary }}
-              thumbColor={theme.color.white}
-            />
-          )}
+          <Switch
+            value={isApproved && shop.isOpen}
+            onValueChange={toggleOpen}
+            disabled={!isApproved || toggling}
+            trackColor={{ false: theme.color.borderStrong, true: theme.color.primary }}
+            thumbColor={theme.color.white}
+          />
         </View>
         {!isApproved && (
           <Text style={styles.toggleHint}>{t.dashboard.notApprovedHint}</Text>

@@ -157,10 +157,14 @@ export function ProfileScreen({ onLogout }: { onLogout: () => void }) {
   async function removeAddress(id: string) {
     setDeletingAddressId(id);
     setError(null);
+    // Optimistic: drop the address from the list immediately so it feels instant;
+    // restore it (and show the error) if the server delete fails.
+    const prev = addresses;
+    setAddresses((list) => list.filter((a) => a.id !== id));
     try {
       await api.deleteAddress(id);
-      await reloadAddresses();
     } catch (e) {
+      setAddresses(prev); // rollback
       setError((e as Error).message);
     } finally {
       setDeletingAddressId(null);

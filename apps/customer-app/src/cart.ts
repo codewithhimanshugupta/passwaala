@@ -100,6 +100,18 @@ export async function setQty(productId: string, qty: number): Promise<void> {
   persist();
 }
 
+/**
+ * Decrement one unit of a product, reading the CURRENT stored qty (not a value
+ * captured at render time). This makes the "−" button race-safe: a stale
+ * captured qty or a rapid double-tap can never wrap back up or re-add a removed
+ * line — the source of truth is always the live store. Removes the line at 0.
+ */
+export async function decOne(productId: string): Promise<void> {
+  const line = local.lines.find((l) => l.productId === productId);
+  const nextQty = line ? line.qty - 1 : 0;
+  await setQty(productId, nextQty);
+}
+
 /** Clear the whole cart, then optionally start fresh with a product. */
 export async function clearCart(thenAdd?: { productId: string; shopId: string; shopName?: string; name: string; unitPricePaise: number; imageUrl?: string | null }): Promise<void> {
   local = { ...EMPTY, lines: [] };

@@ -19,6 +19,7 @@ import { CouponScreen } from './CouponScreen';
 import { estimateOrderMinutes, formatDistance, formatMinutesBand, formatRupees, haversineMeters, productImage, shadow, theme } from '../theme';
 import { Badge, Button, CoinChip, Divider, EmptyState, Loading } from '../ui';
 import { ImageOrInitial } from '../ImageOrInitial';
+import { StripedProgressBar } from '../StripedProgressBar';
 import { useLang } from '../i18n/LanguageContext';
 
 /**
@@ -735,6 +736,18 @@ export function CartScreen({
         </View>
       ) : null}
 
+      {/* Full-screen "placing your order" overlay — order placement can take a
+          few seconds on the current server, so block interaction + show clear
+          progress instead of just a button spinner. */}
+      <Modal visible={placing} transparent animationType="fade" onRequestClose={() => { /* can't dismiss mid-place */ }}>
+        <View style={styles.placingOverlay}>
+          <View style={styles.placingCard}>
+            <Text style={styles.placingText}>{t.cart.placing}</Text>
+            <StripedProgressBar color={theme.color.primary} />
+          </View>
+        </View>
+      </Modal>
+
       {/* Centered popup: address is far from the customer's current location. */}
       <Modal
         visible={needsFarAck}
@@ -1251,4 +1264,27 @@ const styles = StyleSheet.create({
   etaLine: { fontSize: theme.font.small, color: theme.color.primary, fontWeight: theme.weight.bold, marginBottom: 2 },
   placeTotal: { fontSize: theme.font.h2, fontWeight: theme.weight.heavy, color: theme.color.text },
   placeBtnWrap: { flex: 1 },
+
+  placingOverlay: {
+    flex: 1,
+    backgroundColor: theme.color.overlay,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: theme.space.xl,
+  },
+  placingCard: {
+    width: '100%',
+    maxWidth: 340,
+    backgroundColor: theme.color.bg,
+    borderRadius: theme.radius.lg,
+    padding: theme.space.xl,
+    gap: theme.space.lg,
+    ...shadow.lg,
+  },
+  placingText: {
+    fontSize: theme.font.h3,
+    fontWeight: theme.weight.bold,
+    color: theme.color.text,
+    textAlign: 'center',
+  },
 });

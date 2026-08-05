@@ -60,10 +60,18 @@ export class WebPushService {
     await Promise.all(
       subs.map(async (s) => {
         try {
-          await webpush.sendNotification(
-            { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
-            data,
-          );
+          // Cap each push at 5s: a hung/slow push endpoint must not keep this
+          // background task (and its DB connection) alive indefinitely. Whichever
+          // settles first wins; a timeout is treated as a transient failure.
+          await Promise.race([
+            webpush.sendNotification(
+              { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
+              data,
+            ),
+            new Promise((_, reject) =>
+              setTimeout(() => reject(new Error('push timeout')), 5000),
+            ),
+          ]);
         } catch (e) {
           const status = (e as { statusCode?: number }).statusCode;
           if (status === 404 || status === 410) {

@@ -145,11 +145,14 @@ export function CitiesScreen() {
 
   async function toggleCity(city: City) {
     setBusyId(city.id);
+    // Optimistic: flip the enabled flag immediately (the Enabled/Live badges are
+    // derived from it); restore the prior list and show the error on failure.
+    const prev = cities;
+    setCities((list) => list.map((c) => (c.id === city.id ? { ...c, enabled: !c.enabled } : c)));
     try {
       await api.ownerSetCityEnabled(city.id, !city.enabled);
       flash(city.enabled ? `${city.name} disabled.` : `${city.name} enabled.`);
-      await load();
-    } catch (e) { flash(`Failed: ${(e as Error).message}`); }
+    } catch (e) { setCities(prev); flash(`Failed: ${(e as Error).message}`); }
     finally { setBusyId(null); }
   }
 

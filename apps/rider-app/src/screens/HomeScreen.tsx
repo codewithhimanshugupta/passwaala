@@ -60,15 +60,22 @@ export function HomeScreen({
   }
 
   async function toggle() {
+    const prev = online;
     const next = !online;
     setToggling(true);
     setError(null);
+    // Optimistic: flip the availability state immediately so the big toggle
+    // reacts instantly (even while we capture GPS + hit the server). If the
+    // server rejects it (e.g. a dues-cap block on going online), roll back to
+    // the previous state and surface the message.
+    onOnlineChange(next);
     try {
       // Only bother capturing location when going online.
       const coords = next ? await getCoords() : {};
       const res = await api.riderSetOnline(next, coords.latitude, coords.longitude);
-      onOnlineChange(res.online);
+      onOnlineChange(res.online); // reconcile with the server's truth
     } catch (e) {
+      onOnlineChange(prev); // rollback
       setError((e as Error).message);
     } finally {
       setToggling(false);

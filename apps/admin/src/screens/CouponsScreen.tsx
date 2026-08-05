@@ -240,19 +240,25 @@ export function CouponsScreen() {
   }
 
   async function handleToggle(c: Coupon) {
+    // Optimistic: flip the active flag immediately (drives the Switch + the
+    // dimmed card style); restore the prior list and show the error on failure.
+    const prev = coupons;
+    setCoupons((list) => list.map((x) => (x.id === c.id ? { ...x, active: !x.active } : x)));
     try {
       await api.adminUpdateCoupon(c.id, { active: !c.active });
-      await load();
-    } catch (e) { flash(`Error: ${(e as Error).message}`); }
+    } catch (e) { setCoupons(prev); flash(`Error: ${(e as Error).message}`); }
   }
 
   async function handleDelete(id: string) {
     setDeleting(id);
+    // Optimistic: remove the coupon from the list immediately; restore it (and
+    // show the error) if the server delete fails.
+    const prev = coupons;
+    setCoupons((list) => list.filter((c) => c.id !== id));
     try {
       await api.adminDeleteCoupon(id);
       flash('Coupon deleted.');
-      await load();
-    } catch (e) { flash(`Error: ${(e as Error).message}`); }
+    } catch (e) { setCoupons(prev); flash(`Error: ${(e as Error).message}`); }
     finally { setDeleting(null); }
   }
 

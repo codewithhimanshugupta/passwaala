@@ -141,22 +141,29 @@ export function ShopsScreen() {
     } finally { setBusyId(null); }
   }
 
-  async function suspend(shop: AdminShop) {    setBusyId(shop.id);
+  async function suspend(shop: AdminShop) {
+    setBusyId(shop.id);
+    // Optimistic: flip the status badge to SUSPENDED immediately; restore the
+    // prior list (and show the error) if the server call fails.
+    const prev = shops;
+    setShops((list) => list.map((s) => (s.id === shop.id ? { ...s, verificationStatus: 'SUSPENDED' } : s)));
     try {
       await api.adminSuspendShop(shop.id);
       flash(`${shop.name} suspended.`);
-      await load(city);
-    } catch (e) { flash(`Failed: ${(e as Error).message}`); }
+    } catch (e) { setShops(prev); flash(`Failed: ${(e as Error).message}`); }
     finally { setBusyId(null); }
   }
 
   async function reactivate(shop: AdminShop) {
     setBusyId(shop.id);
+    // Optimistic: flip the status badge back to APPROVED immediately; restore
+    // the prior list (and show the error) if the server call fails.
+    const prev = shops;
+    setShops((list) => list.map((s) => (s.id === shop.id ? { ...s, verificationStatus: 'APPROVED' } : s)));
     try {
       await api.adminReactivateShop(shop.id);
       flash(`${shop.name} reactivated.`);
-      await load(city);
-    } catch (e) { flash(`Failed: ${(e as Error).message}`); }
+    } catch (e) { setShops(prev); flash(`Failed: ${(e as Error).message}`); }
     finally { setBusyId(null); }
   }
 

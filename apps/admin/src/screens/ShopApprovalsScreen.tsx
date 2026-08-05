@@ -125,11 +125,15 @@ export function ShopApprovalsScreen() {
 
   async function approve(shop: PendingShop) {
     setBusyId(shop.id);
+    // Optimistic: drop the shop from the pending list immediately; restore it
+    // (and surface the error) if the server rejects the approval.
+    const prev = shops;
+    setShops((list) => list.filter((s) => s.id !== shop.id));
     try {
       await api.adminApproveShop(shop.id);
       flash(t.approvals.approvedFlash(shop.name));
-      await load();
     } catch (e) {
+      setShops(prev); // rollback
       flash(t.approvals.approveFailed((e as Error).message));
     } finally {
       setBusyId(null);
@@ -141,14 +145,19 @@ export function ShopApprovalsScreen() {
       flash(t.approvals.reasonRequired);
       return;
     }
+    const trimmedReason = reason.trim();
     setBusyId(shop.id);
+    // Optimistic: drop the shop from the pending list and close the reject box
+    // immediately; restore everything if the server call fails.
+    const prev = shops;
+    setShops((list) => list.filter((s) => s.id !== shop.id));
+    setRejectingId(null);
+    setReason('');
     try {
-      await api.adminRejectShop(shop.id, reason.trim());
+      await api.adminRejectShop(shop.id, trimmedReason);
       flash(t.approvals.rejectedFlash(shop.name));
-      setRejectingId(null);
-      setReason('');
-      await load();
     } catch (e) {
+      setShops(prev); // rollback
       flash(t.approvals.rejectFailed((e as Error).message));
     } finally {
       setBusyId(null);

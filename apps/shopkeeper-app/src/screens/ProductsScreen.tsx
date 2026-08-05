@@ -69,10 +69,14 @@ export function ProductsScreen() {
   async function remove(id: string) {
     setDeletingId(id);
     setError(null);
+    // Optimistic: drop the product from the list immediately; restore it (and
+    // show the error) if the server delete fails.
+    const prev = products;
+    setProducts((list) => list.filter((p) => p.id !== id));
     try {
       await api.deleteProduct(id);
-      await load();
     } catch (e) {
+      setProducts(prev); // rollback
       setError((e as Error).message);
     } finally {
       setDeletingId(null);

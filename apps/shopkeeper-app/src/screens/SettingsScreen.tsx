@@ -177,7 +177,18 @@ export function SettingsScreen({
               <Switch
                 value={shop.isOpen}
                 onValueChange={async (v) => {
-                  try { const res = await api.setStoreOpen(v); onShopChange({ ...shop, isOpen: res.isOpen }); } catch { /* non-fatal */ }
+                  // Optimistic: flip immediately; reconcile with the server's echo,
+                  // roll back + surface an error if the call fails.
+                  const prev = shop.isOpen;
+                  onShopChange({ ...shop, isOpen: v });
+                  setSaveError(null);
+                  try {
+                    const res = await api.setStoreOpen(v);
+                    onShopChange({ ...shop, isOpen: res.isOpen });
+                  } catch (e) {
+                    onShopChange({ ...shop, isOpen: prev });
+                    setSaveError((e as Error).message);
+                  }
                 }}
                 trackColor={{ false: theme.color.borderStrong, true: theme.color.primary }}
                 thumbColor={theme.color.white}
