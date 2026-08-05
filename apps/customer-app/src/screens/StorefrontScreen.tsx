@@ -62,7 +62,6 @@ export function StorefrontScreen({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [pending, setPending] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [conflict, setConflict] = useState<{ productId: string; message: string } | null>(null);
 
@@ -154,7 +153,6 @@ export function StorefrontScreen({
 
   const runMutation = useCallback(
     async (productId: string, fn: () => Promise<unknown>) => {
-      setPending(productId);
       setNotice(null);
       setConflict(null);
       try {
@@ -165,8 +163,6 @@ export function StorefrontScreen({
         } else {
           setNotice((e as Error).message);
         }
-      } finally {
-        setPending(null);
       }
     },
     [],
@@ -272,7 +268,6 @@ export function StorefrontScreen({
           <ProductRow
             product={item}
             qty={qtyByProduct[item.id] ?? 0}
-            busy={pending === item.id}
             onAdd={() => onAdd(item.id)}
             onSub={() => onSub(item.id)}
             expanded={expandedId === item.id}
@@ -282,6 +277,7 @@ export function StorefrontScreen({
             onPreviewImage={(uri) => setPreview({ uri, name: item.name })}
           />
         )}
+        extraData={`${JSON.stringify(qtyByProduct)}|${expandedId}`}
         ListFooterComponent={<ReviewsSection reviews={reviews} />}
       />
 
@@ -510,7 +506,6 @@ function CategoryChip({
 function ProductRow({
   product,
   qty,
-  busy,
   onAdd,
   onSub,
   expanded,
@@ -521,7 +516,6 @@ function ProductRow({
 }: {
   product: ProductPublic;
   qty: number;
-  busy: boolean;
   onAdd: () => void;
   onSub: () => void;
   expanded: boolean;
@@ -593,21 +587,18 @@ function ProductRow({
             </View>
           ) : qty === 0 ? (
             <Pressable
-              style={[styles.addBtn, busy && styles.addBtnBusy]}
+              style={styles.addBtn}
               onPress={onAdd}
-              disabled={busy}
             >
-              {busy
-                ? <ActivityIndicator color="#fff" size="small" />
-                : <Text style={styles.addBtnText}>{t.storefront.add}</Text>}
+              <Text style={styles.addBtnText}>{t.storefront.add}</Text>
             </Pressable>
           ) : (
             <View style={styles.stepper}>
-              <Pressable style={styles.stepBtn} onPress={onSub} disabled={busy}>
+              <Pressable style={styles.stepBtn} onPress={onSub}>
                 <Text style={styles.stepText}>−</Text>
               </Pressable>
               <Text style={styles.qty}>{qty}</Text>
-              <Pressable style={styles.stepBtn} onPress={onAdd} disabled={busy}>
+              <Pressable style={styles.stepBtn} onPress={onAdd}>
                 <Text style={styles.stepText}>+</Text>
               </Pressable>
             </View>
