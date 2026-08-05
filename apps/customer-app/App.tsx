@@ -16,6 +16,7 @@ import { api, hasSavedToken, logout, onAuthExpired } from './src/api';
 import { connectSocket, disconnectSocket } from './src/socket';
 import type { Account } from './src/types';
 import { resetCartStore, useCart } from './src/cart';
+import { clearCheckoutPrefetch } from './src/checkoutPrefetch';
 import { TabIcon } from './src/TabIcon';
 import { shadow, theme } from './src/theme';
 import { LanguageProvider, useLang } from './src/i18n/LanguageContext';
@@ -202,6 +203,7 @@ function AppRoot() {
   useEffect(() => {
     return onAuthExpired(() => {
       resetCartStore();
+      clearCheckoutPrefetch();
       setSessionExpired(true);
       setLoggedIn(false);
       setNameStatus('checking');
@@ -213,6 +215,7 @@ function AppRoot() {
   function doLogout() {
     logout();
     resetCartStore();
+    clearCheckoutPrefetch();
     setSessionExpired(false);
     setLoggedIn(false);
     setNameStatus('checking');

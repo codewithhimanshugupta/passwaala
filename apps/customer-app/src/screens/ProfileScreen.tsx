@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, Modal, Platform, Pressable, RefreshControl, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import { api, updateName } from '../api';
+import { clearCheckoutPrefetch } from '../checkoutPrefetch';
 import type { Account, Address, ReferralInfo } from '../types';
 import { AddressForm } from '../components/AddressForm';
 import { LanguagePicker } from '../components/LanguagePicker';
@@ -73,6 +74,7 @@ export function ProfileScreen({ onLogout }: { onLogout: () => void }) {
     try {
       const addrs = (await api.addresses()) as Address[];
       setAddresses(addrs);
+      clearCheckoutPrefetch(); // address set may have changed — drop warmed cache
     } catch (e) {
       setError((e as Error).message);
     }
@@ -163,6 +165,7 @@ export function ProfileScreen({ onLogout }: { onLogout: () => void }) {
     setAddresses((list) => list.filter((a) => a.id !== id));
     try {
       await api.deleteAddress(id);
+      clearCheckoutPrefetch(); // address set changed — drop the warmed cache
     } catch (e) {
       setAddresses(prev); // rollback
       setError((e as Error).message);

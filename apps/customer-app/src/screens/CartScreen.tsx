@@ -19,6 +19,7 @@ import { CouponScreen } from './CouponScreen';
 import { estimateOrderMinutes, formatDistance, formatMinutesBand, formatRupees, haversineMeters, productImage, shadow, theme } from '../theme';
 import { Badge, Button, CoinChip, Divider, EmptyState, Loading } from '../ui';
 import { ImageOrInitial } from '../ImageOrInitial';
+import { getPrefetchedCheckout, clearCheckoutPrefetch } from '../checkoutPrefetch';
 import { StripedProgressBar } from '../StripedProgressBar';
 import { useLang } from '../i18n/LanguageContext';
 
@@ -78,6 +79,15 @@ export function CartScreen({
   const [addressPickedManually, setAddressPickedManually] = useState(false);
 
   const loadAddresses = useCallback(async () => {
+    // Use the prefetched addresses (warmed on the shop screen) if fresh — the
+    // list then shows instantly with no spinner. Otherwise fetch normally.
+    const pre = getPrefetchedCheckout();
+    if (pre) {
+      setAddresses(pre.addresses);
+      setLoadingAddrs(false);
+      if (pre.addresses.length === 0) setShowAddrForm(true);
+      return;
+    }
     setLoadingAddrs(true);
     try {
       const list = (await api.addresses()) as Address[];
@@ -97,10 +107,16 @@ export function CartScreen({
     // Addresses + coin balance load once. The authoritative bill is produced by
     // the debounced sync effect below (which also re-runs on qty/mode changes).
     void loadAddresses();
-    void api
-      .referralMe()
-      .then((r) => setCoinBalance(r?.coinBalance ?? 0))
-      .catch(() => setCoinBalance(0));
+    // Coin balance: use the prefetched value if warm, else fetch.
+    const pre = getPrefetchedCheckout();
+    if (pre) {
+      setCoinBalance(pre.coinBalance);
+    } else {
+      void api
+        .referralMe()
+        .then((r) => setCoinBalance(r?.coinBalance ?? 0))
+        .catch(() => setCoinBalance(0));
+    }
   }, [loadAddresses]);
 
   // Fetch the shop's coordinates so we can estimate a delivery time at checkout.
@@ -858,6 +874,7 @@ export function CartScreen({
                 platformDelivery={platformDelivery}
                 onSaved={async (id) => {
                   setShowAddrForm(false);
+                  clearCheckoutPrefetch(); // stale after adding an address
                   await loadAddresses();
                   setSelectedAddress(id);
                   setAddressPickedManually(true);

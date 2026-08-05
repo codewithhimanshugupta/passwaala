@@ -35,6 +35,7 @@ import {
 } from '../theme';
 import { Badge, Button, ErrorState, Loading, StorefrontSkeleton, Stars } from '../ui';
 import { ImageOrInitial } from '../ImageOrInitial';
+import { prefetchCheckout } from '../checkoutPrefetch';
 import { useLang } from '../i18n/LanguageContext';
 
 /**
@@ -180,6 +181,9 @@ export function StorefrontScreen({
       setNotice(t.storefront.outOfStock);
       return Promise.resolve();
     }
+    // Warm the checkout data (addresses + coins) in the background the moment
+    // the customer starts a cart, so the cart/checkout screen opens instantly.
+    void prefetchCheckout();
     return runMutation(productId, () =>
       addOne(productId, shop ? {
         shopId,
