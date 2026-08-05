@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Image,
   Modal,
@@ -193,6 +193,11 @@ export function CartScreen({
   const cartSig = localCart.lines
     .map((l) => `${l.productId}:${l.qty}`)
     .join('|');
+  // Monotonic sync counter: only the LATEST sync's result is applied. On a slow
+  // connection several syncs can be in flight at once (address auto-select, then
+  // platformDelivery loads, etc.); without this, a stale 15s response could clobber
+  // a newer one. We tag each sync and ignore any that isn't the most recent.
+  const syncSeq = useRef(0);
   useEffect(() => {
     if (itemCount === 0) { setCart({ empty: true, items: [] }); return; }
     const pickup = fulfilment === DeliveryMode.SELF_PICKUP;
@@ -202,11 +207,14 @@ export function CartScreen({
         ? DeliveryMode.PLATFORM_RIDER
         : DeliveryMode.SELF_DELIVERY;
     const handle = setTimeout(() => {
+      const seq = ++syncSeq.current;
       void syncToServer({
         deliveryMode: mode,
         addressId: pickup ? undefined : selectedAddress ?? undefined,
         selectedOfferId: selectedOfferId ?? undefined,
-      }).then(setCart).catch(() => undefined);
+      }).then((fresh) => {
+        if (seq === syncSeq.current) setCart(fresh); // ignore superseded responses
+      }).catch(() => undefined);
     }, 350);
     return () => clearTimeout(handle);
   }, [cartSig, itemCount, fulfilment, selectedAddress, platformDelivery, selectedOfferId]);
@@ -263,12 +271,15 @@ export function CartScreen({
       const mode = isPickupMode
         ? DeliveryMode.SELF_PICKUP
         : platformDelivery ? DeliveryMode.PLATFORM_RIDER : DeliveryMode.SELF_DELIVERY;
+      // Bump the sync counter so the reactive bill-sync effect can't apply a
+      // stale response over this authoritative pre-placement sync.
+      const seq = ++syncSeq.current;
       const fresh = await syncToServer({
         deliveryMode: mode,
         addressId: isPickupMode ? undefined : selectedAddress ?? undefined,
         selectedOfferId: selectedOfferId ?? undefined,
       });
-      setCart(fresh);
+      if (seq === syncSeq.current) setCart(fresh);
       const idempotencyKey = `pw-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
       const userNote = notes.trim();
       // Coins redeem against the item subtotal only (1 coin = ₹1). Cap
