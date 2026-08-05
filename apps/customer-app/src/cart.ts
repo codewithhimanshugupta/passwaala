@@ -11,6 +11,7 @@
 import { useSyncExternalStore } from 'react';
 import { ApiError } from '@passwaala/api-client';
 import { api } from './api';
+import { idbGet, idbSet } from './idbKv';
 import type { Cart } from './types';
 
 const STORAGE_KEY = 'passwaala.customer.cart';
@@ -31,6 +32,11 @@ interface LocalCart {
 
 const EMPTY: LocalCart = { shopId: null, shopName: null, lines: [] };
 
+/**
+ * Synchronous startup read from the localStorage MIRROR (idbSet keeps it in
+ * sync). This gives useCart() data on the very first render without awaiting
+ * IndexedDB; hydrateFromIdb() below then reconciles with the durable IDB copy.
+ */
 function load(): LocalCart {
   try {
     if (typeof localStorage !== 'undefined') {
@@ -47,18 +53,37 @@ let local: LocalCart = load();
 const listeners = new Set<() => void>();
 let version = 0; // bumps on every change so useSyncExternalStore re-reads
 
+/**
+ * Durable persistence lives in IndexedDB (idbSet also mirrors to localStorage
+ * for the sync startup read). Async + fire-and-forget so cart mutations stay
+ * instant; the in-memory `local` is the source of truth for the UI.
+ */
 function persist() {
+  version += 1;
+  cached = snapshot();
+  for (const l of listeners) l();
+  void idbSet(STORAGE_KEY, local);
+}
+
+/**
+ * Hydrate from the durable IndexedDB copy on startup. If IDB holds a cart the
+ * synchronous localStorage read missed (e.g. mirror cleared but IDB intact),
+ * adopt it and notify subscribers. Called once at module init.
+ */
+async function hydrateFromIdb(): Promise<void> {
   try {
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(local));
+    const stored = await idbGet<LocalCart>(STORAGE_KEY);
+    if (stored && stored.lines && local.lines.length === 0 && stored.lines.length > 0) {
+      local = stored;
+      version += 1;
+      cached = snapshot();
+      for (const l of listeners) l();
     }
   } catch {
     /* ignore */
   }
-  version += 1;
-  cached = snapshot();
-  for (const l of listeners) l();
 }
+void hydrateFromIdb();
 
 /** Add one unit of a product (from a given shop). Throws DifferentShopError
  * (409-shaped) if the cart already holds another shop's items. */
