@@ -226,43 +226,65 @@ export class CartService {
 
     const subtotalPaise = lines.reduce((sum, l) => sum + l.lineTotalPaise, 0);
 
+    const shopCity = cart.shop.city;
+    const isPlatform = opts.deliveryMode === DeliveryMode.PLATFORM_RIDER;
+
+    // Fire every independent read AT ONCE instead of serially (each pays the
+    // DB round-trip). These don't depend on each other:
+    //  - the drop address (only for platform delivery + a chosen address)
+    //  - the shop's city config (fee tiers + rider radius) — ONE lookup, reused
+    //    for both the fee calc and the rider-availability radius (was 2 queries)
+    //  - the city offer templates + shop coupons (for the coupon list)
+    const [address, cityCfg, cityOffers, shopCoupons] = await Promise.all([
+      isPlatform && opts.addressId
+        ? this.prisma.address.findFirst({
+            where: { id: opts.addressId, userId: customerId, deletedAt: null },
+            select: { latitude: true, longitude: true },
+          })
+        : Promise.resolve(null),
+      shopCity
+        ? this.prisma.serviceableCity.findFirst({
+            where: {
+              deletedAt: null,
+              OR: [
+                { name: { equals: shopCity, mode: 'insensitive' } },
+                { name: { in: shopCity.split(',').map((p) => p.trim()) } },
+              ],
+            },
+            select: { deliveryTiersJson: true, riderCheckRadiusMeters: true },
+          })
+        : Promise.resolve(null),
+      shopCity
+        ? this.prisma.offerTemplate.findMany({
+            where: { city: { name: { equals: shopCity, mode: 'insensitive' } }, active: true, deletedAt: null },
+            select: { id: true, title: true, type: true, value: true, minOrderPaise: true },
+            orderBy: { createdAt: 'asc' },
+          })
+        : Promise.resolve([]),
+      this.prisma.coupon.findMany({
+        where: { shopIds: { has: cart.shop.id }, active: true, deletedAt: null },
+        select: { id: true, code: true, description: true, type: true, value: true, minOrderPaise: true },
+      }),
+    ]);
+
     // Preview the same fee the server will charge (see place() in orders.service).
     let deliveryFeePaise = cart.shop.deliveryFeePaise;
     let freeDeliveryAbovePaise: number | null | undefined = cart.shop.freeDeliveryAbovePaise;
     if (opts.deliveryMode === DeliveryMode.SELF_PICKUP) {
       deliveryFeePaise = 0;
       freeDeliveryAbovePaise = null;
-    } else if (opts.deliveryMode === DeliveryMode.PLATFORM_RIDER) {
-      let dropCoords: { latitude: unknown; longitude: unknown } | null = null;
-      if (opts.addressId) {
-        const address = await this.prisma.address.findFirst({
-          where: { id: opts.addressId, userId: customerId, deletedAt: null },
-          select: { latitude: true, longitude: true },
-        });
-        if (address) dropCoords = { latitude: address.latitude, longitude: address.longitude };
-      }
+    } else if (isPlatform) {
+      const dropCoords = address
+        ? { latitude: address.latitude, longitude: address.longitude }
+        : null;
       const distanceMeters = haversineMeters(
         { latitude: cart.shop.latitude, longitude: cart.shop.longitude },
         dropCoords ?? { latitude: null, longitude: null },
       );
-      const cityForFee = cart.shop.city;
-      const cityTierConfig = cityForFee
-        ? await this.prisma.serviceableCity.findFirst({
-            where: {
-              deletedAt: null,
-              OR: [
-                { name: { equals: cityForFee, mode: 'insensitive' } },
-                // shop city is "Chirgaon, Jhansi" → check if any city name appears in it
-                { name: { in: cityForFee.split(',').map(p => p.trim()) } },
-              ],
-            },
-            select: { deliveryTiersJson: true },
-          })
-        : null;
-      if (!cityTierConfig?.deliveryTiersJson) {
+      if (!cityCfg?.deliveryTiersJson) {
         throw new BadRequestException('Platform delivery is not configured for this city yet. Please contact support.');
       }
-      const tiers: Array<{ maxKm: number; feePaise: number }> = JSON.parse(cityTierConfig.deliveryTiersJson);
+      const tiers: Array<{ maxKm: number; feePaise: number }> = JSON.parse(cityCfg.deliveryTiersJson);
       if (!tiers.length) {
         throw new BadRequestException('Delivery fee tiers are not configured for this city.');
       }
@@ -272,28 +294,13 @@ export class CartService {
       freeDeliveryAbovePaise = null;
     }
 
-    // Check if any rider is online near the shop (for platform delivery)
-    // Only runs when city has requireRiderForDelivery = true
+    // Rider availability (platform delivery only) — uses the SAME cityCfg row.
     let riderAvailable = true;
-    if (opts.deliveryMode === DeliveryMode.PLATFORM_RIDER) {
+    if (isPlatform) {
       const shopLat = cart.shop.latitude ? Number(cart.shop.latitude) : null;
       const shopLng = cart.shop.longitude ? Number(cart.shop.longitude) : null;
-      // Check city config
-      const cityConfig = cart.shop.city
-        ? await this.prisma.serviceableCity.findFirst({
-            where: {
-              deletedAt: null,
-              OR: [
-                { name: { equals: cart.shop.city, mode: 'insensitive' } },
-                { name: { contains: cart.shop.city.split(',')[0].trim(), mode: 'insensitive' } },
-              ],
-            },
-            select: { deliveryRadiusMeters: true, riderCheckRadiusMeters: true },
-          })
-        : null;
-      // Always check for online rider — this is not configurable
       if (shopLat && shopLng) {
-        const radius = (cityConfig as { riderCheckRadiusMeters?: number } | null)?.riderCheckRadiusMeters ?? 5000;
+        const radius = cityCfg?.riderCheckRadiusMeters ?? 5000;
         const nearbyRiders = await this.prisma.$queryRaw<{ count: bigint }[]>`
           SELECT COUNT(*) as count FROM "RiderProfile" rp
           WHERE rp.online = true
@@ -308,18 +315,6 @@ export class CartService {
       }
     }
 
-    // Fetch available offers: city offer templates + admin coupons active for this shop
-    const cityOffers = cart.shop.city
-      ? await this.prisma.offerTemplate.findMany({
-          where: { city: { name: { equals: cart.shop.city, mode: 'insensitive' } }, active: true, deletedAt: null },
-          select: { id: true, title: true, type: true, value: true, minOrderPaise: true },
-          orderBy: { createdAt: 'asc' },
-        })
-      : [];
-    const shopCoupons = await this.prisma.coupon.findMany({
-      where: { shopIds: { has: cart.shop.id }, active: true, deletedAt: null },
-      select: { id: true, code: true, description: true, type: true, value: true, minOrderPaise: true },
-    });
     const couponOffers = shopCoupons.map(c => ({
       id: c.id,
       title: c.code + (c.description ? ` — ${c.description}` : ''),
