@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Header, Param, Patch, Post, Query } from '@nestjs/common';
 import { UserRole } from '@passwaala/shared';
 import { Public } from '../common/public.decorator';
 import { Roles } from '../common/roles.decorator';
@@ -90,6 +90,7 @@ export class ShopsController {
    */
   @Public()
   @Get('nearby-for-bulk')
+  @Header('Cache-Control', 'no-store')
   nearbyForBulk(
     @Query('anchorShopId') anchorShopId: string,
     @Query('offset') offset?: string,

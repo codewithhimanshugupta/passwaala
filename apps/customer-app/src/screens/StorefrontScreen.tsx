@@ -95,7 +95,8 @@ export function StorefrontScreen({
 
   const load = useCallback(async () => {
     if (!shopId) return;
-    setLoading(true);
+    // Only show skeleton on first load; re-fetches keep existing data visible
+    if (!shop) setLoading(true);
     setError(null);
     try {
       // FIRST PAINT only needs the shop + its products — fetch those together and

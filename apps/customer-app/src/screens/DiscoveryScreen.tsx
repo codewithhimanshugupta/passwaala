@@ -196,16 +196,15 @@ export function DiscoveryScreen({
 
   const load = useCallback(async (radiusOverride?: number) => {
     if (!coords) {
-      // No location yet — nothing to search; the UI shows a "set location" prompt.
       setShops([]);
       setLoading(false);
       return;
     }
-    setLoading(true);
+    // Only show skeleton on first load (shops.length === 0); subsequent
+    // re-fetches keep existing shops visible to prevent flicker.
+    if (shops.length === 0) setLoading(true);
     setError(null);
     try {
-      // List view paginates (first PAGE_SIZE, load more on scroll); map view
-      // needs all pins so it pulls a larger set.
       const isMap = viewMode === 'map';
       const result = await api.nearbyShops({
         lat: coords.lat,
@@ -219,7 +218,6 @@ export function DiscoveryScreen({
       });
       setShops(result);
       setCanLoadMore(!isMap && result.length === PAGE_SIZE);
-      // Restore the selected map shop when coming back from a shop screen.
       if (restoredShopId) {
         const restored = result.find(s => s.id === restoredShopId);
         if (restored) setSelectedShop(restored);
