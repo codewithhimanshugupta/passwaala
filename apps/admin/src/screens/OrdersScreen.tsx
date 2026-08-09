@@ -36,7 +36,7 @@ interface AdminOrder {
   shop: { id: string; shortId?: string | null; name: string; city: string } | null;
   customer: { id: string; shortId?: string | null; name: string | null; phone: string | null } | null;
   rider: { id: string; shortId?: string | null; name: string | null; phone: string | null } | null;
-  items: Array<{ nameSnapshot: string; qty: number; pricePaiseSnapshot: number }>;
+  items: Array<{ id: string; nameSnapshot: string; qty: number; pricePaiseSnapshot: number; status: string }>;
   createdAt: string;
   updatedAt: string;
 }
@@ -84,6 +84,8 @@ export function OrdersScreen() {
   const [feeInput, setFeeInput] = useState<Record<string, string>>({});
   const [feeBusy, setFeeBusy] = useState<Record<string, boolean>>({});
   const [feeMsg, setFeeMsg] = useState<Record<string, string>>({});
+  const [partialItems, setPartialItems] = useState<Record<string, Set<number>>>({});
+  const [partialMsg, setPartialMsg] = useState<Record<string, string>>({});
 
   // Initialise fee input when an order is expanded
   const prevExpanded = useRef<string | null>(null);
@@ -166,6 +168,25 @@ export function OrdersScreen() {
       setFeeMsg(p => ({ ...p, [orderId]: (e as Error).message }));
     } finally {
       setFeeBusy(p => ({ ...p, [orderId]: false }));
+    }
+  }
+
+  async function markPartialDelivery(orderId: string, orderItems: AdminOrder['items']) {
+    const selectedIndices = partialItems[orderId] ?? new Set(orderItems.map((_, j) => j));
+    const fulfilledItemIds = orderItems
+      .filter((_, i) => selectedIndices.has(i))
+      .map(it => it.id);
+    if (fulfilledItemIds.length === 0) {
+      setPartialMsg(p => ({ ...p, [orderId]: 'Select at least one fulfilled item' }));
+      return;
+    }
+    setPartialMsg(p => ({ ...p, [orderId]: '' }));
+    try {
+      const res = await api.adminMarkPartialDelivery(orderId, fulfilledItemIds);
+      setOrders(prev => prev.map(o => o.orderId === orderId ? { ...o, status: 'DELIVERED' } : o));
+      setPartialMsg(p => ({ ...p, [orderId]: `Partial delivery recorded — ${res.removedCount} item(s) removed, adjusted total ₹${(res.adjustedTotalPaise / 100).toFixed(2)}` }));
+    } catch (e) {
+      setPartialMsg(p => ({ ...p, [orderId]: (e as Error).message }));
     }
   }
 
@@ -354,6 +375,37 @@ export function OrdersScreen() {
                         <Text style={[s.actionFeedback, feeMsg[o.orderId]?.startsWith('Updated') && s.actionFeedbackOk]}>
                           {feeMsg[o.orderId]}
                         </Text>
+                      ) : null}
+
+                      {/* Partial delivery */}
+                      {o.status === 'OUT_FOR_DELIVERY' || o.status === 'DELIVERED' ? (
+                        <View style={{ marginTop: theme.space.md }}>
+                          <Text style={s.actionTitle}>Partial delivery</Text>
+                          <Text style={s.actionHint}>Tick the items that were actually delivered, then confirm</Text>
+                          {o.items.map((it, i) => (
+                            <Pressable
+                              key={i}
+                              style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4 }}
+                              onPress={() => {
+                                setPartialItems(prev => {
+                                  const next = new Set(prev[o.orderId] ?? o.items.map((_, j) => j));
+                                  if (next.has(i)) next.delete(i); else next.add(i);
+                                  return { ...prev, [o.orderId]: next };
+                                });
+                              }}
+                            >
+                              <Text style={{ fontSize: 16 }}>{(partialItems[o.orderId] ?? new Set(o.items.map((_, j) => j))).has(i) ? '☑' : '☐'}</Text>
+                              <Text style={s.rowValue}>{it.qty}× {it.nameSnapshot}</Text>
+                            </Pressable>
+                          ))}
+                          <Pressable
+                            style={[s.actionBtn, s.actionBtnDisabled]}
+                            onPress={() => markPartialDelivery(o.orderId, o.items)}
+                          >
+                            <Text style={s.actionBtnText}>Mark partial delivery</Text>
+                          </Pressable>
+                          {partialMsg[o.orderId] ? <Text style={s.actionFeedback}>{partialMsg[o.orderId]}</Text> : null}
+                        </View>
                       ) : null}
                     </View>
                   ) : null}

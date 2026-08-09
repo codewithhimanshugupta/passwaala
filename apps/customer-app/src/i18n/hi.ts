@@ -319,7 +319,7 @@ export const hi: Strings = {
     timelineOutForDelivery: 'डिलीवरी के लिए निकला',
     timelineOutForDeliveryCaption: 'आपकी ओर आ रहा है',
     timelineDelivered: 'डिलीवर हो गया',
-    timelineDeliveredCaption: 'आपका ऑर्डर पहुँच गया',
+    timelineDeliveredCaption: '',
     timelineReadyForPickup: 'पिकअप के लिए तैयार',
     timelineReadyForPickupCaption: 'इसे दुकान से लें',
     timelineCollected: 'ले लिया गया',

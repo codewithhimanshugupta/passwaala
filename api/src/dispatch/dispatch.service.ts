@@ -63,9 +63,9 @@ export class DispatchService implements OnApplicationBootstrap, OnModuleDestroy 
 
   /** Search rings (metres), widened in order when a ring has no candidate. */
   private static readonly RINGS = [2000, 5000, 10000];
-  /** How long a single offer stands before it's re-offered (ms). */
+  /** Fallback offer TTL when city has no config (ms). */
   private static readonly OFFER_TTL_MS = 15000;
-  /** A rider may hold at most this many active orders. */
+  /** Fallback max active orders per rider when city has no config. */
   private static readonly MAX_ACTIVE_ORDERS = 2;
   /** How often the backstop sweep runs (ms). */
   private static readonly SWEEP_MS = 15000;
@@ -116,6 +116,7 @@ export class DispatchService implements OnApplicationBootstrap, OnModuleDestroy 
     shopCity: string,
     triedRiderIds: string[],
     radiusMeters: number,
+    maxActiveOrders = DispatchService.MAX_ACTIVE_ORDERS,
   ): Promise<Array<{ userId: string; distanceMeters: number }>> {
     const profiles = await this.prisma.riderProfile.findMany({
       where: {
@@ -142,7 +143,7 @@ export class DispatchService implements OnApplicationBootstrap, OnModuleDestroy 
     const activeByRider = new Map(active.map((a) => [a.riderId as string, a._count._all]));
 
     return profiles
-      .filter((p) => (activeByRider.get(p.userId) ?? 0) < DispatchService.MAX_ACTIVE_ORDERS)
+      .filter((p) => (activeByRider.get(p.userId) ?? 0) < maxActiveOrders)
       .map((p) => ({
         userId: p.userId,
         distanceMeters: this.haversineMeters(shopGeo, {
@@ -183,21 +184,27 @@ export class DispatchService implements OnApplicationBootstrap, OnModuleDestroy 
     const shopGeo: LatLng = { lat: Number(order.shop.latitude), lng: Number(order.shop.longitude) };
     const shopCity = order.shop.city;
     const tried = order.dispatchTriedRiderIds;
-    // Start at the order's current ring (or the smallest) and widen until we find
-    // a candidate or run out of rings.
+
+    // Read city config for offer TTL + max active orders per rider
+    const cityCfg = shopCity ? await this.prisma.serviceableCity.findFirst({
+      where: { name: { equals: shopCity, mode: 'insensitive' }, deletedAt: null },
+      select: { riderOfferWindowSec: true, maxActiveOrdersPerRider: true },
+    }) : null;
+    const offerTtlMs = (cityCfg?.riderOfferWindowSec ?? 15) * 1000;
+    const maxActive = cityCfg?.maxActiveOrdersPerRider ?? DispatchService.MAX_ACTIVE_ORDERS;
     const startRing = order.dispatchRadiusMeters ?? DispatchService.RINGS[0];
     const startIdx = Math.max(0, DispatchService.RINGS.indexOf(startRing));
 
     for (let i = startIdx; i < DispatchService.RINGS.length; i += 1) {
       const radius = DispatchService.RINGS[i];
-      const candidates = await this.candidatesFor(shopGeo, shopCity, tried, radius);
+      const candidates = await this.candidatesFor(shopGeo, shopCity, tried, radius, maxActive);
       if (candidates.length > 0) {
         const chosen = candidates[0];
         await this.prisma.order.update({
           where: { id: orderId },
           data: {
             offeredRiderId: chosen.userId,
-            offerExpiresAt: new Date(Date.now() + DispatchService.OFFER_TTL_MS),
+            offerExpiresAt: new Date(Date.now() + offerTtlMs),
             dispatchTriedRiderIds: { push: chosen.userId },
             dispatchRadiusMeters: radius,
           },

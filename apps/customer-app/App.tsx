@@ -428,6 +428,8 @@ function AppRoot() {
           onPlaced={(result) =>
             setStack({ name: 'bulkConfirmed', bulkOrderId: result.bulkOrderId, shortId: result.shortId, totalPaise: result.totalPaise })
           }
+          onOpenShop={(shopId) => setStack({ name: 'shop', shopId })}
+          onSingleShop={() => { setStack({ name: 'tabs' }); goTab('cart'); }}
         />
       </Shell>
     );

@@ -322,7 +322,7 @@ export const en = {
     timelineOutForDelivery: 'Out for delivery',
     timelineOutForDeliveryCaption: 'On the way to you',
     timelineDelivered: 'Delivered',
-    timelineDeliveredCaption: 'Your order has arrived',
+    timelineDeliveredCaption: '',
     timelineReadyForPickup: 'Ready for pickup',
     timelineReadyForPickupCaption: 'Collect it from the shop',
     timelineCollected: 'Collected',

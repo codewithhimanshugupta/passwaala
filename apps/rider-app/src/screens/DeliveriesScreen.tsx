@@ -205,6 +205,14 @@ function DeliveryCard({ delivery }: { delivery: RiderJob }) {
         <Text style={styles.orderTotalLabel}>Order value</Text>
         <Text style={styles.orderTotalValue}>{formatRupees(delivery.adjustedTotalPaise ?? delivery.originalTotalPaise)}</Text>
       </View>
+      {((delivery.extraDeliveryDuePaise ?? 0) + (delivery.addedItemsDuePaise ?? 0)) > 0 ? (
+        <View style={[styles.orderTotalRow, { marginTop: 4 }]}>
+          <Text style={[styles.orderTotalLabel, { color: '#92400E' }]}>Collect at delivery</Text>
+          <Text style={[styles.orderTotalValue, { color: '#92400E' }]}>
+            {formatRupees((delivery.extraDeliveryDuePaise ?? 0) + (delivery.addedItemsDuePaise ?? 0))}
+          </Text>
+        </View>
+      ) : null}
       <DisputeModal
         orderId={delivery.id}
         orderCreatedAt={delivery.createdAt}

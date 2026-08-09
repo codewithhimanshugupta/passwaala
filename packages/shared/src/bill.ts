@@ -39,6 +39,8 @@ export interface BillInput {
   offerValue?: number | null;
   /** Minimum item subtotal for the offer to apply (0 = always). */
   offerMinOrderPaise?: number | null;
+  /** Override the platform fee base (paise). Falls back to the shared PLATFORM_FEE_PAISE constant. */
+  platformFeeOverridePaise?: number | null;
 }
 
 /**
@@ -72,7 +74,8 @@ export function computeBill(input: BillInput): BillBreakdown {
   const deliveryFeePaise = (isFreeDeliveryOffer || waived) ? 0 : input.deliveryFeePaise;
 
   // --- Platform fee ---
-  const feeGst = computeGst(PLATFORM_FEE_PAISE);
+  const feeBase = input.platformFeeOverridePaise ?? PLATFORM_FEE_PAISE;
+  const feeGst = computeGst(feeBase);
   const platformFeePaise = feeGst.totalPaise;
 
   const totalPaise = Math.max(0, subtotalPaise - discountPaise) + deliveryFeePaise + platformFeePaise;

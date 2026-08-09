@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Switch, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { VerificationStatus } from '@passwaala/shared';
 import { api, logout, updateName, type MyAccount } from '../api';
 import { paiseToRupeeInput, placeholderImage, rupeeInputToPaise, theme } from '../theme';
@@ -240,6 +240,19 @@ export function SettingsScreen({
             {platformDeliveryEnabled && (
               <Banner tone="info" title="Distance-based fee" message="Delivery fee is auto-calculated per km (set by city admin). Your manual delivery fee is not used for rider orders." />
             )}
+            <View style={[styles.row, { alignItems: 'center', paddingVertical: 8 }]}>
+              <View style={styles.flex}>
+                <Text style={styles.toggleLabel}>Cash on Delivery (COD)</Text>
+                <Text style={styles.toggleHint}>
+                  {(shop as any).codEnabled !== false ? 'COD is enabled for your shop' : 'COD is disabled by admin — customers must use UPI'}
+                </Text>
+              </View>
+              <View style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, backgroundColor: (shop as any).codEnabled !== false ? '#ECFDF5' : '#FEF3C7' }}>
+                <Text style={{ fontSize: 12, fontWeight: '700', color: (shop as any).codEnabled !== false ? '#065F46' : '#92400E' }}>
+                  {(shop as any).codEnabled !== false ? 'ON' : 'OFF'}
+                </Text>
+              </View>
+            </View>
             <View style={styles.row}>
               {!platformDeliveryEnabled && (
                 <View style={styles.flex}>
@@ -415,6 +428,10 @@ function KycSection({ shop, onSubmitted }: { shop: MyShop; onSubmitted: (status:
 
   const meta = verificationMeta(shop.verificationStatus, t);
   const canSubmit = shop.verificationStatus === VerificationStatus.DRAFT || shop.verificationStatus === VerificationStatus.REJECTED;
+  const canAppeal = shop.verificationStatus === VerificationStatus.REJECTED || shop.verificationStatus === VerificationStatus.SUSPENDED;
+  const [appealText, setAppealText] = useState('');
+  const [appealBusy, setAppealBusy] = useState(false);
+  const [appealSent, setAppealSent] = useState(false);
 
   function updateDoc(index: number, value: string) { setDocUrls(prev => prev.map((d, i) => i === index ? value : d)); }
   function addDoc() { if (docUrls.length < 3) setDocUrls(prev => [...prev, '']); }
@@ -440,6 +457,45 @@ function KycSection({ shop, onSubmitted }: { shop: MyShop; onSubmitted: (status:
         <Text style={styles.readonly}>{t.settings.verificationStatus}</Text>
         <Badge label={meta.label} tone={meta.tone} />
       </View>
+      {canAppeal && !appealSent ? (
+        <View style={{ backgroundColor: '#FEF2F2', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#FCA5A5', gap: 8, marginBottom: 8 }}>
+          <Text style={{ fontSize: 13, fontWeight: '800', color: '#991B1B' }}>
+            {shop.verificationStatus === VerificationStatus.SUSPENDED ? 'Your shop is suspended' : 'Your shop was rejected'}
+          </Text>
+          <Text style={{ fontSize: 12, color: '#7F1D1D' }}>
+            If you believe this was a mistake, send an appeal to the admin.
+          </Text>
+          <TextInput
+            style={{ borderWidth: 1, borderColor: '#FCA5A5', borderRadius: 8, padding: 10, fontSize: 13, color: '#111827', minHeight: 64, textAlignVertical: 'top', backgroundColor: '#fff' }}
+            placeholder="Explain your situation…"
+            placeholderTextColor="#9CA3AF"
+            value={appealText}
+            onChangeText={setAppealText}
+            multiline
+            maxLength={500}
+          />
+          <Pressable
+            style={{ backgroundColor: '#DC2626', borderRadius: 8, paddingVertical: 10, alignItems: 'center', opacity: (!appealText.trim() || appealBusy) ? 0.5 : 1 }}
+            disabled={!appealText.trim() || appealBusy}
+            onPress={async () => {
+              setAppealBusy(true);
+              try {
+                await api.submitAppeal(appealText.trim());
+                setAppealSent(true);
+              } catch (e) { setError((e as Error).message); }
+              finally { setAppealBusy(false); }
+            }}
+          >
+            <Text style={{ color: '#fff', fontWeight: '700', fontSize: 13 }}>
+              {appealBusy ? 'Sending…' : 'Send appeal'}
+            </Text>
+          </Pressable>
+        </View>
+      ) : canAppeal && appealSent ? (
+        <View style={{ backgroundColor: '#ECFDF5', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#A7F3D0', marginBottom: 8 }}>
+          <Text style={{ fontSize: 13, fontWeight: '700', color: '#065F46' }}>Appeal sent — admin will review shortly.</Text>
+        </View>
+      ) : null}
       {!canSubmit ? (
         <Banner
           tone={shop.verificationStatus === VerificationStatus.APPROVED ? 'success' : 'info'}

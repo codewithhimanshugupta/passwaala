@@ -159,6 +159,10 @@ export function OrderTrackingScreen({
   const [addQty, setAddQty] = useState<Record<string, number>>({});
   const [addProductsLoading, setAddProductsLoading] = useState(false);
   const [addBusy, setAddBusy] = useState(false);
+  // Cancel order
+  const [showCancel, setShowCancel] = useState(false);
+  const [cancelReason, setCancelReason] = useState('');
+  const [cancelBusy, setCancelBusy] = useState(false);
 
   // Request notification permission once on mount (silently — no prompt yet,
   // just prime it so we can fire when backgrounded).
@@ -373,6 +377,27 @@ export function OrderTrackingScreen({
       setNotice((e as Error).message);
     } finally {
       setAddBusy(false);
+    }
+  }
+
+  async function submitCancelRequest() {
+    if (!cancelReason.trim()) return;
+    setCancelBusy(true);
+    try {
+      const res = await api.requestCancelOrder(orderId, cancelReason.trim());
+      setShowCancel(false);
+      setCancelReason('');
+      if (res.cancelled) {
+        setNotice('Your order has been cancelled.');
+      } else {
+        const feeNote = res.feePaise > 0 ? ` A cancellation fee of ${formatRupees(res.feePaise)} may apply.` : '';
+        setNotice(`Cancellation request sent to the shop.${feeNote}`);
+      }
+      await load();
+    } catch (e) {
+      setNotice((e as Error).message);
+    } finally {
+      setCancelBusy(false);
     }
   }
 
@@ -636,24 +661,7 @@ export function OrderTrackingScreen({
         </Pressable>
       ) : null}
 
-      {/* Delivery details — address + customer phone (Zomato-style "all in one place") */}
-      {!isTerminalBad && !isPickup ? (
-        <View style={styles.deliveryDetailsCard}>
-          <Text style={styles.deliveryDetailsHeader}>All your delivery details in one place</Text>
-          {order.address?.line ? (
-            <View style={styles.deliveryDetailRow}>
-              <Text style={styles.deliveryDetailIcon}>⌂</Text>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.deliveryDetailLabel}>Delivery address</Text>
-                <Text style={styles.deliveryDetailValue}>{order.address.line}</Text>
-                {order.address.landmark ? (
-                  <Text style={styles.deliveryDetailSub}>{order.address.landmark}</Text>
-                ) : null}
-              </View>
-            </View>
-          ) : null}
-        </View>
-      ) : null}
+
 
       {/* Rate your order — only once delivered */}
       {isDelivered ? (
@@ -729,6 +737,23 @@ export function OrderTrackingScreen({
       {/* Help / dispute — available on any order within the 48h window */}
       <DisputeModal ref={disputeRef} orderId={order.id} orderCreatedAt={order.createdAt} senderRole="CUSTOMER" />
 
+      {/* Customer cancel — shown on cancellable statuses only */}
+      {[OrderStatus.PLACED, OrderStatus.ACCEPTED, OrderStatus.AWAITING_PAYMENT, OrderStatus.PREPARING].includes(order.status) ? (
+        order.cancelRequestedAt ? (
+          <View style={styles.cancelPendingBanner}>
+            <Text style={styles.cancelPendingTitle}>Cancellation request pending</Text>
+            <Text style={styles.cancelPendingBody}>
+              Waiting for {order.shop.name} to approve.
+              {(order.cancelFeePaise ?? 0) > 0 ? ` A fee of ${formatRupees(order.cancelFeePaise!)} may apply.` : ''}
+            </Text>
+          </View>
+        ) : (
+          <Pressable style={styles.cancelOrderBtn} onPress={() => setShowCancel(true)}>
+            <Text style={styles.cancelOrderBtnText}>Request cancellation</Text>
+          </Pressable>
+        )
+      ) : null}
+
       {/* Refund received — customer confirmed the off-platform refund */}
       {order.status === OrderStatus.REFUNDED ? (
         <View style={styles.refundDoneCard}>
@@ -788,15 +813,20 @@ export function OrderTrackingScreen({
               {order.items.filter(it => it.status === 'UNAVAILABLE').length} item{order.items.filter(it => it.status === 'UNAVAILABLE').length > 1 ? 's' : ''} removed by the shop — order total updated.
             </Text>
             {!order.customerAcceptedChanges ? (
-              <Button
-                label="Accept changes & continue"
-                onPress={async () => {
-                  try {
-                    await api.acceptOrderChanges(order.id);
-                    await load();
-                  } catch (e) { setError((e as Error).message); }
-                }}
-              />
+              <>
+                {order.itemsChangedAt ? (
+                  <ItemChangeCountdown itemsChangedAt={order.itemsChangedAt} />
+                ) : null}
+                <Button
+                  label="Accept changes & continue"
+                  onPress={async () => {
+                    try {
+                      await api.acceptOrderChanges(order.id);
+                      await load();
+                    } catch (e) { setError((e as Error).message); }
+                  }}
+                />
+              </>
             ) : (
               <Text style={[styles.itemsUpdatedText, { color: '#065F46' }]}>You accepted these changes</Text>
             )}
@@ -829,15 +859,8 @@ export function OrderTrackingScreen({
             {order.deliveryFeePaise > 0 ? formatRupees(order.deliveryFeePaise) : t.common.free}
           </Text>
         </View>
-        {/* GST on platform fee (18% of platformFeePaise) */}
-        {order.platformFeePaise > 0 ? (
-          <View style={styles.recapRow}>
-            <Text style={styles.recapName}>GST (govt. taxes)</Text>
-            <Text style={styles.recapPrice}>{formatRupees(Math.round(order.platformFeePaise * 0.18))}</Text>
-          </View>
-        ) : null}
         <View style={styles.recapRow}>
-          <Text style={styles.recapName}>{t.orderTracking.platformFee}</Text>
+          <Text style={styles.recapName}>Platform fee (incl. GST)</Text>
           <Text style={styles.recapPrice}>{formatRupees(order.platformFeePaise)}</Text>
         </View>
         {(order.discountPaise ?? 0) > 0 ? (
@@ -900,7 +923,11 @@ export function OrderTrackingScreen({
         <View style={styles.receiptRow}>
           <Text style={styles.receiptLabel}>Payment method</Text>
           <Text style={styles.receiptValue}>
-            {isUpi ? 'Paid via UPI' : 'Cash on Delivery'}
+            {isUpi
+              ? ((order.addedItemsDuePaise ?? 0) + (order.extraDeliveryDuePaise ?? 0)) > 0
+                ? `Paid via UPI · ${formatRupees((order.addedItemsDuePaise ?? 0) + (order.extraDeliveryDuePaise ?? 0))} due at delivery`
+                : 'Paid via UPI'
+              : 'Cash on Delivery'}
           </Text>
         </View>
         <View style={styles.receiptRow}>
@@ -1050,11 +1077,90 @@ export function OrderTrackingScreen({
           </View>
         </View>
       </Modal>
+
+      {/* Cancel order modal */}
+      <Modal visible={showCancel} transparent animationType="slide" onRequestClose={() => setShowCancel(false)}>
+        <View style={styles.addItemsOverlay}>
+          <View style={[styles.addItemsSheet, { maxHeight: '50%' }]}>
+            <View style={styles.addItemsHeader}>
+              <Text style={styles.addItemsTitle}>Request cancellation</Text>
+              <Pressable onPress={() => setShowCancel(false)} hitSlop={12} style={styles.addItemsClose}>
+                <Text style={styles.addItemsCloseText}>✕</Text>
+              </Pressable>
+            </View>
+            <View style={{ padding: theme.space.md, gap: theme.space.md }}>
+              {order.status === OrderStatus.PREPARING ? (
+                <View style={{ backgroundColor: '#FEF3C7', padding: theme.space.sm, borderRadius: theme.radius.md, borderWidth: 1, borderColor: '#FDE68A' }}>
+                  <Text style={{ fontSize: theme.font.small, color: '#92400E', fontWeight: '600' }}>
+                    Order is being prepared — shop must approve your request.
+                    {(order.cancelFeePaise ?? 0) > 0 ? ` A fee up to ${formatRupees(order.cancelFeePaise!)} may apply.` : ' No cancellation fee.'}
+                  </Text>
+                </View>
+              ) : (
+                <Text style={{ fontSize: theme.font.small, color: theme.color.textMuted }}>
+                  Your order will be cancelled immediately. No fee applies.
+                </Text>
+              )}
+              <TextInput
+                style={[styles.nudgeInput, { minHeight: 72 }]}
+                placeholder="Why are you cancelling? (required)"
+                placeholderTextColor={theme.color.textFaint}
+                value={cancelReason}
+                onChangeText={setCancelReason}
+                multiline
+                maxLength={300}
+              />
+              <Pressable
+                style={[styles.addItemsConfirmBtn, (!cancelReason.trim() || cancelBusy) && styles.addItemsConfirmBtnDisabled]}
+                onPress={submitCancelRequest}
+                disabled={!cancelReason.trim() || cancelBusy}
+              >
+                {cancelBusy
+                  ? <ActivityIndicator color="#fff" />
+                  : <Text style={styles.addItemsConfirmBtnText}>
+                      {order.status === OrderStatus.PREPARING ? 'Send cancel request' : 'Cancel my order'}
+                    </Text>}
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
 
 /** Placeholder scaffold (status timeline) shown while the order loads. */
+/** Live countdown showing seconds until order changes are auto-accepted. */
+function ItemChangeCountdown({ itemsChangedAt }: { itemsChangedAt: string }) {
+  const AUTO_ACCEPT_MS = 10 * 60 * 1000; // 10 min default — matches server
+  const [remaining, setRemaining] = useState(() => {
+    const elapsed = Date.now() - new Date(itemsChangedAt).getTime();
+    return Math.max(0, Math.floor((AUTO_ACCEPT_MS - elapsed) / 1000));
+  });
+
+  useEffect(() => {
+    if (remaining <= 0) return;
+    const t = setInterval(() => {
+      const elapsed = Date.now() - new Date(itemsChangedAt).getTime();
+      setRemaining(Math.max(0, Math.floor((AUTO_ACCEPT_MS - elapsed) / 1000)));
+    }, 1000);
+    return () => clearInterval(t);
+  }, [itemsChangedAt]);
+
+  if (remaining <= 0) return (
+    <Text style={{ fontSize: theme.font.tiny, color: '#92400E', fontWeight: '600' }}>
+      Auto-accepting changes now…
+    </Text>
+  );
+  const m = Math.floor(remaining / 60);
+  const s = remaining % 60;
+  return (
+    <Text style={{ fontSize: theme.font.tiny, color: '#92400E', fontWeight: '600' }}>
+      Auto-accepts in {m}:{s.toString().padStart(2, '0')} if you don't respond
+    </Text>
+  );
+}
+
 function OrderTrackingSkeleton() {
   return (
     <View style={styles.root}>
@@ -1520,4 +1626,9 @@ const styles = StyleSheet.create({
   addItemsConfirmBtn: { backgroundColor: theme.color.primary, borderRadius: theme.radius.lg, paddingVertical: theme.space.md, alignItems: 'center' },
   addItemsConfirmBtnDisabled: { opacity: 0.4 },
   addItemsConfirmBtnText: { color: '#fff', fontWeight: '800', fontSize: theme.font.body },
+  cancelOrderBtn: { marginHorizontal: theme.space.lg, paddingVertical: theme.space.sm, alignItems: 'center', borderWidth: 1, borderColor: theme.color.danger, borderRadius: theme.radius.md },
+  cancelOrderBtnText: { fontSize: theme.font.small, fontWeight: '700', color: theme.color.danger },
+  cancelPendingBanner: { marginHorizontal: theme.space.lg, backgroundColor: '#FEF3C7', borderRadius: theme.radius.lg, borderWidth: 1, borderColor: '#FDE68A', padding: theme.space.md, gap: 4 },
+  cancelPendingTitle: { fontSize: theme.font.small, fontWeight: '800', color: '#92400E' },
+  cancelPendingBody: { fontSize: theme.font.small, color: '#78350F', lineHeight: 20 },
 });

@@ -192,4 +192,30 @@ export class OrdersController {
   confirmRefundReceived(@CurrentUser() user: AuthPayload, @Param('id') id: string) {
     return this.orders.confirmRefundReceived(user.sub, id);
   }
+
+  /** Customer: request cancellation. Instant for PLACED/ACCEPTED/AWAITING_PAYMENT;
+   *  sends to shop for approval on PREPARING. Blocked at READY and beyond. */
+  @Roles(UserRole.CUSTOMER)
+  @Post(':id/cancel-request')
+  cancelRequest(
+    @CurrentUser() user: AuthPayload,
+    @Param('id') id: string,
+    @Body('reason') reason: string,
+  ) {
+    return this.orders.requestCancel(user.sub, id, reason);
+  }
+
+  /** Shopkeeper: approve a customer's cancel request (PREPARING only). */
+  @Roles(UserRole.SHOPKEEPER)
+  @Post(':id/cancel-approve')
+  approveCancelRequest(@ShopId() shopId: string | undefined, @Param('id') id: string) {
+    return this.orders.approveCancelRequest(shopId, id);
+  }
+
+  /** Shopkeeper: deny a customer's cancel request — order continues. */
+  @Roles(UserRole.SHOPKEEPER)
+  @Post(':id/cancel-deny')
+  denyCancelRequest(@ShopId() shopId: string | undefined, @Param('id') id: string) {
+    return this.orders.denyCancelRequest(shopId, id);
+  }
 }

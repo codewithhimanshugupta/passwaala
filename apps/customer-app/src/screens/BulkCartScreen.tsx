@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
   Modal,
   Pressable,
   ScrollView,
@@ -31,9 +32,13 @@ interface NearbyShop {
 export function BulkCartScreen({
   onBack,
   onPlaced,
+  onOpenShop,
+  onSingleShop,
 }: {
   onBack: () => void;
   onPlaced: (result: { bulkOrderId: string; shortId: string; totalPaise: number }) => void;
+  onOpenShop: (shopId: string) => void;
+  onSingleShop: () => void;
 }) {
   const { t } = useLang();
   const bulkCart = useBulkCart();
@@ -46,6 +51,9 @@ export function BulkCartScreen({
   const [showAddrForm, setShowAddrForm] = useState(false);
   const [showAddrPicker, setShowAddrPicker] = useState(false);
   const [nearbyShops, setNearbyShops] = useState<NearbyShop[]>([]);
+  const [nearbyHasMore, setNearbyHasMore] = useState(false);
+  const [nearbyOffset, setNearbyOffset] = useState(0);
+  const [nearbyLoading, setNearbyLoading] = useState(false);
   const [addingShop, setAddingShop] = useState<string | null>(null);
 
   const anchorShopId = bulkCart[0]?.shopId ?? null;
@@ -75,12 +83,33 @@ export function BulkCartScreen({
   // Load nearby shops (add-on options) whenever the anchor shop changes
   useEffect(() => {
     if (!anchorShopId) return;
-    void api.nearbyShopsForBulk(anchorShopId)
-      .then((shops) => setNearbyShops(
-        shops.filter((s) => !bulkCart.some((c) => c.shopId === s.id)),
-      ))
+    setNearbyShops([]);
+    setNearbyOffset(0);
+    setNearbyHasMore(false);
+    void api.nearbyShopsForBulk(anchorShopId, 0)
+      .then((res) => {
+        setNearbyShops(res.items.filter((s) => !bulkCart.some((c) => c.shopId === s.id)));
+        setNearbyHasMore(res.hasMore);
+        setNearbyOffset(res.items.length);
+      })
       .catch(() => undefined);
   }, [anchorShopId, bulkCart.length]);
+
+  async function loadMoreNearby() {
+    if (!anchorShopId || !nearbyHasMore || nearbyLoading) return;
+    setNearbyLoading(true);
+    try {
+      const res = await api.nearbyShopsForBulk(anchorShopId, nearbyOffset);
+      const fresh = res.items.filter((s) => !bulkCart.some((c) => c.shopId === s.id) && !nearbyShops.some((n) => n.id === s.id));
+      setNearbyShops((prev) => [...prev, ...fresh]);
+      setNearbyHasMore(res.hasMore);
+      setNearbyOffset((prev) => prev + res.items.length);
+    } catch {
+      // ignore
+    } finally {
+      setNearbyLoading(false);
+    }
+  }
 
   // Auto-select first address
   useEffect(() => {
@@ -117,6 +146,8 @@ export function BulkCartScreen({
 
   async function place() {
     if (!selectedAddress) { setError('Please select a delivery address'); return; }
+    // If only 1 shop remains, redirect to single-shop cart instead
+    if (bulkCart.length < 2) { onSingleShop(); return; }
     setPlacing(true);
     setError(null);
     try {
@@ -176,10 +207,10 @@ export function BulkCartScreen({
         ))}
 
         {/* Nearby shops to add */}
-        {nearbyNotAdded.length > 0 && shopCount < 3 ? (
+        {(nearbyNotAdded.length > 0 || nearbyHasMore) && shopCount < 3 ? (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Add from nearby shops</Text>
-            <Text style={styles.nearbyHint}>These shops are within 1 km — add items for a single delivery run</Text>
+            <Text style={styles.nearbyHint}>These shops are nearby — add items for a single delivery run</Text>
             {nearbyNotAdded.map((s) => (
               <View key={s.id} style={styles.nearbyRow}>
                 <View style={styles.flex}>
@@ -189,12 +220,19 @@ export function BulkCartScreen({
                 <Pressable
                   style={[styles.addShopBtn, addingShop === s.id && styles.addShopBtnBusy]}
                   disabled={addingShop !== null}
-                  onPress={() => { setAddingShop(s.id); onBack(); }}
+                  onPress={() => { setAddingShop(s.id); onOpenShop(s.id); }}
                 >
                   <Text style={styles.addShopText}>Browse</Text>
                 </Pressable>
               </View>
             ))}
+            {nearbyHasMore ? (
+              <Pressable style={styles.loadMoreNearby} onPress={loadMoreNearby} disabled={nearbyLoading}>
+                {nearbyLoading
+                  ? <ActivityIndicator color={theme.color.primary} size="small" />
+                  : <Text style={styles.loadMoreNearbyText}>Show more shops</Text>}
+              </Pressable>
+            ) : null}
           </View>
         ) : null}
 
@@ -274,21 +312,32 @@ export function BulkCartScreen({
           <Text style={styles.placeTotal}>{formatRupees(totalPaise)}</Text>
         </View>
         <View style={styles.flex}>
-          <Button
-            label={placing ? 'Placing…' : 'Place bulk order'}
-            onPress={place}
-            busy={placing}
-            disabled={!selectedAddress}
-            size="lg"
-          />
+          {shopCount < 2 ? (
+            <Button
+              label="Switch to single-shop cart"
+              onPress={onSingleShop}
+              size="lg"
+            />
+          ) : (
+            <Button
+              label={placing ? 'Placing…' : 'Place bulk order'}
+              onPress={place}
+              busy={placing}
+              disabled={!selectedAddress}
+              size="lg"
+            />
+          )}
         </View>
       </View>
 
-      <Modal visible={placing} transparent animationType="fade" onRequestClose={() => {}}>
+      <Modal visible={placing} transparent animationType="fade" onRequestClose={() => setPlacing(false)}>
         <View style={styles.overlay}>
           <View style={styles.placingCard}>
             <Text style={styles.placingText}>Placing your order…</Text>
             <StripedProgressBar color={theme.color.primary} />
+            <Pressable onPress={() => setPlacing(false)} style={styles.placingCancelBtn}>
+              <Text style={styles.placingCancelText}>Cancel</Text>
+            </Pressable>
           </View>
         </View>
       </Modal>
@@ -396,6 +445,8 @@ const styles = StyleSheet.create({
   addShopBtn: { backgroundColor: theme.color.primary, borderRadius: theme.radius.md, paddingHorizontal: theme.space.md, paddingVertical: theme.space.sm },
   addShopBtnBusy: { opacity: 0.5 },
   addShopText: { color: theme.color.onPrimary, fontWeight: '700', fontSize: theme.font.small },
+  loadMoreNearby: { alignSelf: 'center', paddingVertical: theme.space.sm, paddingHorizontal: theme.space.lg, borderRadius: theme.radius.pill, borderWidth: 1, borderColor: theme.color.primary, marginTop: theme.space.xs },
+  loadMoreNearbyText: { fontSize: theme.font.small, fontWeight: '700', color: theme.color.primary },
   billRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3 },
   billLabel: { fontSize: theme.font.body, color: theme.color.textMuted },
   billValue: { fontSize: theme.font.body, color: theme.color.text },
@@ -419,6 +470,8 @@ const styles = StyleSheet.create({
   overlay: { flex: 1, backgroundColor: theme.color.overlay, alignItems: 'center', justifyContent: 'center', padding: theme.space.xl },
   placingCard: { width: '100%', maxWidth: 340, backgroundColor: theme.color.bg, borderRadius: theme.radius.lg, padding: theme.space.xl, gap: theme.space.lg, ...shadow.lg },
   placingText: { fontSize: theme.font.h3, fontWeight: '700', color: theme.color.text, textAlign: 'center' },
+  placingCancelBtn: { alignSelf: 'center', paddingVertical: theme.space.sm, paddingHorizontal: theme.space.xl },
+  placingCancelText: { fontSize: theme.font.small, fontWeight: '600', color: theme.color.textMuted },
   sheetBackdrop: { flex: 1, backgroundColor: theme.color.overlay, justifyContent: 'flex-end' },
   sheet: { backgroundColor: theme.color.bg, borderTopLeftRadius: theme.radius.xl, borderTopRightRadius: theme.radius.xl, paddingHorizontal: theme.space.lg, paddingTop: theme.space.lg, paddingBottom: theme.space.xl, maxHeight: '85%' },
   sheetHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: theme.space.sm },

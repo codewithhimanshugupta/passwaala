@@ -82,6 +82,8 @@ export interface RiderJob {
   originalTotalPaise: number;
   adjustedTotalPaise?: number | null;
   deliveryFeePaise: number;
+  extraDeliveryDuePaise?: number;
+  addedItemsDuePaise?: number;
   offerExpiresAt?: string | null;
   dispatchExhausted?: boolean;
   items: JobItem[];

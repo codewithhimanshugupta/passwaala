@@ -356,6 +356,10 @@ export class PasswaalaApiClient {
   adminSetCommission(shopId: string, rate: number): Promise<{ commissionRate: number }> {
     return this.post(`/admin/shops/${shopId}/commission`, { rate });
   }
+  /** Admin: enable or disable COD for a specific shop. */
+  adminSetShopCodEnabled(shopId: string, enabled: boolean): Promise<{ codEnabled: boolean }> {
+    return this.post(`/admin/shops/${shopId}/cod-toggle`, { enabled });
+  }
   /** Admin/owner: all riders with earnings + COD dues + active orders. */
   adminListRiders(city?: string): Promise<Array<{
     userId: string; name: string | null; phone: string | null; vehicle: string | null;
@@ -458,6 +462,18 @@ export class PasswaalaApiClient {
   confirmRefundReceived(orderId: string): Promise<unknown> {
     return this.post(`/orders/${orderId}/refund-received`, {});
   }
+  /** Customer: request cancellation. Instant for early statuses; goes to shop for PREPARING. */
+  requestCancelOrder(orderId: string, reason: string): Promise<{ cancelled: boolean; requiresShopApproval: boolean; feePaise: number }> {
+    return this.post(`/orders/${orderId}/cancel-request`, { reason });
+  }
+  /** Shopkeeper: approve a customer's cancel request. */
+  approveCancelRequest(orderId: string): Promise<{ approved: true; feePaise: number }> {
+    return this.post(`/orders/${orderId}/cancel-approve`, {});
+  }
+  /** Shopkeeper: deny a customer's cancel request. */
+  denyCancelRequest(orderId: string): Promise<{ denied: true }> {
+    return this.post(`/orders/${orderId}/cancel-deny`, {});
+  }
   raiseDispute(orderId: string, reason: string): Promise<unknown> {
     return this.post('/disputes', { orderId, reason });
   }
@@ -548,7 +564,18 @@ export class PasswaalaApiClient {
   }
   ownerUpsertCity(
     name: string,
-    opts: { enabled?: boolean; collectionUpiVpa?: string; collectionUpiName?: string; deliveryRadiusMeters?: number; riderCheckRadiusMeters?: number; deliveryTiersJson?: string; multiShopSurchargePaise?: number } = {},
+    opts: {
+      enabled?: boolean; collectionUpiVpa?: string; collectionUpiName?: string;
+      deliveryRadiusMeters?: number; riderCheckRadiusMeters?: number; deliveryTiersJson?: string;
+      requireRiderForDelivery?: boolean;
+      multiShopSurchargePaise?: number; bulkShopRadiusMeters?: number;
+      codMinOrderPaise?: number; codMaxPerDay?: number; codCancelBlockAfter?: number; codCancelWindowDays?: number; codWindowHours?: number;
+      autoCancelMinutes?: number; riderOfferWindowSec?: number; maxActiveOrdersPerRider?: number;
+      shopReminderMinutes?: number; staleRiderMinutes?: number; nearbyShopsRadiusMeters?: number;
+      platformFeePaise?: number; defaultCommissionRate?: number; defaultCreditLimitPaise?: number;
+      commissionHolidayDays?: number; onboardingFeePaise?: number;
+      referralCustomerCoins?: number; referralShopCoins?: number;
+    } = {},
   ): Promise<unknown> {
     return this.post('/cities', { name, enabled: opts.enabled ?? true, ...opts });
   }
@@ -699,6 +726,10 @@ export class PasswaalaApiClient {
   adminAssignAdditionalRiders(orderId: string, riderUserIds: string[]): Promise<{ additionalRiderIds: string[] }> {
     return this.post(`/admin/orders/${orderId}/assign-riders`, { riderUserIds });
   }
+  /** Admin: mark partial delivery — some items not received. Opens a dispute. */
+  adminMarkPartialDelivery(orderId: string, fulfilledItemIds: string[]): Promise<{ delivered: true; adjustedTotalPaise: number; removedCount: number }> {
+    return this.post(`/admin/orders/${orderId}/partial-delivery`, { fulfilledItemIds });
+  }
   /** Admin: list bulk orders (keyset paginated), newest first. */
   adminListBulkOrders(opts: PageParams = {}): Promise<Paginated<unknown>> {
     return this.get(`/admin/bulk-orders${pageQuery(opts)}`);
@@ -751,8 +782,8 @@ export class PasswaalaApiClient {
     return this.get(`/bulk-orders${pageQuery(opts)}`);
   }
   /** Nearby shops within 1 km of an anchor shop — for the multi-shop cart banner. */
-  nearbyShopsForBulk(anchorShopId: string): Promise<Array<{ id: string; name: string; city: string; latitude: number; longitude: number; distanceMeters: number }>> {
-    return this.get(`/shops/nearby-for-bulk?anchorShopId=${encodeURIComponent(anchorShopId)}`);
+  nearbyShopsForBulk(anchorShopId: string, offset = 0): Promise<{ items: Array<{ id: string; name: string; city: string; latitude: number; longitude: number; distanceMeters: number }>; hasMore: boolean }> {
+    return this.get(`/shops/nearby-for-bulk?anchorShopId=${encodeURIComponent(anchorShopId)}&offset=${offset}`);
   }
 
   // ---- Rider bulk-job routes ----
@@ -831,6 +862,10 @@ export class PasswaalaApiClient {
   }
   submitKyc(body: unknown): Promise<unknown> {
     return this.post('/shops/me/kyc', body);
+  }
+  /** Shopkeeper: submit an appeal after rejection or suspension. */
+  submitAppeal(message: string): Promise<{ submitted: true }> {
+    return this.post('/shops/me/appeal', { message });
   }
   myProducts(): Promise<unknown[]> {
     return this.get('/products/mine');

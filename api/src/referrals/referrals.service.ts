@@ -76,11 +76,18 @@ export class ReferralsService {
    * referral is still PENDING, qualify it and credit BOTH referrer and referee
    * 25 coins each (plan: "referrer and referee each get 25 Coins"). Idempotent.
    */
-  async qualifyOnDelivery(customerId: string) {
+  async qualifyOnDelivery(customerId: string, shopCity?: string) {
     const referral = await this.prisma.referral.findFirst({
       where: { refereeUserId: customerId, status: ReferralStatus.PENDING, deletedAt: null },
     });
     if (!referral) return;
+
+    // Use city-configured coin reward if available, fall back to the stored value.
+    const cityCfg = shopCity ? await this.prisma.serviceableCity.findFirst({
+      where: { name: { equals: shopCity, mode: 'insensitive' }, deletedAt: null },
+      select: { referralCustomerCoins: true },
+    }) : null;
+    const coins = cityCfg?.referralCustomerCoins ?? referral.coinReward;
 
     await this.prisma.$transaction([
       this.prisma.referral.update({
@@ -89,11 +96,11 @@ export class ReferralsService {
       }),
       this.prisma.user.update({
         where: { id: referral.referrerId },
-        data: { coinBalance: { increment: referral.coinReward } },
+        data: { coinBalance: { increment: coins } },
       }),
       this.prisma.user.update({
         where: { id: customerId },
-        data: { coinBalance: { increment: referral.coinReward } },
+        data: { coinBalance: { increment: coins } },
       }),
     ]);
   }

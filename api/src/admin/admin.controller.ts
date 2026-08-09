@@ -100,6 +100,16 @@ export class AdminController {
     return this.admin.setCommissionRate(user.sub, id, rate);
   }
 
+  /** Admin: enable or disable COD for a shop. */
+  @Post('shops/:id/cod-toggle')
+  setCodEnabled(
+    @CurrentUser() user: AuthPayload,
+    @Param('id') id: string,
+    @Body('enabled') enabled: boolean,
+  ) {
+    return this.admin.setCodEnabled(user.sub, id, enabled);
+  }
+
   /** All platform riders with earnings + COD dues — for the admin riders console. */
   @Get('riders')
   listRiders(@Query('city') city?: string) {
@@ -218,5 +228,15 @@ export class AdminController {
   @Get('bulk-orders/:id')
   getBulkOrder(@Param('id') id: string) {
     return this.admin.getBulkOrder(id);
+  }
+
+  /** Admin: mark an order as partially delivered (some items not received). Opens a dispute for partial refund. */
+  @Post('orders/:orderId/partial-delivery')
+  markPartialDelivery(
+    @CurrentUser() user: AuthPayload,
+    @Param('orderId') orderId: string,
+    @Body('fulfilledItemIds') fulfilledItemIds: string[],
+  ) {
+    return this.admin.markPartialDelivery(user.sub, orderId, fulfilledItemIds);
   }
 }

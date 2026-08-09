@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  NotFoundException,
 } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import {
@@ -390,7 +391,11 @@ export class ShopsService {
     const offset = q.offset ?? 0;
     const orderBy =
       q.sort === 'rating'
-        ? '"avgRating" DESC, distance_meters ASC'
+        // Bayesian weighted rating: shops with < 5 reviews are pulled toward the
+        // global mean (3.0). This prevents a shop with 1×5-star review from
+        // outranking a shop with 200×4.5-star reviews.
+        // Formula: (ratingCount * avgRating + 5 * 3.0) / (ratingCount + 5)
+        ? '("ratingCount" * "avgRating" + 5 * 3.0) / ("ratingCount" + 5) DESC, distance_meters ASC'
         : 'distance_meters ASC';
 
     const openNow = q.openNow === 'true';
@@ -618,6 +623,7 @@ export class ShopsService {
       selfPickupEnabled: (shop as Record<string, unknown>).selfPickupEnabled !== false,
       offerText: shop.offerText ?? undefined,
       activeOfferId: shop.activeOfferId ?? null,
+      codEnabled: (shop as Record<string, unknown>).codEnabled !== false,
     };
   }
 
@@ -683,16 +689,41 @@ export class ShopsService {
       .map(r => ({ offerId: r.offerId!, usedCount: r._count._all }));
   }
 
+  async submitAppeal(shopId: string | undefined, message: string) {
+    const id = requireShopScope(shopId);
+    if (!message?.trim()) throw new BadRequestException('Appeal message is required');
+    const shop = await this.prisma.shop.findFirst({
+      where: { id, deletedAt: null },
+      select: { id: true, verificationStatus: true },
+    });
+    if (!shop) throw new NotFoundException('Shop not found');
+    const APPEALABLE = ['REJECTED', 'SUSPENDED'];
+    if (!APPEALABLE.includes(shop.verificationStatus)) {
+      throw new BadRequestException('Appeals can only be submitted for rejected or suspended shops');
+    }
+    await this.prisma.shop.update({
+      where: { id },
+      data: { appealMessage: message.trim(), appealSubmittedAt: new Date() },
+    });
+    return { submitted: true };
+  }
+
   /**
    * Nearby shops for multi-shop bulk orders: APPROVED + open + platformDelivery,
    * within 1 km of the anchor shop, excluding the anchor itself.
    */
-  async nearbyForBulk(anchorShopId: string) {
+  async nearbyForBulk(anchorShopId: string, offset = 0) {
     const anchor = await this.prisma.shop.findUnique({
       where: { id: anchorShopId, deletedAt: null },
       select: { latitude: true, longitude: true, city: true },
     });
-    if (!anchor?.latitude || !anchor?.longitude) return [];
+    if (!anchor?.latitude || !anchor?.longitude) return { items: [], hasMore: false };
+
+    const cityCfg = await this.prisma.serviceableCity.findFirst({
+      where: { name: { equals: anchor.city, mode: 'insensitive' } },
+      select: { bulkShopRadiusMeters: true },
+    });
+    const radius = cityCfg?.bulkShopRadiusMeters ?? 1000;
 
     const rows = await this.prisma.$queryRawUnsafe<
       Array<{ id: string; name: string; city: string; latitude: unknown; longitude: unknown; distance_meters: number }>
@@ -707,21 +738,27 @@ export class ShopsService {
           AND geog IS NOT NULL
           AND id != $3
           AND city = $4
-          AND ST_DWithin(geog, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, 1000)
+          AND ST_DWithin(geog, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, $5)
         ORDER BY distance_meters ASC
-        LIMIT 10`,
+        LIMIT $6 OFFSET $7`,
       Number(anchor.longitude),
       Number(anchor.latitude),
       anchorShopId,
       anchor.city,
+      radius,
+      10,
+      offset,
     );
-    return rows.map((r) => ({
-      id: r.id,
-      name: r.name,
-      city: r.city,
-      latitude: r.latitude != null ? Number(r.latitude) : 0,
-      longitude: r.longitude != null ? Number(r.longitude) : 0,
-      distanceMeters: Math.round(r.distance_meters),
-    }));
+    return {
+      items: rows.map((r) => ({
+        id: r.id,
+        name: r.name,
+        city: r.city,
+        latitude: r.latitude != null ? Number(r.latitude) : 0,
+        longitude: r.longitude != null ? Number(r.longitude) : 0,
+        distanceMeters: Math.round(r.distance_meters),
+      })),
+      hasMore: rows.length === 10,
+    };
   }
 }

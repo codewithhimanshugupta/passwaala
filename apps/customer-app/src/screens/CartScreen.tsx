@@ -66,6 +66,7 @@ export function CartScreen({
   // Modal to switch between saved addresses (the cart shows only one at a time).
   const [showAddrPicker, setShowAddrPicker] = useState(false);
   const [coinBalance, setCoinBalance] = useState(0);
+  const [pendingCancelFeePaise, setPendingCancelFeePaise] = useState(0);
   const [useCoins, setUseCoins] = useState(false);
   const [selectedOfferId, setSelectedOfferId] = useState<string | null>(null);
   const [showCoupons, setShowCoupons] = useState(false);
@@ -131,6 +132,8 @@ export function CartScreen({
         .then((r) => setCoinBalance(r?.coinBalance ?? 0))
         .catch(() => setCoinBalance(0));
     }
+    // Load pending cancel fee
+    void api.me().then((a: any) => setPendingCancelFeePaise(a?.pendingCancelFeePaise ?? 0)).catch(() => undefined);
   }, [loadAddresses]);
 
   // Fetch the shop's fee/offer/coords config ONCE (drives the entire locally-
@@ -160,7 +163,7 @@ export function CartScreen({
     if (!shopId) return;
     let alive = true;
     void api.nearbyShopsForBulk(shopId)
-      .then((shops) => { if (alive) setNearbyShops(shops); })
+      .then((res) => { if (alive) setNearbyShops(res.items); })
       .catch(() => undefined);
     return () => { alive = false; };
   }, [shopId]);
@@ -798,17 +801,28 @@ export function CartScreen({
         {/* Payment method */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>{t.cart.paymentMethod}</Text>
+          {pendingCancelFeePaise > 0 ? (
+            <View style={{ backgroundColor: '#FEF3C7', borderRadius: 10, padding: 10, marginBottom: 8, borderWidth: 1, borderColor: '#FDE68A' }}>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: '#92400E' }}>
+                Outstanding cancel fee: {formatRupees(pendingCancelFeePaise)}
+              </Text>
+              <Text style={{ fontSize: 12, color: '#78350F', marginTop: 2 }}>
+                This amount will be added to your order total. COD is not available until it is cleared.
+              </Text>
+            </View>
+          ) : null}
           <PaymentOption
             active={payment === PaymentMethod.UPI_DIRECT}
             onPress={() => setPayment(PaymentMethod.UPI_DIRECT)}
             title={t.cart.upiTitle}
-            subtitle={t.cart.upiSubtitle}
+            subtitle={pendingCancelFeePaise > 0 ? `${t.cart.upiSubtitle} · Cancel fee of ${formatRupees(pendingCancelFeePaise)} will be added` : t.cart.upiSubtitle}
           />
           <PaymentOption
             active={payment === PaymentMethod.COD}
-            onPress={() => setPayment(PaymentMethod.COD)}
+            onPress={() => pendingCancelFeePaise > 0 ? undefined : setPayment(PaymentMethod.COD)}
             title={t.cart.codTitle}
-            subtitle={t.cart.codSubtitle}
+            subtitle={pendingCancelFeePaise > 0 ? 'Not available — clear your outstanding cancel fee first' : t.cart.codSubtitle}
+            disabled={pendingCancelFeePaise > 0}
           />
         </View>
 
@@ -857,11 +871,14 @@ export function CartScreen({
       {/* Full-screen "placing your order" overlay — order placement can take a
           few seconds on the current server, so block interaction + show clear
           progress instead of just a button spinner. */}
-      <Modal visible={placing} transparent animationType="fade" onRequestClose={() => { /* can't dismiss mid-place */ }}>
+      <Modal visible={placing} transparent animationType="fade" onRequestClose={() => setPlacing(false)}>
         <View style={styles.placingOverlay}>
           <View style={styles.placingCard}>
             <Text style={styles.placingText}>{t.cart.placing}</Text>
             <StripedProgressBar color={theme.color.primary} />
+            <Pressable onPress={() => setPlacing(false)} style={styles.placingCancelBtn}>
+              <Text style={styles.placingCancelText}>Cancel</Text>
+            </Pressable>
           </View>
         </View>
       </Modal>
@@ -1049,14 +1066,16 @@ function PaymentOption({
   onPress,
   title,
   subtitle,
+  disabled,
 }: {
   active: boolean;
   onPress: () => void;
   title: string;
   subtitle: string;
+  disabled?: boolean;
 }) {
   return (
-    <Pressable onPress={onPress} style={[styles.payOption, active && styles.payOptionActive]}>
+    <Pressable onPress={disabled ? undefined : onPress} style={[styles.payOption, active && styles.payOptionActive, disabled && { opacity: 0.45 }]}>
       <View style={styles.flex}>
         <Text style={styles.payTitle}>{title}</Text>
         <Text style={styles.paySubtitle}>{subtitle}</Text>
@@ -1421,6 +1440,8 @@ const styles = StyleSheet.create({
     color: theme.color.text,
     textAlign: 'center',
   },
+  placingCancelBtn: { alignSelf: 'center', paddingVertical: theme.space.sm, paddingHorizontal: theme.space.xl },
+  placingCancelText: { fontSize: theme.font.small, fontWeight: '600', color: theme.color.textMuted },
 
   // ── Nearby-shops bulk upgrade banner ──
   bulkBanner: {

@@ -24,6 +24,7 @@ interface AdminShop {
   verificationStatus: string;
   isOpen: boolean;
   commissionRate: number;
+  codEnabled: boolean;
   outstandingDuesPaise: number;
   creditLimitPaise: number;
   contactPhone: string | null;
@@ -35,6 +36,8 @@ interface AdminShop {
   gmvPaise: number;
   revenuePaise: number;
   refundPending: number;
+  appealMessage?: string | null;
+  appealSubmittedAt?: string | null;
 }
 
 type StatusTone = 'good' | 'warning' | 'info' | 'critical';
@@ -113,6 +116,16 @@ export function ShopsScreen() {
     try {
       await api.adminSetCommission(shop.id, pct / 100);
       flash(`Commission set to ${pct}% for ${shop.name}.`);
+      await load(city);
+    } catch (e) { flash(`Failed: ${(e as Error).message}`); }
+    finally { setBusyId(null); }
+  }
+
+  async function toggleCod(shop: AdminShop) {
+    setBusyId(shop.id);
+    try {
+      await api.adminSetShopCodEnabled(shop.id, !shop.codEnabled);
+      flash(`COD ${!shop.codEnabled ? 'enabled' : 'disabled'} for ${shop.name}.`);
       await load(city);
     } catch (e) { flash(`Failed: ${(e as Error).message}`); }
     finally { setBusyId(null); }
@@ -340,6 +353,15 @@ export function ShopsScreen() {
                         {shop.ownerLoginPin ? <PanelStat label="Login PIN" value={shop.ownerLoginPin} /> : null}
                       </View>
 
+                      {/* Shopkeeper appeal box */}
+                      {shop.appealMessage ? (
+                        <View style={{ backgroundColor: '#FEF3C7', borderRadius: 8, padding: 10, borderWidth: 1, borderColor: '#FDE68A', marginBottom: 8 }}>
+                          <Text style={{ fontSize: 11, fontWeight: '800', color: '#92400E' }}>SHOPKEEPER APPEAL</Text>
+                          <Text style={{ fontSize: 13, color: '#78350F', marginTop: 2 }}>{shop.appealMessage}</Text>
+                          {shop.appealSubmittedAt ? <Text style={{ fontSize: 11, color: '#92400E', marginTop: 2 }}>{new Date(shop.appealSubmittedAt).toLocaleString('en-IN')}</Text> : null}
+                        </View>
+                      ) : null}
+
                       {/* Commission setter */}
                       <View style={styles.panelRow}>
                         <View style={styles.commFieldWrap}>
@@ -359,6 +381,23 @@ export function ShopsScreen() {
                           disabled={busy}
                         >
                           {busy ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.panelBtnText}>Save</Text>}
+                        </Pressable>
+                      </View>
+
+                      {/* COD toggle */}
+                      <View style={styles.panelRow}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.panelLabel}>Cash on Delivery</Text>
+                          <Text style={{ fontSize: theme.font.tiny, color: theme.color.textFaint }}>
+                            {shop.codEnabled ? 'COD is enabled for this shop' : 'COD is disabled — customers must use UPI'}
+                          </Text>
+                        </View>
+                        <Pressable
+                          style={[styles.panelBtn, { backgroundColor: shop.codEnabled ? theme.color.warning : theme.color.good }]}
+                          onPress={() => toggleCod(shop)}
+                          disabled={busy}
+                        >
+                          {busy ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.panelBtnText}>{shop.codEnabled ? 'Disable COD' : 'Enable COD'}</Text>}
                         </Pressable>
                       </View>
 

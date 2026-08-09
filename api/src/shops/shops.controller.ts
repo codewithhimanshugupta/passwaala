@@ -90,8 +90,11 @@ export class ShopsController {
    */
   @Public()
   @Get('nearby-for-bulk')
-  nearbyForBulk(@Query('anchorShopId') anchorShopId: string) {
-    return this.shops.nearbyForBulk(anchorShopId);
+  nearbyForBulk(
+    @Query('anchorShopId') anchorShopId: string,
+    @Query('offset') offset?: string,
+  ) {
+    return this.shops.nearbyForBulk(anchorShopId, offset ? parseInt(offset, 10) : 0);
   }
 
   /**
@@ -110,6 +113,13 @@ export class ShopsController {
   @Get('me/offer-stats')
   offerStats(@ShopId() shopId: string | undefined) {
     return this.shops.offerStats(shopId);
+  }
+
+  /** Shopkeeper: submit an appeal message after rejection or suspension. */
+  @Roles(UserRole.SHOPKEEPER)
+  @Post('me/appeal')
+  submitAppeal(@ShopId() shopId: string | undefined, @Body('message') message: string) {
+    return this.shops.submitAppeal(shopId, message);
   }
 
   /** Public storefront view of one shop (only if APPROVED). */

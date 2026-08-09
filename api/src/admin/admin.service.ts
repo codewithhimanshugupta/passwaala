@@ -78,6 +78,8 @@ export class AdminService {
         outstandingDuesPaise: true,
         creditLimitPaise: true,
         contactPhone: true,
+        appealMessage: true,
+        appealSubmittedAt: true,
         owner: { select: { loginOtpEnc: true, loginPinEnc: true } },
       },
     });
@@ -148,6 +150,8 @@ export class AdminService {
         gmvPaise: gmv.paise,
         revenuePaise: revByShop.get(shop.id) ?? 0,
         refundPending,
+        appealMessage: shop.appealMessage ?? null,
+        appealSubmittedAt: shop.appealSubmittedAt?.toISOString() ?? null,
       };
     });
   }
@@ -255,23 +259,27 @@ export class AdminService {
   async approve(adminUserId: string, shopId: string) {
     const shop = await this.requirePending(shopId);
 
-    // 1-month commission holiday from approval (plan → Revenue Model).
-    const commissionFreeUntil = new Date();
-    commissionFreeUntil.setMonth(commissionFreeUntil.getMonth() + 1);
+    // Look up city config for commission holiday days + onboarding fee + default commission rate.
+    const cityCfg = shop.city ? await this.prisma.serviceableCity.findFirst({
+      where: { name: { equals: shop.city, mode: 'insensitive' }, deletedAt: null },
+      select: { commissionHolidayDays: true, onboardingFeePaise: true, defaultCommissionRate: true, defaultCreditLimitPaise: true },
+    }) : null;
 
-    // ₹499 onboarding fee + 18% GST. Recorded as PAID (upfront, paid directly
-    // to PassWaala at approval) so it does NOT consume the shop's credit limit —
-    // only commission + platform fees accrue against the limit (plan clarified).
-    const fee = computeGst(PRODUCT_ONBOARDING_FEE_PAISE);
+    const holidayDays = cityCfg?.commissionHolidayDays ?? 30;
+    const commissionFreeUntil = new Date(Date.now() + holidayDays * 24 * 60 * 60 * 1000);
+
+    const onboardingBase = cityCfg?.onboardingFeePaise ?? PRODUCT_ONBOARDING_FEE_PAISE;
+    const fee = computeGst(onboardingBase);
+
+    const updateData: Record<string, unknown> = {
+      verificationStatus: VerificationStatus.APPROVED,
+      commissionFreeUntil,
+    };
+    if (cityCfg?.defaultCommissionRate !== undefined) updateData.commissionRate = cityCfg.defaultCommissionRate;
+    if (cityCfg?.defaultCreditLimitPaise !== undefined) updateData.creditLimitPaise = cityCfg.defaultCreditLimitPaise;
 
     const [updated] = await this.prisma.$transaction([
-      this.prisma.shop.update({
-        where: { id: shop.id },
-        data: {
-          verificationStatus: VerificationStatus.APPROVED,
-          commissionFreeUntil,
-        },
-      }),
+      this.prisma.shop.update({ where: { id: shop.id }, data: updateData }),
       this.prisma.ledgerEntry.create({
         data: {
           shopId: shop.id,
@@ -279,10 +287,9 @@ export class AdminService {
           basePaise: fee.basePaise,
           gstPaise: fee.gstPaise,
           totalPaise: fee.totalPaise,
-          status: LedgerEntryStatus.PAID, // paid upfront — not outstanding dues
+          status: LedgerEntryStatus.PAID,
         },
       }),
-      // NOTE: outstandingDues is deliberately NOT incremented here.
     ]);
 
     this.logger.log(
@@ -512,6 +519,18 @@ export class AdminService {
     await this.prisma.shop.update({ where: { id: shopId }, data: { commissionRate: rate } });
     this.logger.log(`AUDIT shop.commissionRate admin=${adminUserId} shop=${shopId} rate=${rate}`);
     return { commissionRate: rate };
+  }
+
+  /** Admin: enable or disable COD for a specific shop. */
+  async setCodEnabled(adminUserId: string, shopId: string, enabled: boolean) {
+    const shop = await this.prisma.shop.findFirst({
+      where: { id: shopId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!shop) throw new NotFoundException('Shop not found');
+    await this.prisma.shop.update({ where: { id: shopId }, data: { codEnabled: enabled } });
+    this.logger.log(`AUDIT shop.codEnabled admin=${adminUserId} shop=${shopId} enabled=${enabled}`);
+    return { codEnabled: enabled };
   }
 
   /**
@@ -830,7 +849,7 @@ export class AdminService {
   private async requirePending(shopId: string) {
     const shop = await this.prisma.shop.findFirst({
       where: { id: shopId, deletedAt: null },
-      select: { id: true, verificationStatus: true },
+      select: { id: true, verificationStatus: true, city: true },
     });
     if (!shop) {
       throw new NotFoundException('Shop not found');
@@ -881,7 +900,7 @@ export class AdminService {
         shop: { select: { id: true, shortId: true, name: true, city: true } },
         customer: { select: { id: true, shortId: true, name: true, phone: true } },
         rider: { select: { id: true, shortId: true, name: true, phone: true } },
-        items: { select: { nameSnapshot: true, qty: true, pricePaiseSnapshot: true, status: true } },
+        items: { select: { id: true, nameSnapshot: true, qty: true, pricePaiseSnapshot: true, status: true } },
       },
     });
     const { items, nextCursor } = toPage(rows, page.limit);
@@ -1249,5 +1268,44 @@ export class AdminService {
     });
     const hasMore = rows.length > limit;
     return { items: rows.slice(0, limit), nextCursor: hasMore ? rows[limit - 1].id : null };
+  }
+
+  /**
+   * Admin: mark order as partially delivered. Updates adjustedTotalPaise based on
+   * which items were actually fulfilled, sets status to DELIVERED, and opens a
+   * system dispute so the customer can claim a partial refund.
+   */
+  async markPartialDelivery(adminId: string, orderId: string, fulfilledItemIds: string[]) {
+    const order = await this.prisma.order.findFirst({
+      where: { id: orderId, deletedAt: null },
+      include: { items: true },
+    });
+    if (!order) throw new NotFoundException('Order not found');
+    if (order.status !== 'OUT_FOR_DELIVERY' && order.status !== 'DELIVERED') {
+      throw new BadRequestException('Partial delivery can only be set on OUT_FOR_DELIVERY or DELIVERED orders');
+    }
+    // Mark non-fulfilled items as UNAVAILABLE
+    const nonFulfilled = order.items.filter(i => !fulfilledItemIds.includes(i.id)).map(i => i.id);
+    if (nonFulfilled.length > 0) {
+      await this.prisma.orderItem.updateMany({
+        where: { id: { in: nonFulfilled } },
+        data: { status: 'UNAVAILABLE' },
+      });
+    }
+    // Recompute adjusted total from fulfilled items
+    const fulfilled = order.items.filter(i => fulfilledItemIds.includes(i.id));
+    const subtotal = fulfilled.reduce((s, i) => s + i.pricePaiseSnapshot * i.qty, 0);
+    const adjustedTotalPaise = subtotal + order.deliveryFeePaise + order.platformFeePaise;
+    await this.prisma.order.update({
+      where: { id: orderId },
+      data: { status: 'DELIVERED', adjustedTotalPaise },
+    });
+    // Open a system dispute for partial refund claim
+    const ref = order.shortId ?? orderId.slice(0, 8).toUpperCase();
+    const removedCount = nonFulfilled.length;
+    const disputeMsg = `Admin marked order #${ref} as partially delivered — ${removedCount} item(s) not received. Customer should receive a partial refund.`;
+    await this.disputes.openSystemDispute(orderId, disputeMsg);
+    this.logger.log(`AUDIT admin.partialDelivery admin=${adminId} orderId=${orderId} fulfilled=${fulfilledItemIds.length}/${order.items.length}`);
+    return { delivered: true, adjustedTotalPaise, removedCount };
   }
 }

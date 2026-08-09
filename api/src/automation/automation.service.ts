@@ -3,6 +3,7 @@ import { Cron } from '@nestjs/schedule';
 import { DeliveryMode, OrderStatus } from '@passwaala/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
+import { WebPushService } from '../notifications/web-push.service';
 
 /**
  * AutomationService — all system-driven background jobs. Every action is written
@@ -25,6 +26,7 @@ export class AutomationService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly realtime: RealtimeGateway,
+    private readonly webPush: WebPushService,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -49,23 +51,21 @@ export class AutomationService {
   // ---------------------------------------------------------------------------
   @Cron('*/5 * * * *')
   async remindShopsOfNewOrders() {
-    const cutoff = new Date(Date.now() - 5 * 60 * 1000);
     const orders = await this.prisma.order.findMany({
-      where: { status: OrderStatus.PLACED, createdAt: { lt: cutoff }, deletedAt: null },
-      select: { id: true, shopId: true },
+      where: { status: OrderStatus.PLACED, deletedAt: null },
+      select: { id: true, shopId: true, createdAt: true, shop: { select: { city: true } } },
     });
     for (const order of orders) {
+      const cityCfg = order.shop?.city ? await this.prisma.serviceableCity.findFirst({
+        where: { name: { equals: order.shop.city, mode: 'insensitive' }, deletedAt: null },
+        select: { shopReminderMinutes: true },
+      }) : null;
+      const cutoffMs = (cityCfg?.shopReminderMinutes ?? 5) * 60 * 1000;
+      if (Date.now() - order.createdAt.getTime() < cutoffMs) continue;
       this.realtime.emitOrderCreated(order.shopId, { orderId: order.id });
-      await this.log({
-        action: 'ORDER_REMIND',
-        detail: `Re-notified shop of pending order`,
-        orderId: order.id,
-        shopId: order.shopId,
-      });
+      await this.log({ action: 'ORDER_REMIND', detail: `Re-notified shop of pending order`, orderId: order.id, shopId: order.shopId });
     }
-    if (orders.length > 0) {
-      this.logger.log(`AUTOMATION reminded ${orders.length} shop(s) of pending orders`);
-    }
+    if (orders.length > 0) this.logger.log(`AUTOMATION reminded ${orders.length} shop(s) of pending orders`);
   }
 
   // ---------------------------------------------------------------------------
@@ -198,26 +198,31 @@ export class AutomationService {
   async handleStaleRiderOrders() {
     const now = new Date();
 
-    // ---- Rule A: stale RIDER_ASSIGNED ≥20 min → release only ----
+    // ---- Rule A: stale RIDER_ASSIGNED → release (threshold per city, default 20 min) ----
     const staleAssigned = await this.prisma.order.findMany({
       where: {
         status: 'RIDER_ASSIGNED' as never,
         deletedAt: null,
-        updatedAt: { lt: new Date(now.getTime() - 20 * 60 * 1000) },
         riderId: { not: null },
       },
-      select: { id: true, shortId: true, riderId: true, shopId: true, riderPickupOtp: true },
+      select: { id: true, shortId: true, riderId: true, shopId: true, riderPickupOtp: true, updatedAt: true, shop: { select: { city: true } } },
     });
 
     for (const order of staleAssigned) {
       try {
+        const cityCfg = order.shop?.city ? await this.prisma.serviceableCity.findFirst({
+          where: { name: { equals: order.shop.city, mode: 'insensitive' }, deletedAt: null },
+          select: { staleRiderMinutes: true },
+        }) : null;
+        const thresholdMs = (cityCfg?.staleRiderMinutes ?? 20) * 60 * 1000;
+        if (now.getTime() - order.updatedAt.getTime() < thresholdMs) continue;
         await this.prisma.order.update({
           where: { id: order.id },
           data: { status: 'READY' as never, riderId: null },
         });
         await this.log({
           action: 'RIDER_STALE_ASSIGNED_RELEASED',
-          detail: `Order ${order.shortId ?? order.id.slice(0,8)} released back to job board — rider did not confirm pickup within 20 min.`,
+          detail: `Order ${order.shortId ?? order.id.slice(0,8)} released back to job board — rider did not confirm pickup within ${cityCfg?.staleRiderMinutes ?? 20} min.`,
           orderId: order.id,
           shopId: order.shopId,
           riderUserId: order.riderId ?? undefined,
@@ -310,6 +315,132 @@ export class AutomationService {
       } catch (err) {
         this.logger.error(`AUTOMATION stale-delivery escalation failed order=${order.id}: ${(err as Error).message}`);
       }
+    }
+  }
+
+  // Job 7 — Credit-limit warning: push shop when dues reach 80% (every 10 min)
+  @Cron('*/10 * * * *')
+  async warnShopsApproachingCreditLimit() {
+    const shops = await this.prisma.shop.findMany({
+      where: { deletedAt: null, isOpen: true },
+      select: { id: true, ownerId: true, outstandingDuesPaise: true, creditLimitPaise: true },
+    });
+    for (const shop of shops) {
+      if (!shop.creditLimitPaise) continue;
+      const pct = shop.outstandingDuesPaise / shop.creditLimitPaise;
+      if (pct < 0.8 || pct >= 1.0) continue;
+      const recent = await this.prisma.automationLog.findFirst({
+        where: { shopId: shop.id, action: 'CREDIT_LIMIT_WARNING', createdAt: { gte: new Date(Date.now() - 60 * 60 * 1000) } },
+      });
+      if (recent) continue;
+      await this.webPush.sendToUser(shop.ownerId, {
+        title: 'Credit limit warning',
+        body: `Your dues are at ${Math.round(pct * 100)}% of your credit limit. Clear dues to avoid auto-pause.`,
+        tag: `credit-warning-${shop.id}`,
+      }).catch(() => undefined);
+      await this.log({ action: 'CREDIT_LIMIT_WARNING', detail: `Dues at ${Math.round(pct * 100)}% of limit`, shopId: shop.id });
+    }
+  }
+
+  // Job 8 — Item-change auto-accept + customer nudge (every 2 min)
+  @Cron('*/2 * * * *')
+  async autoAcceptItemChanges() {
+    const TERMINAL = [OrderStatus.CANCELLED, OrderStatus.REJECTED, OrderStatus.DELIVERED, OrderStatus.REFUND_PENDING, OrderStatus.REFUNDED];
+    const orders = await this.prisma.order.findMany({
+      where: { deletedAt: null, customerAcceptedChanges: false, itemsChangedAt: { not: null }, status: { notIn: TERMINAL as any } },
+      select: { id: true, customerId: true, shopId: true, status: true, itemsChangedAt: true, shop: { select: { name: true, city: true } } },
+    });
+    for (const order of orders) {
+      if (!order.itemsChangedAt) continue;
+      const elapsedMs = Date.now() - order.itemsChangedAt.getTime();
+      const cityCfg = order.shop?.city ? await this.prisma.serviceableCity.findFirst({
+        where: { name: { equals: order.shop.city, mode: 'insensitive' }, deletedAt: null },
+        select: { shopReminderMinutes: true },
+      }) : null;
+      const autoAcceptMs = (cityCfg?.shopReminderMinutes ?? 5) * 2 * 60 * 1000;
+      if (elapsedMs >= autoAcceptMs) {
+        await this.prisma.order.update({ where: { id: order.id }, data: { customerAcceptedChanges: true } });
+        this.realtime.emitOrderStatusChanged(order.customerId, { orderId: order.id, status: order.status });
+        await this.webPush.sendToUser(order.customerId, {
+          title: 'Order changes auto-accepted',
+          body: `Your order from ${order.shop?.name} was auto-accepted and is continuing.`,
+          tag: `auto-accept-${order.id}`,
+        }).catch(() => undefined);
+        await this.log({ action: 'ORDER_CHANGES_AUTO_ACCEPTED', detail: `Auto-accepted after ${Math.round(elapsedMs / 60000)} min`, orderId: order.id, shopId: order.shopId });
+      } else {
+        await this.webPush.sendToUser(order.customerId, {
+          title: 'Action needed — order updated',
+          body: `${order.shop?.name} removed some items. Please review and accept to continue.`,
+          tag: `item-change-nudge-${order.id}`,
+        }).catch(() => undefined);
+      }
+    }
+  }
+
+  // Job 9 — AWAITING_PAYMENT reminder + reveal phone to shop after timeout (every 3 min)
+  @Cron('*/3 * * * *')
+  async remindCustomersAwaitingPayment() {
+    const orders = await this.prisma.order.findMany({
+      where: { status: OrderStatus.AWAITING_PAYMENT, paymentConfirmed: false, deletedAt: null },
+      select: {
+        id: true, shortId: true, customerId: true, shopId: true, updatedAt: true,
+        shop: { select: { name: true, city: true, ownerId: true } },
+        customer: { select: { phone: true } },
+      },
+    });
+    for (const order of orders) {
+      const elapsedMin = (Date.now() - order.updatedAt.getTime()) / 60000;
+      const cityCfg = order.shop?.city ? await this.prisma.serviceableCity.findFirst({
+        where: { name: { equals: order.shop.city, mode: 'insensitive' }, deletedAt: null },
+        select: { shopReminderMinutes: true },
+      }) : null;
+      const callRevealMin = (cityCfg?.shopReminderMinutes ?? 5) * 2;
+      await this.webPush.sendToUser(order.customerId, {
+        title: 'Complete your payment',
+        body: `Your order from ${order.shop?.name} is waiting for UPI payment.`,
+        tag: `payment-reminder-${order.id}`,
+      }).catch(() => undefined);
+      if (elapsedMin >= callRevealMin && order.customer?.phone && order.shop?.ownerId) {
+        const alreadyRevealed = await this.prisma.automationLog.findFirst({
+          where: { orderId: order.id, action: 'CUSTOMER_PHONE_REVEALED_TO_SHOP' },
+        });
+        if (!alreadyRevealed) {
+          const ref = order.shortId ?? order.id.slice(0, 8).toUpperCase();
+          await this.webPush.sendToUser(order.shop.ownerId, {
+            title: 'Customer hasn\'t paid',
+            body: `Call ${order.customer.phone} to collect payment for order #${ref}.`,
+            tag: `call-customer-${order.id}`,
+          }).catch(() => undefined);
+          await this.log({ action: 'CUSTOMER_PHONE_REVEALED_TO_SHOP', detail: `Revealed after ${Math.round(elapsedMin)} min`, orderId: order.id, shopId: order.shopId });
+        }
+      }
+    }
+  }
+
+  // Job 10 — REFUND_PENDING SLA: escalate to admin dispute after 48h (every hour)
+  @Cron('0 * * * *')
+  async escalateStaleRefunds() {
+    const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000);
+    const orders = await this.prisma.order.findMany({
+      where: { status: OrderStatus.REFUND_PENDING, deletedAt: null, updatedAt: { lt: cutoff } },
+      select: { id: true, shortId: true, customerId: true, shopId: true, adjustedTotalPaise: true, originalTotalPaise: true },
+    });
+    for (const order of orders) {
+      const already = await this.prisma.automationLog.findFirst({ where: { orderId: order.id, action: 'REFUND_SLA_ESCALATED' } });
+      if (already) continue;
+      const ref = order.shortId ?? order.id.slice(0, 8).toUpperCase();
+      const paise = order.adjustedTotalPaise ?? order.originalTotalPaise;
+      const msg = `Refund SLA breach: Order #${ref} in REFUND_PENDING >48h. ₹${paise / 100} not refunded.`;
+      const dispute = await this.prisma.orderDispute.create({
+        data: { orderId: order.id, raisedById: order.customerId, raisedByRole: 'SYSTEM', reason: msg, status: 'OPEN' },
+      });
+      await this.prisma.disputeMessage.create({ data: { disputeId: dispute.id, senderId: order.customerId, senderRole: 'SYSTEM', body: msg } });
+      await this.webPush.sendToUser(order.customerId, {
+        title: 'Refund delayed — we\'re following up',
+        body: `Refund for #${ref} is overdue. PassWala has escalated this to our team.`,
+        tag: `refund-sla-${order.id}`,
+      }).catch(() => undefined);
+      await this.log({ action: 'REFUND_SLA_ESCALATED', detail: msg, orderId: order.id, shopId: order.shopId });
     }
   }
 }

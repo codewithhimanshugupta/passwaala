@@ -216,21 +216,90 @@ export class OrdersService {
         : DeliveryMode.SELF_DELIVERY;
 
     // Load the shop's city config ONCE (rider radius + delivery tiers) instead of
-    // querying the same serviceableCity row twice on the placement path. Only
-    // needed for platform-rider orders (self-pickup / self-delivery skip it).
-    let cityCfg: { riderCheckRadiusMeters: number | null; deliveryTiersJson: string | null } | null = null;
-    if (deliveryMode === DeliveryMode.PLATFORM_RIDER && cart.shop.city) {
+    // Fetch city config for COD rule enforcement + rider availability checks.
+    let cityCfg: {
+      riderCheckRadiusMeters: number | null;
+      deliveryTiersJson: string | null;
+      codMinOrderPaise: number;
+      codMaxPerDay: number;
+      codCancelBlockAfter: number;
+      codCancelWindowDays: number;
+      codWindowHours: number;
+      autoCancelMinutes: number;
+      requireRiderForDelivery: boolean;
+      platformFeePaise: number;
+    } | null = null;
+    if (cart.shop.city) {
       cityCfg = await this.prisma.serviceableCity.findFirst({
         where: { name: { equals: cart.shop.city, mode: 'insensitive' }, deletedAt: null },
-        select: { riderCheckRadiusMeters: true, deliveryTiersJson: true },
+        select: {
+          riderCheckRadiusMeters: true,
+          deliveryTiersJson: true,
+          codMinOrderPaise: true,
+          codMaxPerDay: true,
+          codCancelBlockAfter: true,
+          codCancelWindowDays: true,
+          codWindowHours: true,
+          autoCancelMinutes: true,
+          requireRiderForDelivery: true,
+          platformFeePaise: true,
+        },
       });
     }
 
-    // Hard guard: a PLATFORM_RIDER delivery can only be placed if at least one
-    // rider is available near the shop right now. Otherwise no order should reach
-    // the shop (the customer should pick self-pickup instead, if offered).
-    // Short-circuit exists-check (LIMIT 1) — never scans all riders.
-    if (deliveryMode === DeliveryMode.PLATFORM_RIDER) {
+    // ── COD rules ──────────────────────────────────────────────────────────────
+    if (dto.paymentMethod === PaymentMethod.COD) {
+      // Rule: shop-level COD disable
+      if ((cart.shop as unknown as { codEnabled: boolean }).codEnabled === false) {
+        throw new BadRequestException('This shop does not accept Cash on Delivery');
+      }
+
+      // Rule: minimum order value for COD — checked after subtotal computed below
+      const maxPerDay = cityCfg?.codMaxPerDay ?? 0;
+      if (maxPerDay > 0) {
+        const windowHours = cityCfg?.codWindowHours ?? 24;
+        const since = new Date(Date.now() - windowHours * 60 * 60 * 1000);
+        const todayCod = await this.prisma.order.count({
+          where: {
+            customerId,
+            paymentMethod: PaymentMethod.COD,
+            createdAt: { gte: since },
+            status: { notIn: [OrderStatus.CANCELLED, OrderStatus.REJECTED] },
+          },
+        });
+        if (todayCod >= maxPerDay) {
+          throw new BadRequestException(
+            `You can place at most ${maxPerDay} COD order${maxPerDay > 1 ? 's' : ''} per ${windowHours}h. Please pay via UPI.`,
+          );
+        }
+      }
+
+      // Rule: block COD after N customer-cancelled COD orders in the rolling window
+      const blockAfter = cityCfg?.codCancelBlockAfter ?? 0;
+      const windowDays = cityCfg?.codCancelWindowDays ?? 30;
+      if (blockAfter > 0) {
+        const since = new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000);
+        const recentCancels = await this.prisma.order.count({
+          where: {
+            customerId,
+            paymentMethod: PaymentMethod.COD,
+            status: OrderStatus.CANCELLED,
+            cancelledBy: CancelledBy.CUSTOMER,
+            cancelledAt: { gte: since },
+          },
+        });
+        if (recentCancels >= blockAfter) {
+          throw new BadRequestException(
+            `You have cancelled ${recentCancels} COD orders in the last ${windowDays} days. Please use UPI for this order.`,
+          );
+        }
+      }
+    }
+    // ── end COD rules ──────────────────────────────────────────────────────────
+
+    // Guard: a PLATFORM_RIDER delivery can only be placed if a rider is nearby —
+    // unless the city has disabled requireRiderForDelivery (show shops freely).
+    if (deliveryMode === DeliveryMode.PLATFORM_RIDER && (cityCfg?.requireRiderForDelivery ?? true)) {
       const riderRadius = cityCfg?.riderCheckRadiusMeters ?? 5000;
       const hit = await this.prisma.$queryRawUnsafe<Array<{ ok: number }>>(
         `SELECT 1 AS ok FROM "RiderProfile" rp JOIN "Shop" s ON s.id = $1
@@ -272,6 +341,15 @@ export class OrdersService {
     );
     if (subtotalPaise < cart.shop.minOrderValuePaise) {
       throw new BadRequestException('Order is below the shop minimum');
+    }
+    // COD minimum order value (admin-configurable per city)
+    if (dto.paymentMethod === PaymentMethod.COD) {
+      const codMin = cityCfg?.codMinOrderPaise ?? 0;
+      if (codMin > 0 && subtotalPaise < codMin) {
+        throw new BadRequestException(
+          `Minimum order value for COD is ₹${(codMin / 100).toFixed(0)}. Please add more items or pay via UPI.`,
+        );
+      }
     }
 
     // Delivery fee by mode:
@@ -323,6 +401,7 @@ export class OrdersService {
       offerType: offer?.type as import('@passwaala/shared').OfferType | null ?? null,
       offerValue: offer?.value ?? null,
       offerMinOrderPaise: offer?.minOrderPaise ?? null,
+      platformFeeOverridePaise: cityCfg?.platformFeePaise ?? null,
     });
 
     // PassWaala Coins redemption (1 coin = ₹1 = 100 paise). Discounts the item
@@ -342,7 +421,22 @@ export class OrdersService {
       coinsRedeemedPaise,
       Math.max(0, bill.subtotalPaise - bill.discountPaise),
     );
-    const totalPaise = bill.totalPaise - coinsRedeemedPaise_adjusted;
+
+    // Cancel fee: check if customer has a pending cancel fee from a prior COD cancellation.
+    // If so, block COD and add the fee to this order total (collected via UPI to PassWala).
+    const customerRecord = await this.prisma.user.findUnique({
+      where: { id: customerId },
+      select: { pendingCancelFeePaise: true, pendingCancelFeeShopId: true },
+    });
+    const pendingCancelFeePaise = customerRecord?.pendingCancelFeePaise ?? 0;
+    const pendingCancelFeeShopId = customerRecord?.pendingCancelFeeShopId ?? null;
+    if (pendingCancelFeePaise > 0 && dto.paymentMethod === PaymentMethod.COD) {
+      throw new BadRequestException(
+        `You have an outstanding cancellation fee of ₹${(pendingCancelFeePaise / 100).toFixed(2)}. Please pay your next order via UPI — the fee will be collected automatically.`,
+      );
+    }
+
+    const totalPaise = bill.totalPaise - coinsRedeemedPaise_adjusted + pendingCancelFeePaise;
 
     // Handoff OTP shown to the customer; the shop verifies it before DELIVERED.
     const pickupOtp = Math.floor(1000 + Math.random() * 9000).toString();
@@ -379,6 +473,8 @@ export class OrdersService {
           commissionRateSnapshot: cart.shop.commissionRate,
           idempotencyKey: dto.idempotencyKey,
           totalWeightGrams,
+          cancelFeeLinePaise: pendingCancelFeePaise,
+          cancelFeeShopId: pendingCancelFeePaise > 0 ? pendingCancelFeeShopId : null,
           items: { create: items },
         },
         include: { items: true },
@@ -388,6 +484,13 @@ export class OrdersService {
         await tx.user.update({
           where: { id: customerId },
           data: { coinBalance: { decrement: Math.round(coinsRedeemedPaise_adjusted / 100) } },
+        });
+      }
+      // Clear pending cancel fee — it's now baked into this order.
+      if (pendingCancelFeePaise > 0) {
+        await tx.user.update({
+          where: { id: customerId },
+          data: { pendingCancelFeePaise: 0, pendingCancelFeeShopId: null },
         });
       }
       // Decrement stock for each ordered item (inventory integrity — the sale
@@ -424,10 +527,9 @@ export class OrdersService {
       url: '/',
     });
 
-    // Auto-cancel directly after 15 min if the shop hasn't responded.
-    // No queue needed — one setTimeout per order, fires once, then discards itself.
-    const AUTO_CANCEL_MS = 15 * 60 * 1000;
-    setTimeout(() => { void this.cancelAsSystem(created.id); }, AUTO_CANCEL_MS);
+    // Auto-cancel after city-configured timeout (default 15 min) if shop doesn't respond.
+    const autoCancelMs = (cityCfg?.autoCancelMinutes ?? 15) * 60 * 1000;
+    setTimeout(() => { void this.cancelAsSystem(created.id); }, autoCancelMs);
 
     return this.toPlacedResult(created);
   }
@@ -881,7 +983,7 @@ export class OrdersService {
 
     const updated = await this.prisma.order.update({
       where: { id: orderId },
-      data: { adjustedTotalPaise },
+      data: { adjustedTotalPaise, itemsChangedAt: new Date() },
     });
     this.realtime.emitOrderStatusChanged(owned.customerId, {
       orderId,
@@ -921,6 +1023,190 @@ export class OrdersService {
    * Customer confirms they received their off-platform refund → REFUNDED.
    * Scoped to the customer's own order; only valid from REFUND_PENDING.
    */
+  // ─── Customer cancellation ────────────────────────────────────────────────
+
+  /**
+   * Customer requests cancellation:
+   * - PLACED / ACCEPTED / AWAITING_PAYMENT → instant free cancel.
+   * - PREPARING → stores a cancel request; shop must approve/deny.
+   * - READY and beyond → blocked.
+   */
+  async requestCancel(customerId: string, orderId: string, reason: string) {
+    if (!reason?.trim()) throw new BadRequestException('A cancellation reason is required');
+
+    const order = await this.prisma.order.findFirst({
+      where: { id: orderId, customerId, deletedAt: null },
+      select: {
+        id: true, status: true, shopId: true,
+        originalTotalPaise: true, adjustedTotalPaise: true,
+        paymentMethod: true, paymentConfirmed: true,
+        cancelRequestedAt: true,
+      },
+    });
+    if (!order) throw new NotFoundException('Order not found');
+
+    const INSTANT_CANCEL = [
+      OrderStatus.PLACED, OrderStatus.ACCEPTED, OrderStatus.AWAITING_PAYMENT,
+    ];
+    const NEEDS_APPROVAL = [OrderStatus.PREPARING];
+    const BLOCKED = [
+      OrderStatus.READY, OrderStatus.RIDER_ASSIGNED, OrderStatus.OUT_FOR_DELIVERY,
+      OrderStatus.DELIVERED, OrderStatus.CANCELLED, OrderStatus.REJECTED,
+      OrderStatus.REFUND_PENDING, OrderStatus.REFUNDED,
+    ];
+
+    if (BLOCKED.includes(order.status as OrderStatus)) {
+      throw new BadRequestException(`Cannot cancel an order in ${order.status} status`);
+    }
+    if (order.cancelRequestedAt) {
+      throw new BadRequestException('A cancellation request is already pending');
+    }
+
+    if (INSTANT_CANCEL.includes(order.status as OrderStatus)) {
+      // Instant free cancel — same as admin cancel but by customer
+      const isPrepaid = order.paymentMethod === PaymentMethod.UPI_DIRECT && order.paymentConfirmed;
+      const newStatus = isPrepaid ? OrderStatus.REFUND_PENDING : OrderStatus.CANCELLED;
+      await this.prisma.order.update({
+        where: { id: orderId },
+        data: {
+          status: newStatus,
+          cancelledBy: CancelledBy.CUSTOMER,
+          cancellationReason: reason.trim(),
+          cancelledAt: new Date(),
+        },
+      });
+      this.realtime.emitOrderStatusChanged(customerId, { orderId, status: newStatus });
+      this.realtime.emitOrderShopUpdate(order.shopId, { orderId, status: newStatus });
+      if (isPrepaid) {
+        await this.disputes.openSystemDispute(orderId, `Customer cancelled before preparation — refund required`);
+      }
+      return { cancelled: true, requiresShopApproval: false, feePaise: 0 };
+    }
+
+    // PREPARING → request needs shop approval; look up shop's cancel fee rate
+    const shop = await this.prisma.shop.findUnique({
+      where: { id: order.shopId },
+      select: { cancelFeeRatePct: true },
+    });
+    const rate = Math.min(shop?.cancelFeeRatePct ?? 0, 0.10); // cap at 10%
+    const total = order.adjustedTotalPaise ?? order.originalTotalPaise;
+    const feePaise = Math.round(total * rate);
+
+    await this.prisma.order.update({
+      where: { id: orderId },
+      data: {
+        cancelRequestedAt: new Date(),
+        cancelRequestReason: reason.trim(),
+        cancelFeePaise: feePaise,
+      },
+    });
+    this.realtime.emitOrderShopUpdate(order.shopId, { orderId, status: order.status });
+    void this.pushToShopOwner(order.shopId, {
+      title: 'Cancel request received',
+      body: `Customer wants to cancel order #${order.id.slice(0, 8).toUpperCase()}. Please approve or deny.`,
+      tag: `cancel-req-${orderId}`,
+    });
+    return { cancelled: false, requiresShopApproval: true, feePaise };
+  }
+
+  /**
+   * Shop approves customer's cancel request. The cancel fee (if any) is:
+   * - 50% credited to the shop's ledger (compensation for prep work)
+   * - 50% retained by PassWala
+   * If the order was prepaid, it moves to REFUND_PENDING (net of fee).
+   */
+  async approveCancelRequest(shopId: string | undefined, orderId: string) {
+    const id = requireShopScope(shopId);
+    const order = await this.prisma.order.findFirst({
+      where: { id: orderId, shopId: id, deletedAt: null },
+      select: {
+        id: true, status: true, shopId: true, customerId: true,
+        paymentMethod: true, paymentConfirmed: true,
+        cancelFeePaise: true, cancelRequestedAt: true,
+        originalTotalPaise: true, adjustedTotalPaise: true,
+      },
+    });
+    assertOwnedByShop(order, id);
+    if (!order?.cancelRequestedAt) throw new BadRequestException('No cancel request pending');
+    if (order.status !== OrderStatus.PREPARING) {
+      throw new BadRequestException('Order is no longer in PREPARING status');
+    }
+
+    const feePaise = order.cancelFeePaise ?? 0;
+    const isPrepaid = order.paymentMethod === PaymentMethod.UPI_DIRECT && order.paymentConfirmed;
+    const newStatus = isPrepaid ? OrderStatus.REFUND_PENDING : OrderStatus.CANCELLED;
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.order.update({
+        where: { id: orderId },
+        data: {
+          status: newStatus,
+          cancelledBy: CancelledBy.CUSTOMER,
+          cancellationReason: 'Customer request — approved by shop',
+          cancelledAt: new Date(),
+          cancelRequestedAt: null,
+        },
+      });
+      if (feePaise > 0) {
+        if (isPrepaid) {
+          // UPI order: shop gets 50% compensation (they prepared but payment was made).
+          const shopSharePaise = Math.round(feePaise / 2);
+          await tx.ledgerEntry.create({
+            data: {
+              shopId: order.shopId,
+              orderId,
+              type: 'REFERRAL_CREDIT' as any,
+              basePaise: -shopSharePaise,
+              gstPaise: 0,
+              totalPaise: -shopSharePaise,
+              status: 'ACCRUED' as any,
+            },
+          });
+        } else {
+          // COD order: shop gets 0% (no money ever changed hands — shop loses nothing).
+          // Full fee goes to PassWala. Customer carries it as pending balance.
+          await tx.user.update({
+            where: { id: order.customerId },
+            data: {
+              pendingCancelFeePaise: { increment: feePaise },
+              pendingCancelFeeShopId: order.shopId,
+            },
+          });
+        }
+      }
+    });
+
+    this.realtime.emitOrderStatusChanged(order.customerId, { orderId, status: newStatus });
+    this.realtime.emitOrderShopUpdate(id, { orderId, status: newStatus });
+    if (isPrepaid) {
+      await this.disputes.openSystemDispute(
+        orderId,
+        `Customer cancel approved by shop. Refund required${feePaise > 0 ? ` (net of ₹${feePaise / 100} cancel fee)` : ''}.`,
+      );
+    }
+    return { approved: true, feePaise };
+  }
+
+  /**
+   * Shop denies customer's cancel request — order continues normally.
+   */
+  async denyCancelRequest(shopId: string | undefined, orderId: string) {
+    const id = requireShopScope(shopId);
+    const order = await this.prisma.order.findFirst({
+      where: { id: orderId, shopId: id, deletedAt: null },
+      select: { id: true, status: true, shopId: true, customerId: true, cancelRequestedAt: true },
+    });
+    assertOwnedByShop(order, id);
+    if (!order?.cancelRequestedAt) throw new BadRequestException('No cancel request pending');
+
+    await this.prisma.order.update({
+      where: { id: orderId },
+      data: { cancelRequestedAt: null, cancelRequestReason: null, cancelFeePaise: null },
+    });
+    this.realtime.emitOrderStatusChanged(order.customerId, { orderId, status: order.status });
+    return { denied: true };
+  }
+
   async confirmRefundReceived(customerId: string, orderId: string) {
     const order = await this.prisma.order.findFirst({
       where: { id: orderId, customerId, deletedAt: null },
@@ -1137,7 +1423,7 @@ export class OrdersService {
     const id = requireShopScope(shopId);
     const order = await this.prisma.order.findFirst({
       where: { id: orderId, deletedAt: null },
-      select: { id: true, shopId: true, status: true, customerId: true, pickupOtp: true, deliveryMode: true, paymentConfirmed: true, paymentMethod: true, bulkOrderId: true },
+      select: { id: true, shopId: true, status: true, customerId: true, pickupOtp: true, deliveryMode: true, paymentConfirmed: true, paymentMethod: true, bulkOrderId: true, shop: { select: { city: true } } },
     });
     // 404 if missing OR another shop's order (no existence leak).
     const owned = assertOwnedByShop(order, id);
@@ -1212,7 +1498,7 @@ export class OrdersService {
     if (dto.status === OrderStatus.DELIVERED) {
       await this.ledger.accrueOnDelivery(orderId);
       // Qualify a pending referral (referee's 1st delivered order) → credit coins.
-      await this.referrals.qualifyOnDelivery(owned.customerId);
+      await this.referrals.qualifyOnDelivery(owned.customerId, owned.shop?.city ?? undefined);
       // NOTE: rider earnings + rider ledger are credited in riders.completeDelivery
       // (the only path a PLATFORM_RIDER order reaches DELIVERED). Self-delivery
       // orders have no rider, so nothing to credit here.
@@ -1226,6 +1512,17 @@ export class OrdersService {
           where: { id: it.productId },
           data: { orderCount: { increment: it.qty } },
         });
+      }
+      // Cancel fee split: if this order carried a cancel fee line, credit 50%
+      // to the original shop and PassWala keeps the other 50%.
+      const cancelOrder = await this.prisma.order.findUnique({
+        where: { id: orderId },
+        select: { cancelFeeLinePaise: true, cancelFeeShopId: true },
+      });
+      // COD cancel fee: full amount goes to PassWala (shop gets 0%).
+      if ((cancelOrder?.cancelFeeLinePaise ?? 0) > 0) {
+        // Nothing to write — fee was already collected via UPI in the order total.
+        // PassWala keeps 100%. The audit trail is on Order.cancelFeeLinePaise.
       }
     }
 

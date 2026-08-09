@@ -19,7 +19,7 @@ export class AccountService {
   async me(userId: string) {
     const user = await this.prisma.user.findFirst({
       where: { id: userId, deletedAt: null },
-      select: { id: true, phone: true, name: true, role: true, coinBalance: true },
+      select: { id: true, phone: true, name: true, role: true, coinBalance: true, pendingCancelFeePaise: true },
     });
     if (!user) {
       throw new NotFoundException('Account not found');

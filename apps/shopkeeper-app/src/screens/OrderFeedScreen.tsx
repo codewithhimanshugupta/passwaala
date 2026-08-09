@@ -342,6 +342,36 @@ export function OrderFeedScreen({
     }
   }
 
+  async function approveCancelReq(orderId: string) {
+    const shopId = orders.find((o) => o.id === orderId)?.shopId ?? '';
+    setBusyId(orderId);
+    setError(null);
+    try {
+      const run = () => api.approveCancelRequest(orderId).then(() => undefined);
+      await (withShopToken ? withShopToken(shopId, run) : run());
+      await load();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function denyCancelReq(orderId: string) {
+    const shopId = orders.find((o) => o.id === orderId)?.shopId ?? '';
+    setBusyId(orderId);
+    setError(null);
+    try {
+      const run = () => api.denyCancelRequest(orderId).then(() => undefined);
+      await (withShopToken ? withShopToken(shopId, run) : run());
+      await load();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   /**
    * Confirm the handoff OTP for a DELIVERED transition. Keeps the modal open on
    * a bad code (backend replies 400 with a message) so the shopkeeper can retry.
@@ -431,6 +461,8 @@ export function OrderFeedScreen({
             onRejectPayment={() => rejectPayment(item.id)}
             onConfirmCodUpi={() => confirmCodUpi(item.id)}
             onRejectCodUpi={() => rejectCodUpi(item.id)}
+            onApproveCancelReq={() => approveCancelReq(item.id)}
+            onDenyCancelReq={() => denyCancelReq(item.id)}
             withShopToken={withShopToken}
             onRefresh={() => load(true)}
           />
@@ -542,6 +574,8 @@ function OrderCard({
   onRejectPayment,
   onConfirmCodUpi,
   onRejectCodUpi,
+  onApproveCancelReq,
+  onDenyCancelReq,
   withShopToken,
   onRefresh,
 }: {
@@ -553,6 +587,8 @@ function OrderCard({
   onRejectPayment: () => void;
   onConfirmCodUpi: () => void;
   onRejectCodUpi: () => void;
+  onApproveCancelReq: () => void;
+  onDenyCancelReq: () => void;
   withShopToken?: (shopId: string, fn: () => Promise<void>) => Promise<void>;
   onRefresh?: () => void;
 }) {
@@ -742,6 +778,31 @@ function OrderCard({
         </View>
       ) : null}
 
+      {/* Customer cancel request (PREPARING only) */}
+      {order.cancelRequestedAt ? (
+        <View style={styles.cancelReqBanner}>
+          <Text style={styles.cancelReqTitle}>Customer wants to cancel</Text>
+          {order.cancelRequestReason ? (
+            <Text style={styles.cancelReqReason}>"{order.cancelRequestReason}"</Text>
+          ) : null}
+          {(order.cancelFeePaise ?? 0) > 0 ? (
+            <Text style={styles.cancelReqFee}>
+              Cancel fee: {formatRupees(order.cancelFeePaise!)} (50% to you, 50% to PassWala)
+            </Text>
+          ) : (
+            <Text style={styles.cancelReqFee}>No cancellation fee set</Text>
+          )}
+          {busy ? (
+            <ActivityIndicator color={theme.color.accent} style={{ marginTop: 8 }} />
+          ) : (
+            <View style={styles.actions}>
+              <Button label="Approve cancel" small variant="danger" onPress={onApproveCancelReq} />
+              <Button label="Deny — continue" small variant="outline" onPress={onDenyCancelReq} />
+            </View>
+          )}
+        </View>
+      ) : null}
+
       {/* COD-by-QR: the rider says the customer paid our UPI at the door. Confirm
           receipt so the rider can mark the order delivered (or reject it). */}
       {codUpiToConfirm ? (
@@ -892,6 +953,10 @@ const styles = StyleSheet.create({
   nudgeBanner: { flexDirection: 'row', alignItems: 'flex-start', gap: theme.space.sm, backgroundColor: '#EEF2FF', borderRadius: theme.radius.md, padding: theme.space.md, borderWidth: 1, borderColor: '#C7D2FE' },
   nudgeBannerTitle: { fontSize: theme.font.tiny, fontWeight: '800', color: '#4338CA' },
   nudgeBannerBody: { fontSize: theme.font.small, color: '#374151', fontStyle: 'italic', marginTop: 2 },
+  cancelReqBanner: { backgroundColor: '#FEF2F2', borderRadius: theme.radius.md, padding: theme.space.md, borderWidth: 1.5, borderColor: '#FCA5A5', gap: 4 },
+  cancelReqTitle: { fontSize: theme.font.small, fontWeight: '800', color: '#991B1B' },
+  cancelReqReason: { fontSize: theme.font.small, color: '#7F1D1D', fontStyle: 'italic' },
+  cancelReqFee: { fontSize: theme.font.tiny, color: '#B45309', fontWeight: '600' },
 
   payVerifyBox: {
     backgroundColor: theme.color.surfaceAlt,

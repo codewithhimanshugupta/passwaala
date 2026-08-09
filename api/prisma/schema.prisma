@@ -231,6 +231,52 @@ model ServiceableCity {
   requireRiderForDelivery Boolean @default(true)
   /// Extra surcharge per additional shop in a BulkOrder (+₹10 default). Admin-configurable per city.
   multiShopSurchargePaise Int @default(1000)
+  /// Radius (metres) within which nearby shops appear in the bulk-order "Add from nearby shops" panel. Default 1 km.
+  bulkShopRadiusMeters    Int @default(1000)
+  /// Minimum order total (paise) for COD. 0 = no minimum (default).
+  codMinOrderPaise        Int @default(0)
+  /// Max COD orders a customer can place per 24h. 0 = unlimited.
+  codMaxPerDay            Int @default(2)
+  /// Block COD after this many customer-cancelled COD orders within codCancelWindowDays. 0 = disabled.
+  codCancelBlockAfter     Int @default(2)
+  /// Rolling window (days) for COD cancel block check.
+  codCancelWindowDays     Int @default(30)
+  // Note: no first-order UPI restriction — all customers can use COD from order 1.
+
+  // ── Operational config (all admin-configurable per city) ─────────────────
+  /// Minutes before an unanswered PLACED order is auto-cancelled. Default 15.
+  autoCancelMinutes       Int @default(15)
+  /// Seconds a rider's offer window stays open before it is re-offered. Default 15.
+  riderOfferWindowSec     Int @default(15)
+  /// Max concurrent active orders a rider can hold. Default 2.
+  maxActiveOrdersPerRider Int @default(2)
+  /// Minutes before a PLACED order triggers a shop reminder re-emit. Default 5.
+  shopReminderMinutes     Int @default(5)
+  /// Minutes before a RIDER_ASSIGNED order is released back to READY. Default 20.
+  staleRiderMinutes       Int @default(20)
+  /// Default search radius (metres) for customer nearby-shops discovery. Default 3000.
+  nearbyShopsRadiusMeters Int @default(3000)
+
+  // ── Fee / commission config ───────────────────────────────────────────────
+  /// Flat platform fee added to every order (paise). Default ₹10.
+  platformFeePaise        Int @default(1000)
+  /// Default commission rate for PRODUCT shops (decimal). Default 0.02 = 2%.
+  defaultCommissionRate   Float @default(0.02)
+  /// Default credit limit for new shops (paise). Default ₹500.
+  defaultCreditLimitPaise Int @default(50000)
+  /// Commission-free days granted when a shop is approved. Default 30.
+  commissionHolidayDays   Int @default(30)
+  /// One-time onboarding fee for a PRODUCT shop (paise). Default ₹499.
+  onboardingFeePaise      Int @default(49900)
+
+  // ── Referral / coin config ────────────────────────────────────────────────
+  /// Coins awarded to a customer referrer when the referee's first order delivers. Default 25.
+  referralCustomerCoins   Int @default(25)
+  /// Coins awarded to a shop referrer when the referred shop completes its first order. Default 100.
+  referralShopCoins       Int @default(100)
+
+  /// Max COD orders per customer per rolling window (hours). Default 24.
+  codWindowHours          Int @default(24)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   deletedAt DateTime?
@@ -272,6 +318,11 @@ model User {
   /// PassWala Coins voucher balance (a discount voucher, NOT real money / not a
   /// wallet — keeps PassWala clear of RBI PPI regulation). Integer coin count.
   coinBalance Int @default(0)
+  /// Pending cancel fee from a COD order cancellation — added to next order's total.
+  /// Customer cannot place another COD order until this is cleared.
+  pendingCancelFeePaise    Int     @default(0)
+  /// Which shop gets 50% of the pending cancel fee on delivery of the next order.
+  pendingCancelFeeShopId   String?
 
   /// Stable public referral code (derived from id at creation) so this user can
   /// refer others (plan → Referral program). Unique; nullable for legacy rows.
@@ -370,6 +421,14 @@ model Shop {
   minOrderValuePaise     Int  @default(0) // enforced on item subtotal, before ₹10 fee
   deliveryFeePaise       Int  @default(0)
   freeDeliveryAbovePaise Int? // nullable threshold; delivery auto-waived at/above
+  // Cancellation fee rate (0.0–0.10 = 0–10%) charged when customer cancels a
+  // PREPARING order. 0 means no fee. Capped at 10% platform-wide.
+  cancelFeeRatePct       Float @default(0)
+  /// Whether this shop accepts Cash on Delivery. Admin-configurable. Default true.
+  codEnabled             Boolean @default(true)
+  /// Shopkeeper's appeal message after rejection/suspension. Cleared on re-approval.
+  appealMessage          String?
+  appealSubmittedAt      DateTime?
   /// Whether this shop uses the PassWala rider network. When true, customers may
   /// choose PLATFORM_RIDER and READY orders auto-post to the rider job board.
   platformDeliveryEnabled Boolean @default(false)
@@ -619,11 +678,17 @@ model Order {
   cancelledAt        DateTime?
   /// When the customer confirmed they received their off-platform refund (→ REFUNDED).
   refundConfirmedAt  DateTime?
+  // Customer cancellation request (PREPARING orders only — shop must approve/deny)
+  cancelRequestedAt     DateTime? // set when customer requests cancel on a PREPARING order
+  cancelRequestReason   String?   // customer's reason
+  cancelFeePaise        Int?      // fee the shop may charge (0–10% of total); null until shop responds
   /// One-time nudge text the customer can send to the shop while order is active.
   customerNudge      String?
   customerNudgedAt   DateTime?
   /// Customer confirmed modified order (items removed by shop). Unblocks ACCEPTED → next steps.
   customerAcceptedChanges Boolean @default(false)
+  /// Set when shop marks items unavailable. Used to compute auto-accept countdown for the customer.
+  itemsChangedAt     DateTime?
 
   // Totals (paise, rule #4). adjusted* set when items are marked unavailable.
   originalTotalPaise Int
@@ -636,6 +701,11 @@ model Order {
   // Items added post-placement on a prepaid order: customer already paid the original
   // total, so the delta is collected at the door by the rider/shop.
   addedItemsDuePaise        Int  @default(0)
+  // Cancel fee carried over from a previous COD cancellation. Collected via UPI
+  // on this order; split 50% shop / 50% PassWala on DELIVERED.
+  cancelFeeLinePaise        Int  @default(0)
+  // Which shop gets 50% of cancelFeeLinePaise (the original cancelled order's shop).
+  cancelFeeShopId           String?
 
   // Commission snapshot (rule #6) — future commission edits never rewrite history.
   commissionRateSnapshot Float @default(0.02)

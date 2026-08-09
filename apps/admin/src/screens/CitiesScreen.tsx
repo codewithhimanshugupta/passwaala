@@ -25,7 +25,30 @@ interface City {
   deliveryRadiusMeters: number;
   riderCheckRadiusMeters: number;
   deliveryTiersJson: string | null;
+  requireRiderForDelivery: boolean;
   multiShopSurchargePaise: number;
+  bulkShopRadiusMeters: number;
+  codMinOrderPaise: number;
+  codMaxPerDay: number;
+  codCancelBlockAfter: number;
+  codCancelWindowDays: number;
+  codWindowHours: number;
+  // Operational config
+  autoCancelMinutes: number;
+  riderOfferWindowSec: number;
+  maxActiveOrdersPerRider: number;
+  shopReminderMinutes: number;
+  staleRiderMinutes: number;
+  nearbyShopsRadiusMeters: number;
+  // Fee / commission config
+  platformFeePaise: number;
+  defaultCommissionRate: number;
+  defaultCreditLimitPaise: number;
+  commissionHolidayDays: number;
+  onboardingFeePaise: number;
+  // Referral / coin config
+  referralCustomerCoins: number;
+  referralShopCoins: number;
   admin: { phone: string | null } | null;
 }
 
@@ -273,7 +296,8 @@ export function CitiesScreen() {
                   onAddAdmin={() => { setInviteCityId(city.id); setTab('admins'); }}
                   onUpdate={async (data) => {
                     try {
-                      await api.ownerUpsertCity(city.name, data);
+                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                      await api.ownerUpsertCity(city.name, data as any);
                       await load();
                     } catch (e) { flash(`Update failed: ${(e as Error).message}`); }
                   }}
@@ -526,7 +550,7 @@ function parseTiers(json: string | null | undefined): DeliveryTier[] {
 
 function DeliveryTierEditor({ city, onUpdate }: {
   city: City;
-  onUpdate: (data: { deliveryTiersJson?: string }) => void;
+  onUpdate: (data: Partial<City>) => void;
 }) {
   const [tiers, setTiers] = useState<DeliveryTier[]>(() => parseTiers(city.deliveryTiersJson));
   const [dirty, setDirty] = useState(false);
@@ -639,7 +663,7 @@ function CityRow({ city, admins, busy, onToggle, onAddAdmin, onUpdate }: {
   busy: boolean;
   onToggle: () => void;
   onAddAdmin: () => void;
-  onUpdate: (data: { deliveryRadiusMeters?: number; riderCheckRadiusMeters?: number; deliveryTiersJson?: string; multiShopSurchargePaise?: number }) => void;
+  onUpdate: (data: Partial<City>) => void;
 }) {
   const isLive = city.enabled && admins.length > 0;
   const isAlmost = city.enabled && admins.length === 0;
@@ -758,6 +782,11 @@ function CityRow({ city, admins, busy, onToggle, onAddAdmin, onUpdate }: {
         </View>
         <DeliveryTierEditor city={city} onUpdate={onUpdate} />
         <SurchargeEditor city={city} onUpdate={onUpdate} />
+        <BulkRadiusEditor city={city} onUpdate={onUpdate} />
+        <CodRulesEditor city={city} onUpdate={onUpdate} />
+        <OperationalEditor city={city} onUpdate={onUpdate} />
+        <FeeCommissionEditor city={city} onUpdate={onUpdate} />
+        <ReferralEditor city={city} onUpdate={onUpdate} />
       </View>
     </View>
   );
@@ -768,7 +797,7 @@ function SurchargeEditor({
   onUpdate,
 }: {
   city: City;
-  onUpdate: (data: { multiShopSurchargePaise?: number }) => void;
+  onUpdate: (data: Partial<City>) => void;
 }) {
   const current = city.multiShopSurchargePaise ?? 1000;
   const [draft, setDraft] = useState(String(Math.round(current / 100)));
@@ -809,6 +838,219 @@ function SurchargeEditor({
         <Text style={{ fontSize: 12, color: '#9CA3AF' }}>Current: ₹{Math.round(current / 100)}/stop</Text>
       </View>
       {err ? <Text style={{ color: '#DC2626', fontSize: 12, marginTop: 4 }}>{err}</Text> : null}
+    </View>
+  );
+}
+
+function BulkRadiusEditor({ city, onUpdate }: {
+  city: City;
+  onUpdate: (data: Partial<City>) => void;
+}) {
+  const options = [500, 1000, 2000, 3000, 5000];
+  return (
+    <View style={{ marginTop: 12 }}>
+      <Text style={{ fontSize: 12, fontWeight: '700', color: '#6B7280', marginBottom: 6 }}>
+        NEARBY SHOPS RADIUS (bulk order panel)
+      </Text>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+        {options.map((m) => {
+          const active = (city.bulkShopRadiusMeters ?? 1000) === m;
+          return (
+            <Pressable
+              key={m}
+              style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6, borderWidth: 1.5, borderColor: active ? theme.color.accent : theme.color.borderStrong, backgroundColor: active ? theme.color.infoBg : theme.color.surface }}
+              onPress={async () => {
+                try {
+                  await api.ownerUpsertCity(city.name, { bulkShopRadiusMeters: m });
+                  onUpdate({ bulkShopRadiusMeters: m });
+                } catch { /* ignore */ }
+              }}
+            >
+              <Text style={{ fontSize: 13, fontWeight: '700', color: active ? theme.color.accent : theme.color.textMuted }}>
+                {m >= 1000 ? `${m / 1000}km` : `${m}m`}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+function CodRulesEditor({ city, onUpdate }: {
+  city: City;
+  onUpdate: (data: Partial<City>) => void;
+}) {
+  const fields: Array<{ key: keyof City; label: string; hint: string; min: number; max: number }> = [
+    { key: 'codMinOrderPaise', label: 'Min order for COD (₹)', hint: '0 = no minimum', min: 0, max: 100000 },
+    { key: 'codMaxPerDay', label: 'Max COD orders/day', hint: '0 = unlimited', min: 0, max: 100 },
+    { key: 'codCancelBlockAfter', label: 'Block COD after N cancels', hint: '0 = disabled', min: 0, max: 20 },
+    { key: 'codCancelWindowDays', label: 'Cancel check window (days)', hint: '30 = last 30 days', min: 1, max: 365 },
+  ];
+  return (
+    <View style={{ marginTop: 12 }}>
+      <Text style={{ fontSize: 12, fontWeight: '700', color: '#6B7280', marginBottom: 6 }}>COD RULES</Text>
+      {fields.map(({ key, label, hint }) => {
+        const [draft, setDraft] = useState(String(key === 'codMinOrderPaise' ? Math.round((city[key] as number) / 100) : city[key] ?? 0));
+        const [saving, setSaving] = useState(false);
+        async function save() {
+          let val = parseInt(draft, 10);
+          if (isNaN(val)) return;
+          if (key === 'codMinOrderPaise') val = val * 100;
+          setSaving(true);
+          try {
+            await api.ownerUpsertCity(city.name, { [key]: val });
+            onUpdate({ [key]: val });
+          } catch { /* ignore */ } finally { setSaving(false); }
+        }
+        return (
+          <View key={key} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 12, color: '#374151', fontWeight: '600' }}>{label}</Text>
+              <Text style={{ fontSize: 11, color: '#9CA3AF' }}>{hint}</Text>
+            </View>
+            <TextInput
+              value={draft}
+              onChangeText={setDraft}
+              keyboardType="numeric"
+              style={{ width: 64, borderWidth: 1, borderColor: theme.color.borderStrong, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4, fontSize: 13, color: theme.color.text, textAlign: 'center', backgroundColor: theme.color.surface }}
+            />
+            <Pressable onPress={save} disabled={saving} style={{ backgroundColor: theme.color.accent, borderRadius: 6, paddingHorizontal: 10, paddingVertical: 5 }}>
+              <Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>{saving ? '…' : 'Set'}</Text>
+            </Pressable>
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+// ─── Shared sub-components ────────────────────────────────────────────────────
+
+function SectionLabel({ title }: { title: string }) {
+  return <Text style={{ fontSize: 12, fontWeight: '700', color: '#6B7280', marginBottom: 6, marginTop: 12 }}>{title}</Text>;
+}
+
+function NumericRow({
+  label, hint, value, onSave, toDisplay = v => String(v), fromDisplay = v => parseInt(v, 10),
+}: {
+  label: string; hint: string; value: number;
+  onSave: (v: number) => Promise<void>;
+  toDisplay?: (v: number) => string;
+  fromDisplay?: (s: string) => number;
+}) {
+  const [draft, setDraft] = useState(toDisplay(value));
+  const [saving, setSaving] = useState(false);
+  async function save() {
+    const val = fromDisplay(draft);
+    if (isNaN(val)) return;
+    setSaving(true);
+    try { await onSave(val); } catch { /* ignore */ } finally { setSaving(false); }
+  }
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+      <View style={{ flex: 1 }}>
+        <Text style={{ fontSize: 12, color: '#374151', fontWeight: '600' }}>{label}</Text>
+        <Text style={{ fontSize: 11, color: '#9CA3AF' }}>{hint}</Text>
+      </View>
+      <TextInput value={draft} onChangeText={setDraft} keyboardType="decimal-pad"
+        style={{ width: 72, borderWidth: 1, borderColor: theme.color.borderStrong, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4, fontSize: 13, color: theme.color.text, textAlign: 'center', backgroundColor: theme.color.surface }} />
+      <Pressable onPress={save} disabled={saving} style={{ backgroundColor: theme.color.accent, borderRadius: 6, paddingHorizontal: 10, paddingVertical: 5 }}>
+        <Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>{saving ? '…' : 'Set'}</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+function ToggleRow({ label, hint, value, onToggle }: { label: string; hint: string; value: boolean; onToggle: (v: boolean) => Promise<void> }) {
+  const [busy, setBusy] = useState(false);
+  async function toggle() {
+    setBusy(true);
+    try { await onToggle(!value); } catch { /* ignore */ } finally { setBusy(false); }
+  }
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+      <View style={{ flex: 1 }}>
+        <Text style={{ fontSize: 12, color: '#374151', fontWeight: '600' }}>{label}</Text>
+        <Text style={{ fontSize: 11, color: '#9CA3AF' }}>{hint}</Text>
+      </View>
+      <Pressable onPress={toggle} disabled={busy}
+        style={{ paddingHorizontal: 12, paddingVertical: 5, borderRadius: 6, borderWidth: 1,
+          backgroundColor: value ? theme.color.goodBg : theme.color.surfaceAlt,
+          borderColor: value ? theme.color.good : theme.color.borderStrong }}>
+        <Text style={{ fontSize: 12, fontWeight: '700', color: value ? theme.color.good : theme.color.textMuted }}>
+          {busy ? '…' : value ? 'ON' : 'OFF'}
+        </Text>
+      </Pressable>
+    </View>
+  );
+}
+
+// ─── Operational config editor ────────────────────────────────────────────────
+
+function OperationalEditor({ city, onUpdate }: { city: City; onUpdate: (d: Partial<City>) => void }) {
+  async function save(key: keyof City, val: number) {
+    await api.ownerUpsertCity(city.name, { [key]: val });
+    onUpdate({ [key]: val });
+  }
+  async function toggleRider(val: boolean) {
+    await api.ownerUpsertCity(city.name, { requireRiderForDelivery: val });
+    onUpdate({ requireRiderForDelivery: val });
+  }
+  return (
+    <View style={{ marginTop: 12 }}>
+      <SectionLabel title="OPERATIONAL CONFIG" />
+      <ToggleRow label="Require rider for delivery" hint="Show shops only when a rider is online nearby" value={city.requireRiderForDelivery} onToggle={toggleRider} />
+      <NumericRow label="Auto-cancel timeout (min)" hint="Cancel if shop doesn't respond" value={city.autoCancelMinutes} onSave={v => save('autoCancelMinutes', v)} />
+      <NumericRow label="Shop reminder interval (min)" hint="Re-notify shop of unanswered order" value={city.shopReminderMinutes} onSave={v => save('shopReminderMinutes', v)} />
+      <NumericRow label="Rider offer window (sec)" hint="How long a rider's offer stays open" value={city.riderOfferWindowSec} onSave={v => save('riderOfferWindowSec', v)} />
+      <NumericRow label="Max active orders per rider" hint="Cap on concurrent rider orders" value={city.maxActiveOrdersPerRider} onSave={v => save('maxActiveOrdersPerRider', v)} />
+      <NumericRow label="Stale rider threshold (min)" hint="Release RIDER_ASSIGNED after this" value={city.staleRiderMinutes} onSave={v => save('staleRiderMinutes', v)} />
+      <NumericRow label="Nearby shops radius (m)" hint="Default customer discovery radius" value={city.nearbyShopsRadiusMeters} onSave={v => save('nearbyShopsRadiusMeters', v)} />
+      <NumericRow label="COD window (hours)" hint="Rolling window for COD order count" value={city.codWindowHours} onSave={v => save('codWindowHours', v)} />
+    </View>
+  );
+}
+
+// ─── Fee / commission config editor ──────────────────────────────────────────
+
+function FeeCommissionEditor({ city, onUpdate }: { city: City; onUpdate: (d: Partial<City>) => void }) {
+  async function save(key: keyof City, val: number) {
+    await api.ownerUpsertCity(city.name, { [key]: val });
+    onUpdate({ [key]: val });
+  }
+  return (
+    <View style={{ marginTop: 12 }}>
+      <SectionLabel title="FEES & COMMISSION" />
+      <NumericRow label="Platform fee (₹)" hint="Flat fee added to every order" value={city.platformFeePaise}
+        toDisplay={v => String(Math.round(v / 100))} fromDisplay={s => Math.round(parseFloat(s) * 100)}
+        onSave={v => save('platformFeePaise', v)} />
+      <NumericRow label="Default commission (%)" hint="Applied to new shops on approval" value={city.defaultCommissionRate}
+        toDisplay={v => String(Math.round(v * 100))} fromDisplay={s => parseFloat(s) / 100}
+        onSave={v => save('defaultCommissionRate', v)} />
+      <NumericRow label="Default credit limit (₹)" hint="Auto-pause threshold for new shops" value={city.defaultCreditLimitPaise}
+        toDisplay={v => String(Math.round(v / 100))} fromDisplay={s => Math.round(parseFloat(s) * 100)}
+        onSave={v => save('defaultCreditLimitPaise', v)} />
+      <NumericRow label="Commission holiday (days)" hint="Days commission-free after approval" value={city.commissionHolidayDays} onSave={v => save('commissionHolidayDays', v)} />
+      <NumericRow label="Onboarding fee (₹)" hint="One-time fee charged on shop approval" value={city.onboardingFeePaise}
+        toDisplay={v => String(Math.round(v / 100))} fromDisplay={s => Math.round(parseFloat(s) * 100)}
+        onSave={v => save('onboardingFeePaise', v)} />
+    </View>
+  );
+}
+
+// ─── Referral / coin config editor ───────────────────────────────────────────
+
+function ReferralEditor({ city, onUpdate }: { city: City; onUpdate: (d: Partial<City>) => void }) {
+  async function save(key: keyof City, val: number) {
+    await api.ownerUpsertCity(city.name, { [key]: val });
+    onUpdate({ [key]: val });
+  }
+  return (
+    <View style={{ marginTop: 12 }}>
+      <SectionLabel title="REFERRAL COINS" />
+      <NumericRow label="Customer referral coins" hint="Coins each side earns on first delivery" value={city.referralCustomerCoins} onSave={v => save('referralCustomerCoins', v)} />
+      <NumericRow label="Shop referral coins" hint="Coins for shop referrer on first order" value={city.referralShopCoins} onSave={v => save('referralShopCoins', v)} />
     </View>
   );
 }

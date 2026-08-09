@@ -22,7 +22,9 @@ function mapsUrl(lat?: number | null, lng?: number | null): string | null {
 }
 
 function collectPaise(job: RiderJob): number {
-  return job.adjustedTotalPaise ?? job.originalTotalPaise;
+  const base = job.adjustedTotalPaise ?? job.originalTotalPaise;
+  const due = (job.extraDeliveryDuePaise ?? 0) + (job.addedItemsDuePaise ?? 0);
+  return base + due;
 }
 const isCod = (job: RiderJob) => job.paymentMethod === 'COD';
 const isBulkCod = (job: BulkRiderJob) => job.paymentMethod === 'COD';
@@ -304,6 +306,12 @@ export function JobsScreen({ online }: { online: boolean }) {
                           </View>
                         )}
                       </>
+                    ) : null}
+                    {/* UPI order with added-items / delivery-fee due at door */}
+                    {!isCod(d) && ((d.extraDeliveryDuePaise ?? 0) + (d.addedItemsDuePaise ?? 0)) > 0 ? (
+                      <Text style={styles.payHint}>
+                        Collect {formatRupees((d.extraDeliveryDuePaise ?? 0) + (d.addedItemsDuePaise ?? 0))} at door (extra items/fee added after payment)
+                      </Text>
                     ) : null}
                     <Text style={styles.otpLabel}>{t.jobs.handoffOtp}</Text>
                     <OtpBoxes value={otp} onChange={setOtp} onComplete={(code) => completeDelivery(d.id, code)} length={4} />

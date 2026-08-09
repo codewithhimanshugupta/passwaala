@@ -137,6 +137,9 @@ export interface OrderDetail {
   discountPaise?: number;
   coinsRedeemedPaise?: number;
   extraDeliveryDuePaise?: number;
+  cancelRequestedAt?: string | null;
+  cancelRequestReason?: string | null;
+  cancelFeePaise?: number | null;
   addedItemsDuePaise?: number;
   deliveryMode: DeliveryMode;
   /** 4-digit handoff OTP the customer shows the shop to mark the order DELIVERED. */
@@ -148,6 +151,8 @@ export interface OrderDetail {
   customerNudge?: string | null;
   customerNudgedAt?: string | null;
   customerAcceptedChanges?: boolean;
+  /** Set when shop marks items unavailable. Drives the auto-accept countdown timer. */
+  itemsChangedAt?: string | null;
   items: OrderItemDetail[];
   shop: {
     id: string;
@@ -285,4 +290,5 @@ export interface Account {
   name?: string | null;
   role: string;
   coinBalance: number;
+  pendingCancelFeePaise?: number;
 }

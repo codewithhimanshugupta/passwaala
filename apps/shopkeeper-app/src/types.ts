@@ -115,6 +115,10 @@ export interface FeedOrder {
   rider?: { name: string | null; phone: string } | null;
   /** Non-null when this order is part of a BulkOrder multi-shop run. */
   bulkOrderId?: string | null;
+  /** Set when customer has requested cancellation on a PREPARING order. */
+  cancelRequestedAt?: string | null;
+  cancelRequestReason?: string | null;
+  cancelFeePaise?: number | null;
 }
 
 /** A ledger entry row (GET /ledger). */
