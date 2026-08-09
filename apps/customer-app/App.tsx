@@ -17,7 +17,7 @@ import { api, hasSavedToken, logout, onAuthExpired } from './src/api';
 import { connectSocket, disconnectSocket } from './src/socket';
 import type { Account } from './src/types';
 import { resetCartStore, useCart } from './src/cart';
-import { clearCheckoutPrefetch } from './src/checkoutPrefetch';
+import { clearCheckoutPrefetch, prefetchCheckout } from './src/checkoutPrefetch';
 import { idbGet, idbSet } from './src/idbKv';
 import { TabIcon } from './src/TabIcon';
 import { shadow, theme } from './src/theme';
@@ -242,6 +242,16 @@ function AppRoot() {
     return () => {
       alive = false;
     };
+  }, []);
+
+  // Wake Render free-tier server immediately on app open + warm checkout prefetch
+  useEffect(() => {
+    // Ping health endpoint silently — wakes the server before any user action
+    fetch('https://passwaala.onrender.com/health').catch(() => undefined);
+    // Warm checkout data (addresses, coins, cancel fee, nearby shops) in background
+    if (hasSavedToken()) {
+      void prefetchCheckout().catch(() => undefined);
+    }
   }, []);
 
   // Name onboarding gate: after login we fetch me() to decide whether to show

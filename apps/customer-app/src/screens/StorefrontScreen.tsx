@@ -203,7 +203,7 @@ export function StorefrontScreen({
       });
       return Promise.resolve();
     }
-    void prefetchCheckout();
+    void prefetchCheckout(shopId);
     return runMutation(productId, () =>
       addOne(productId, shop ? {
         shopId,

@@ -264,12 +264,19 @@ export interface BulkOrderDetail {
   pickupOtp?: string | null;
   createdAt: string;
   updatedAt: string;
+  currentShopIndex: number;
   address: {
     line?: string | null;
     landmark?: string | null;
     latitude?: number | string | null;
     longitude?: number | string | null;
   };
+  rider?: {
+    id: string;
+    name?: string | null;
+    phone: string;
+    riderProfile?: { latitude?: number | string | null; longitude?: number | string | null } | null;
+  } | null;
   orders: BulkSubOrder[];
 }
 

@@ -481,12 +481,16 @@ export function OrderTrackingScreen({
             : isDelivered
               ? 'Order Delivered!'
               : order.status === 'OUT_FOR_DELIVERY'
-                ? 'On the way to you'
-                : order.status === 'PREPARING' || order.status === 'READY' || order.status === 'RIDER_ASSIGNED'
-                  ? 'Preparing your order'
-                  : order.status === 'AWAITING_PAYMENT'
-                    ? 'Awaiting payment'
-                    : 'Order Confirmed!'}
+                ? 'Order is on the way'
+                : order.status === 'RIDER_ASSIGNED'
+                  ? 'Rider is heading to the shop'
+                  : order.status === 'READY'
+                    ? 'Order is ready — finding a rider'
+                    : order.status === 'PREPARING'
+                      ? 'Preparing your order'
+                      : order.status === 'AWAITING_PAYMENT'
+                        ? 'Awaiting your payment'
+                        : 'Order Confirmed!'}
         </Text>
         {etaBand && !isTerminalBad && !isDelivered ? (
           <View style={styles.stickyEtaRow}>
@@ -502,7 +506,7 @@ export function OrderTrackingScreen({
         ) : null}
       </View>
 
-      {/* Shop contact card — Zomato style with logo + call button */}
+      {/* Shop contact card — address + order ID + call (shop name already in header) */}
       <View style={styles.shopCard}>
         {order.shop.storefrontPhotoUrl ? (
           <Image source={{ uri: order.shop.storefrontPhotoUrl }} style={styles.shopCardAvatar} />
@@ -512,9 +516,8 @@ export function OrderTrackingScreen({
           </View>
         )}
         <View style={styles.shopCardInfo}>
-          <Text style={styles.shopCardName} numberOfLines={1}>{order.shop.name}</Text>
           {order.shop.addressLine || order.shop.city ? (
-            <Text style={styles.shopCardSub} numberOfLines={1}>
+            <Text style={styles.shopCardName} numberOfLines={1}>
               {[order.shop.addressLine, order.shop.city].filter(Boolean).join(', ')}
             </Text>
           ) : null}

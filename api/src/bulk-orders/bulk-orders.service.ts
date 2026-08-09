@@ -401,12 +401,28 @@ export class BulkOrdersService {
             items: { select: { id: true, nameSnapshot: true, pricePaiseSnapshot: true, qty: true } },
             shop: { select: { id: true, name: true, addressLine: true, latitude: true, longitude: true, upiVpa: true } },
           },
+          orderBy: { createdAt: 'asc' },
         },
         address: { select: { line: true, landmark: true, latitude: true, longitude: true } },
+        rider: {
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+            riderProfile: { select: { latitude: true, longitude: true } },
+          },
+        },
       },
     });
     if (!bulkOrder) throw new NotFoundException('Bulk order not found');
-    return bulkOrder;
+
+    // Compute which shop the rider is currently at/heading to (0-based index).
+    // PICKING_UP = rider is collecting; index = first sub-order not yet DELIVERED/OUT_FOR_DELIVERY.
+    const orders = bulkOrder.orders as Array<{ status: string }>;
+    const ACTIVE = new Set(['PLACED', 'ACCEPTED', 'AWAITING_PAYMENT', 'PREPARING', 'READY', 'RIDER_ASSIGNED']);
+    const currentShopIndex = orders.findIndex((o) => ACTIVE.has(o.status));
+
+    return { ...bulkOrder, currentShopIndex: currentShopIndex === -1 ? orders.length - 1 : currentShopIndex };
   }
 
   /** Customer's bulk order history (keyset paginated). */

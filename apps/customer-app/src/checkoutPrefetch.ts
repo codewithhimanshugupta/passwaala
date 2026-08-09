@@ -2,18 +2,21 @@ import { api } from './api';
 import type { Address } from './types';
 
 /**
- * Checkout data prefetch — warms the data the cart/checkout screen needs
- * (saved addresses + PassWaala Coin balance) WHILE the customer is still
- * browsing/adding on the shop screen. When they hit checkout, these are already
- * in memory so the cart renders instantly instead of firing fresh requests.
+ * Checkout data prefetch — warms ALL data the cart/checkout screen needs
+ * while the customer is still browsing. Includes:
+ *  - saved addresses
+ *  - PassWaala Coin balance
+ *  - pending cancel fee (blocks COD)
+ *  - nearby shops for bulk order banner (keyed by shopId)
  *
- * Delivery fee + available offers still come from the authoritative cart sync
- * (they depend on the exact cart/shop/fulfilment), but addresses + coins are
- * independent and safe to pre-warm here.
+ * When the customer opens cart, all of this is already in memory → instant render.
  */
 export interface CheckoutData {
   addresses: Address[];
   coinBalance: number;
+  pendingCancelFeePaise: number;
+  nearbyShops: Array<{ id: string; name: string; city: string; latitude: number; longitude: number; distanceMeters: number }>;
+  nearbyShopsForShopId: string | null;
 }
 
 const TTL_MS = 60_000;
@@ -21,16 +24,29 @@ let cached: { data: CheckoutData; at: number } | null = null;
 let inflight: Promise<CheckoutData> | null = null;
 
 /** Kick off (or reuse) a background prefetch. Safe to call repeatedly. */
-export function prefetchCheckout(): Promise<CheckoutData> {
+export function prefetchCheckout(shopId?: string | null): Promise<CheckoutData> {
   const now = Date.now();
-  if (cached && now - cached.at < TTL_MS) return Promise.resolve(cached.data);
+  // Invalidate if shopId changed (different shop's nearby list needed)
+  if (cached && now - cached.at < TTL_MS && cached.data.nearbyShopsForShopId === (shopId ?? null)) {
+    return Promise.resolve(cached.data);
+  }
   if (inflight) return inflight;
   inflight = (async () => {
-    const [addresses, referral] = await Promise.all([
+    const [addresses, referral, me, nearby] = await Promise.all([
       api.addresses().then((l) => l as Address[]).catch(() => [] as Address[]),
       api.referralMe().then((r) => r?.coinBalance ?? 0).catch(() => 0),
+      api.me().then((a: any) => (a?.pendingCancelFeePaise ?? 0) as number).catch(() => 0),
+      shopId
+        ? api.nearbyShopsForBulk(shopId).then(r => r.items).catch(() => [])
+        : Promise.resolve([] as CheckoutData['nearbyShops']),
     ]);
-    const data: CheckoutData = { addresses, coinBalance: referral };
+    const data: CheckoutData = {
+      addresses,
+      coinBalance: referral,
+      pendingCancelFeePaise: me,
+      nearbyShops: nearby,
+      nearbyShopsForShopId: shopId ?? null,
+    };
     cached = { data, at: Date.now() };
     inflight = null;
     return data;
@@ -38,7 +54,7 @@ export function prefetchCheckout(): Promise<CheckoutData> {
   return inflight;
 }
 
-/** Read the prefetched data if still fresh, else null (caller fetches normally). */
+/** Read the prefetched data if still fresh, else null. */
 export function getPrefetchedCheckout(): CheckoutData | null {
   if (cached && Date.now() - cached.at < TTL_MS) return cached.data;
   return null;

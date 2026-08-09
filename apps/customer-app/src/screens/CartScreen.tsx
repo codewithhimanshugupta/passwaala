@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  Animated,
   Image,
   Modal,
   Pressable,
@@ -47,6 +48,7 @@ export function CartScreen({
   const { t } = useLang();
   const localCart = useCart();
   const itemCount = localCart.itemCount;
+  const shopId = localCart.shopId;
   // The shop's fee/offer/coords config — fetched ONCE from api.shop(). Items and
   // subtotal come from the LOCAL cart; the bill is computed entirely on-device
   // (see computedBill below) with NO server sync until the order is placed.
@@ -61,6 +63,7 @@ export function CartScreen({
   const [notes, setNotes] = useState('');
   const [loadingAddrs, setLoadingAddrs] = useState(true);
   const [placing, setPlacing] = useState(false);
+  const [placingStep, setPlacingStep] = useState(0);
   const [placingCancelHandle, setPlacingCancelHandle] = useState<{ cancel: () => void } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showAddrForm, setShowAddrForm] = useState(false);
@@ -120,52 +123,42 @@ export function CartScreen({
   }, []);
 
   useEffect(() => {
-    // Addresses + coin balance load once. The authoritative bill is produced by
-    // the debounced sync effect below (which also re-runs on qty/mode changes).
     void loadAddresses();
-    // Coin balance: use the prefetched value if warm, else fetch.
     const pre = getPrefetchedCheckout();
     if (pre) {
       setCoinBalance(pre.coinBalance);
+      setPendingCancelFeePaise(pre.pendingCancelFeePaise);
+      if (pre.nearbyShopsForShopId === shopId && pre.nearbyShops.length > 0) {
+        setNearbyShops(pre.nearbyShops);
+      }
     } else {
-      void api
-        .referralMe()
-        .then((r) => setCoinBalance(r?.coinBalance ?? 0))
-        .catch(() => setCoinBalance(0));
+      // Fallback: fetch in parallel if prefetch not warm
+      void api.referralMe().then((r) => setCoinBalance(r?.coinBalance ?? 0)).catch(() => undefined);
+      void api.me().then((a: any) => setPendingCancelFeePaise(a?.pendingCancelFeePaise ?? 0)).catch(() => undefined);
     }
-    // Load pending cancel fee
-    void api.me().then((a: any) => setPendingCancelFeePaise(a?.pendingCancelFeePaise ?? 0)).catch(() => undefined);
-  }, [loadAddresses]);
+  }, [loadAddresses, shopId]);
 
-  // Fetch the shop's fee/offer/coords config ONCE (drives the entire locally-
-  // computed bill). Also fetch rider availability (a lightweight check) so the
-  // "no rider nearby" banner still works — neither call touches the cart.
-  const shopId = localCart.shopId;
+  // Fetch shop config + rider availability
   useEffect(() => {
     if (!shopId) return;
     let alive = true;
-    void api
-      .shop(shopId)
-      .then((s) => {
-        if (alive) setShopData(s as ShopView);
-      })
-      .catch(() => undefined);
-    void api
-      .shopDeliveryAvailable(shopId)
-      .then((d) => { if (alive) setRiderAvailableFromCart(d.deliveryAvailable !== false); })
-      .catch(() => undefined);
+    void api.shop(shopId).then((s) => { if (alive) setShopData(s as ShopView); }).catch(() => undefined);
+    void api.shopDeliveryAvailable(shopId).then((d) => { if (alive) setRiderAvailableFromCart(d.deliveryAvailable !== false); }).catch(() => undefined);
     return () => { alive = false; };
   }, [shopId]);
 
-  // Nearby shops for the "Add from nearby shops" bulk banner
+  // Nearby shops — use prefetch if available, else fetch
   const bulkCart = useBulkCart();
   const [nearbyShops, setNearbyShops] = useState<Array<{ id: string; name: string; city: string; latitude: number; longitude: number; distanceMeters: number }>>([]);
   useEffect(() => {
     if (!shopId) return;
+    const pre = getPrefetchedCheckout();
+    if (pre?.nearbyShopsForShopId === shopId && pre.nearbyShops.length > 0) {
+      setNearbyShops(pre.nearbyShops);
+      return;
+    }
     let alive = true;
-    void api.nearbyShopsForBulk(shopId)
-      .then((res) => { if (alive) setNearbyShops(res.items); })
-      .catch(() => undefined);
+    void api.nearbyShopsForBulk(shopId).then((res) => { if (alive) setNearbyShops(res.items); }).catch(() => undefined);
     return () => { alive = false; };
   }, [shopId]);
 
@@ -210,14 +203,17 @@ export function CartScreen({
     }
   }, [addresses, currentGeo, addressPickedManually]);
 
-  // Auto-switch to self-pickup if platform delivery becomes unavailable
+  // Auto-switch fulfilment to the best available mode when shop data loads
   useEffect(() => {
-    if (platformDelivery && !riderAvailableFromCart && fulfilment === DeliveryMode.SELF_DELIVERY) {
-      if (shopData?.selfPickupEnabled !== false) {
-        setFulfilment(DeliveryMode.SELF_PICKUP);
-      }
+    if (!shopData) return;
+    if (platformDelivery && riderAvailableFromCart) {
+      // Rider available → use platform delivery (distance-based fee, no shop fee)
+      setFulfilment(DeliveryMode.PLATFORM_RIDER);
+    } else if (platformDelivery && !riderAvailableFromCart) {
+      // Platform delivery shop but no rider → fall back to self-pickup if available
+      if (shopData?.selfPickupEnabled !== false) setFulfilment(DeliveryMode.SELF_PICKUP);
     }
-  }, [platformDelivery, riderAvailableFromCart, fulfilment, shopData?.selfPickupEnabled]);
+  }, [platformDelivery, riderAvailableFromCart, shopData?.selfPickupEnabled]);
 
   async function changeQty(productId: string, qty: number) {
     setError(null);
@@ -260,6 +256,7 @@ export function CartScreen({
       }
     }
     setPlacing(true);
+    setPlacingStep(0);
     setError(null);
     let wasCancelled = false;
     const cancelHandle = { cancel: () => { wasCancelled = true; setPlacing(false); } };
@@ -870,20 +867,14 @@ export function CartScreen({
         </View>
       ) : null}
 
-      {/* Full-screen "placing your order" overlay — order placement can take a
-          few seconds on the current server, so block interaction + show clear
-          progress instead of just a button spinner. */}
-      <Modal visible={placing} transparent animationType="fade" onRequestClose={() => placingCancelHandle?.cancel()}>
-        <View style={styles.placingOverlay}>
-          <View style={styles.placingCard}>
-            <Text style={styles.placingText}>{t.cart.placing}</Text>
-            <StripedProgressBar color={theme.color.primary} />
-            <Pressable onPress={() => placingCancelHandle?.cancel()} style={styles.placingCancelBtn}>
-              <Text style={styles.placingCancelText}>Cancel</Text>
-            </Pressable>
-          </View>
-        </View>
-      </Modal>
+      {/* Full-screen "placing your order" overlay — animated step messages
+          give the customer a sense of real progress instead of a frozen spinner. */}
+      <PlacingOverlay
+        visible={placing}
+        step={placingStep}
+        onStepChange={setPlacingStep}
+        onCancel={() => placingCancelHandle?.cancel()}
+      />
 
       {/* Centered popup: address is far from the customer's current location. */}
       <Modal
@@ -1088,6 +1079,145 @@ function PaymentOption({
     </Pressable>
   );
 }
+
+// ─── Placing overlay with animated step messages ──────────────────────────────
+
+import { Circle, Path, Polyline, Rect, Svg } from 'react-native-svg';
+
+const PLACING_STEPS = [
+  {
+    icon: (c: string) => (
+      <Svg width={48} height={48} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+        {/* Wifi icon */}
+        <Path d="M5 12.55a11 11 0 0 1 14.08 0" />
+        <Path d="M1.42 9a16 16 0 0 1 21.16 0" />
+        <Path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
+        <Circle cx={12} cy={20} r={1} fill={c} stroke="none" />
+      </Svg>
+    ),
+    text: 'Connecting to shop…',
+  },
+  {
+    icon: (c: string) => (
+      <Svg width={48} height={48} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+        {/* Package icon */}
+        <Path d="M16.5 9.4 7.55 4.24" />
+        <Path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 2 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+        <Polyline points="3.29 7 12 12 20.71 7" />
+        <Path d="M12 22V12" />
+      </Svg>
+    ),
+    text: 'Checking your items…',
+  },
+  {
+    icon: (c: string) => (
+      <Svg width={48} height={48} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+        {/* Shield check icon */}
+        <Path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+        <Polyline points="9 12 11 14 15 10" />
+      </Svg>
+    ),
+    text: 'Securing your order…',
+  },
+  {
+    icon: (c: string) => (
+      <Svg width={48} height={48} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+        {/* Store/shop icon */}
+        <Path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+        <Polyline points="9 22 9 12 15 12 15 22" />
+      </Svg>
+    ),
+    text: 'Sending to shop…',
+  },
+  {
+    icon: (c: string) => (
+      <Svg width={48} height={48} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+        {/* Check circle icon */}
+        <Path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+        <Polyline points="22 4 12 14.01 9 11.01" />
+      </Svg>
+    ),
+    text: 'Almost there…',
+  },
+];
+const STEP_INTERVAL_MS = 1800;
+
+function PlacingOverlay({
+  visible, step, onStepChange, onCancel,
+}: {
+  visible: boolean;
+  step: number;
+  onStepChange: (s: number) => void;
+  onCancel: () => void;
+}) {
+  const fadeAnim = useRef(new Animated.Value(1)).current;
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const stepRef = useRef(step);
+  stepRef.current = step;
+
+  useEffect(() => {
+    if (!visible) {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      return;
+    }
+    intervalRef.current = setInterval(() => {
+      Animated.timing(fadeAnim, { toValue: 0, duration: 200, useNativeDriver: true }).start(() => {
+        const next = (stepRef.current + 1) % PLACING_STEPS.length;
+        onStepChange(next);
+        Animated.timing(fadeAnim, { toValue: 1, duration: 300, useNativeDriver: true }).start();
+      });
+    }, STEP_INTERVAL_MS);
+    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
+  }, [visible]);
+
+  const current = PLACING_STEPS[step % PLACING_STEPS.length];
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
+      <View style={poStyles.overlay}>
+        <View style={poStyles.card}>
+          <Animated.View style={[poStyles.stepRow, { opacity: fadeAnim }]}>
+            {current.icon(theme.color.primary)}
+            <Text style={poStyles.stepText}>{current.text}</Text>
+          </Animated.View>
+          <StripedProgressBar color={theme.color.primary} />
+          <Pressable onPress={onCancel} style={poStyles.cancelBtn} hitSlop={8}>
+            <Text style={poStyles.cancelText}>Cancel</Text>
+          </Pressable>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+const poStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: theme.color.overlay,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: theme.space.xl,
+  },
+  card: {
+    width: '100%',
+    maxWidth: 320,
+    backgroundColor: theme.color.bg,
+    borderRadius: theme.radius.lg,
+    padding: theme.space.xl,
+    gap: theme.space.lg,
+    alignItems: 'center',
+    ...shadow.lg,
+  },
+  stepRow: { alignItems: 'center', gap: theme.space.sm },
+  stepText: {
+    fontSize: theme.font.h3,
+    fontWeight: '700',
+    color: theme.color.text,
+    textAlign: 'center',
+  },
+  cancelBtn: { paddingVertical: theme.space.sm, paddingHorizontal: theme.space.xl },
+  cancelText: { fontSize: theme.font.small, color: theme.color.textMuted, fontWeight: '600' },
+});
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: theme.color.surface },

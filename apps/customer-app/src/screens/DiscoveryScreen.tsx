@@ -24,8 +24,18 @@ import { ChevronDown } from '../ChevronDown';
 import { useLang } from '../i18n/LanguageContext';
 import type { Strings } from '../i18n/strings';
 
-/** Nearby shops fetched per page in list view (load more on scroll). */
-const PAGE_SIZE = 15;
+/** Nearby shops fetched per page in list view — 5 at a time for fast first load. */
+const PAGE_SIZE = 5;
+
+/** Module-level shop cache — survives tab switches and back navigation.
+ *  Shops are shown instantly from cache; a background refresh updates silently. */
+let _cachedShops: NearbyShop[] = [];
+let _cacheKey = ''; // lat:lng:sort:category:openNow
+let _nextPagePrefetched: NearbyShop[] = []; // next page ready before user scrolls
+
+function makeCacheKey(lat: number, lng: number, sort: string, category: string, openNow: boolean) {
+  return `${lat.toFixed(3)}:${lng.toFixed(3)}:${sort}:${category}:${openNow}`;
+}
 
 /** Resolved delivery location coordinates. Null until GPS or a saved address
  *  resolves — there is NO hardcoded city fallback. */
@@ -77,8 +87,9 @@ export function DiscoveryScreen({
 }) {
   const { t } = useLang();
   const CATEGORIES = categoriesFor(t);
-  const [shops, setShops] = useState<NearbyShop[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Initialize from module-level cache for instant display on back navigation
+  const [shops, setShops] = useState<NearbyShop[]>(_cachedShops);
+  const [loading, setLoading] = useState(_cachedShops.length === 0);
   const [loadingMore, setLoadingMore] = useState(false);
   const [canLoadMore, setCanLoadMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -200,9 +211,8 @@ export function DiscoveryScreen({
       setLoading(false);
       return;
     }
-    // Only show skeleton on first load (shops.length === 0); subsequent
-    // re-fetches keep existing shops visible to prevent flicker.
-    if (shops.length === 0) setLoading(true);
+    // Only show skeleton on first load; re-fetches keep existing shops visible
+    if (shops.length === 0 && _cachedShops.length === 0) setLoading(true);
     setError(null);
     try {
       const isMap = viewMode === 'map';
@@ -218,9 +228,23 @@ export function DiscoveryScreen({
       });
       setShops(result);
       setCanLoadMore(!isMap && result.length === PAGE_SIZE);
+      // Write to module-level cache for instant display on next back-navigation
+      if (!isMap) {
+        _cachedShops = result;
+        _cacheKey = makeCacheKey(coords.lat, coords.lng, sort, category ?? '', openNow);
+      }
       if (restoredShopId) {
         const restored = result.find(s => s.id === restoredShopId);
         if (restored) setSelectedShop(restored);
+      }
+      // Prefetch next page silently so load-more is instant
+      if (!isMap && result.length === PAGE_SIZE) {
+        void api.nearbyShops({
+          lat: coords.lat, lng: coords.lng,
+          radiusMeters: Math.round(radiusOverride ?? cityRadius),
+          sort, openNow: openNow || undefined, category: category || undefined,
+          limit: PAGE_SIZE, offset: PAGE_SIZE,
+        }).then(next => { _nextPagePrefetched = next; }).catch(() => undefined);
       }
     } catch (e) {
       setError((e as Error).message);
@@ -229,25 +253,42 @@ export function DiscoveryScreen({
     }
   }, [category, sort, openNow, coords, viewMode, mapRadius, cityRadius, restoredShopId]);
 
-  // Load the next page of shops (list view only) and append.
+  // Load the next page — uses prefetched data when available for instant append.
   const loadMore = useCallback(async () => {
     if (loadingMore || !canLoadMore || viewMode === 'map' || !coords) return;
     setLoadingMore(true);
     try {
-      const next = await api.nearbyShops({
-        lat: coords.lat,
-        lng: coords.lng,
-        radiusMeters: Math.round(cityRadius),
-        sort,
-        openNow: openNow || undefined,
-        category: category || undefined,
-        limit: PAGE_SIZE,
-        offset: shops.length,
+      // Use prefetched next page if available (avoids a network wait)
+      let next: NearbyShop[];
+      if (_nextPagePrefetched.length > 0) {
+        next = _nextPagePrefetched;
+        _nextPagePrefetched = [];
+      } else {
+        next = await api.nearbyShops({
+          lat: coords.lat, lng: coords.lng,
+          radiusMeters: Math.round(cityRadius),
+          sort, openNow: openNow || undefined, category: category || undefined,
+          limit: PAGE_SIZE, offset: shops.length,
+        });
+      }
+      setShops((prev) => {
+        const updated = [...prev, ...next];
+        _cachedShops = updated;
+        return updated;
       });
-      setShops((prev) => [...prev, ...next]);
       setCanLoadMore(next.length === PAGE_SIZE);
+      // Pre-fetch the page after this one silently
+      const nextOffset = shops.length + next.length;
+      if (next.length === PAGE_SIZE) {
+        void api.nearbyShops({
+          lat: coords.lat, lng: coords.lng,
+          radiusMeters: Math.round(cityRadius),
+          sort, openNow: openNow || undefined, category: category || undefined,
+          limit: PAGE_SIZE, offset: nextOffset,
+        }).then(prefetched => { _nextPagePrefetched = prefetched; }).catch(() => undefined);
+      }
     } catch {
-      /* keep what's loaded; next scroll retries */
+      /* keep what's loaded */
     } finally {
       setLoadingMore(false);
     }
