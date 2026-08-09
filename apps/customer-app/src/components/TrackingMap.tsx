@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef } from 'react';
-import { Animated, Platform, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Animated, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { theme } from '../theme';
 
 /** A lat/lng point. */
@@ -26,14 +26,50 @@ export function TrackingMap({
   drop,
   rider,
   phase,
+  compact = false,
 }: {
   shop: Geo;
   drop: Geo;
   rider?: Geo | null;
   phase: TripPhase;
+  compact?: boolean;
 }) {
+  const [expanded, setExpanded] = useState(false);
+
+  const mapContent = Platform.OS === 'web'
+    ? <WebMap shop={shop} drop={drop} rider={rider} phase={phase} expanded={expanded} />
+    : <SchematicMap shop={shop} drop={drop} rider={rider} phase={phase} />;
+
+  if (compact && !expanded) {
+    return (
+      <Pressable onPress={() => setExpanded(true)} style={styles.compactWrap}>
+        <View style={styles.compactBox} pointerEvents="none">
+          {mapContent}
+        </View>
+        <View style={styles.expandHint}>
+          <Text style={styles.expandHintText}>⤢</Text>
+        </View>
+      </Pressable>
+    );
+  }
+
+  if (expanded) {
+    return (
+      <Modal visible transparent animationType="fade" onRequestClose={() => setExpanded(false)}>
+        <Pressable style={styles.modalOverlay} onPress={() => setExpanded(false)}>
+          <Pressable style={styles.modalMapWrap} onPress={() => {}}>
+            <WebMap shop={shop} drop={drop} rider={rider} phase={phase} expanded={true} />
+            <Pressable style={styles.collapseBtn} onPress={() => setExpanded(false)}>
+              <Text style={styles.collapseBtnText}>✕ Close</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
+    );
+  }
+
   if (Platform.OS === 'web') {
-    return <WebMap shop={shop} drop={drop} rider={rider} phase={phase} />;
+    return <WebMap shop={shop} drop={drop} rider={rider} phase={phase} expanded={false} />;
   }
   return <SchematicMap shop={shop} drop={drop} rider={rider} phase={phase} />;
 }
@@ -80,7 +116,7 @@ function fit(){
   var pts = route.slice();
   if (rider) pts.push([rider.lat, rider.lng]);
   if (!pts.length) pts = [[D.shop.lat,D.shop.lng],[D.drop.lat,D.drop.lng]];
-  try { map.fitBounds(pts, { padding: [36,36], maxZoom: 16 }); } catch(e){ map.setView(pts[0], 14); }
+  try { map.fitBounds(pts, { padding: [36,36], minZoom: 13, maxZoom: 16 }); } catch(e){ map.setView(pts[0], 14); }
 }
 
 // Snap a raw point to the nearest vertex on the current route (keeps the marker
@@ -156,7 +192,7 @@ if (window.parent) window.parent.postMessage({ type: 'map-ready' }, '*');
 </script></body></html>`;
 }
 
-function WebMap({ shop, drop, rider, phase }: { shop: Geo; drop: Geo; rider?: Geo | null; phase: TripPhase }) {
+function WebMap({ shop, drop, rider, phase, expanded }: { shop: Geo; drop: Geo; rider?: Geo | null; phase: TripPhase; expanded: boolean }) {
   // Build the doc ONCE from the initial props; rider + phase updates go via
   // postMessage so the map (and tiles) never reload.
   const doc = useMemo(() => buildDoc(shop, drop, rider ?? null, phase), []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -186,7 +222,7 @@ function WebMap({ shop, drop, rider, phase }: { shop: Geo; drop: Geo; rider?: Ge
   const Iframe = 'iframe' as unknown as React.ComponentType<Record<string, unknown>>;
   return (
     <View style={styles.wrap}>
-      <View style={[styles.box, styles.webBox]}>
+      <View style={[styles.box, styles.webBox, expanded && styles.webBoxExpanded]}>
         <Iframe
           ref={iframeRef}
           srcDoc={doc}
@@ -194,7 +230,7 @@ function WebMap({ shop, drop, rider, phase }: { shop: Geo; drop: Geo; rider?: Ge
           style={{ border: '0', width: '100%', height: '100%', display: 'block' }}
         />
       </View>
-      <Text style={styles.caption}>{captionFor(phase, !!rider)}</Text>
+      {!expanded ? <Text style={styles.caption}>{captionFor(phase, !!rider)}</Text> : null}
     </View>
   );
 }
@@ -280,7 +316,18 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     alignSelf: 'stretch',
   },
-  webBox: { width: '100%', height: 220 },
+  webBox: { width: '100%', height: 180 },
+  webBoxExpanded: { height: 460 },
+  // Compact thumbnail (inline, small)
+  compactWrap: { position: 'relative', width: 160, height: 130, borderRadius: theme.radius.lg, overflow: 'hidden', borderWidth: 1, borderColor: theme.color.border },
+  compactBox: { width: '100%', height: '100%' },
+  expandHint: { position: 'absolute', top: 6, right: 6, width: 26, height: 26, borderRadius: 13, backgroundColor: 'rgba(255,255,255,0.9)', alignItems: 'center', justifyContent: 'center' },
+  expandHintText: { fontSize: 14, color: theme.color.text },
+  // Expanded modal
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', padding: 16 },
+  modalMapWrap: { borderRadius: theme.radius.xl, overflow: 'hidden', backgroundColor: theme.color.surface },
+  collapseBtn: { position: 'absolute', top: 12, right: 12, backgroundColor: 'rgba(255,255,255,0.95)', borderRadius: theme.radius.pill, paddingHorizontal: 14, paddingVertical: 6 },
+  collapseBtnText: { fontSize: theme.font.small, fontWeight: '700', color: theme.color.text },
   routeDot: { position: 'absolute', width: 4, height: 4, borderRadius: 2, backgroundColor: theme.color.borderStrong },
   pin: { position: 'absolute', width: 24, height: 24, alignItems: 'center', justifyContent: 'center' },
   pinText: { fontSize: 20 },

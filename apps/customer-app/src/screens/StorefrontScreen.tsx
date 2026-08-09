@@ -258,7 +258,11 @@ export function StorefrontScreen({
   if (error) return <ErrorState message={error} onRetry={load} />;
 
   const cartIsThisShop = cartShopId === shopId;
-  const showCartBar = itemCount > 0;
+  // In bulk mode: show the bulk cart for this specific shop
+  const bulkShopLines = fromBulk ? (bulkCart.find(s => s.shopId === shopId)?.lines ?? []) : [];
+  const bulkItemCount = bulkShopLines.reduce((s, l) => s + l.qty, 0);
+  const bulkTotal = bulkShopLines.reduce((s, l) => s + l.unitPricePaise * l.qty, 0);
+  const showCartBar = fromBulk ? bulkItemCount > 0 : itemCount > 0;
 
   return (
     <View style={styles.root}>
@@ -316,16 +320,16 @@ export function StorefrontScreen({
         <Pressable style={styles.cartBar} onPress={onOpenCart}>
           <View style={styles.cartBarLeft}>
             <View style={styles.cartCountPill}>
-              <Text style={styles.cartCountText}>{itemCount}</Text>
+              <Text style={styles.cartCountText}>{fromBulk ? bulkItemCount : itemCount}</Text>
             </View>
             <View>
               <Text style={styles.cartBarLabel}>
-                {cartIsThisShop ? t.storefront.viewCart : t.storefront.cartOfShop(cartShopName ?? '')}
+                {fromBulk ? `${shop?.name ?? 'This shop'} · bulk order` : cartIsThisShop ? t.storefront.viewCart : t.storefront.cartOfShop(cartShopName ?? '')}
               </Text>
-              <Text style={styles.cartBarTotal}>{formatRupees(totalPaise)}</Text>
+              <Text style={styles.cartBarTotal}>{formatRupees(fromBulk ? bulkTotal : totalPaise)}</Text>
             </View>
           </View>
-          <Text style={styles.cartBarArrow}>{t.storefront.checkout}</Text>
+          <Text style={styles.cartBarArrow}>{fromBulk ? 'Back to bulk order →' : t.storefront.checkout}</Text>
         </Pressable>
       ) : null}
 

@@ -81,7 +81,7 @@ function persist() {
 async function hydrateFromIdb(): Promise<void> {
   try {
     const stored = await idbGet<LocalCart>(STORAGE_KEY);
-    if (!didMutate && stored && stored.lines && local.lines.length === 0 && stored.lines.length > 0) {
+    if (!didMutate && stored && stored.lines && stored.lines.length > 0 && local.lines.length === 0) {
       local = stored;
       version += 1;
       cached = snapshot();
@@ -124,9 +124,13 @@ export async function setQty(productId: string, qty: number): Promise<void> {
     if (line) line.qty = qty;
   }
   // Decrementing the last item empties the cart entirely — reset local state AND
-  // clear the server cart (best-effort, background) so nothing lingers to cause a
-  // stale "items from another shop" conflict on the next add.
+  // clear BOTH server cart and IndexedDB so a page reload never restores the old items.
   if (local.lines.length === 0) {
+    local = { ...EMPTY };
+    // Clear IDB immediately so hydrateFromIdb() on next load finds nothing
+    void idbSet(STORAGE_KEY, null);
+    if (typeof localStorage !== 'undefined') localStorage.removeItem(STORAGE_KEY);
+    void api.clearCart().catch(() => undefined);
     local = { ...EMPTY };
     void api.clearCart().catch(() => undefined);
   }

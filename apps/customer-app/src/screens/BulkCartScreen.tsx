@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Modal,
@@ -56,7 +56,11 @@ export function BulkCartScreen({
   const [nearbyLoading, setNearbyLoading] = useState(false);
   const [addingShop, setAddingShop] = useState<string | null>(null);
 
+  // Lock anchor to the FIRST shop added — don't shift when more shops are added
   const anchorShopId = bulkCart[0]?.shopId ?? null;
+  const anchorRef = useRef<string | null>(null);
+  if (anchorShopId && !anchorRef.current) anchorRef.current = anchorShopId;
+  const lockedAnchor = anchorRef.current;
 
   const loadAddresses = useCallback(async () => {
     const pre = getPrefetchedCheckout();
@@ -82,24 +86,24 @@ export function BulkCartScreen({
 
   // Load nearby shops (add-on options) whenever the anchor shop changes
   useEffect(() => {
-    if (!anchorShopId) return;
+    if (!lockedAnchor) return;
     setNearbyShops([]);
     setNearbyOffset(0);
     setNearbyHasMore(false);
-    void api.nearbyShopsForBulk(anchorShopId, 0)
+    void api.nearbyShopsForBulk(lockedAnchor, 0)
       .then((res) => {
         setNearbyShops(res.items.filter((s) => !bulkCart.some((c) => c.shopId === s.id)));
         setNearbyHasMore(res.hasMore);
         setNearbyOffset(res.items.length);
       })
       .catch(() => undefined);
-  }, [anchorShopId, bulkCart.length]);
+  }, [lockedAnchor]);
 
   async function loadMoreNearby() {
-    if (!anchorShopId || !nearbyHasMore || nearbyLoading) return;
+    if (!lockedAnchor || !nearbyHasMore || nearbyLoading) return;
     setNearbyLoading(true);
     try {
-      const res = await api.nearbyShopsForBulk(anchorShopId, nearbyOffset);
+      const res = await api.nearbyShopsForBulk(lockedAnchor, nearbyOffset);
       const fresh = res.items.filter((s) => !bulkCart.some((c) => c.shopId === s.id) && !nearbyShops.some((n) => n.id === s.id));
       setNearbyShops((prev) => [...prev, ...fresh]);
       setNearbyHasMore(res.hasMore);
