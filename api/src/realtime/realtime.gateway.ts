@@ -50,7 +50,16 @@ function socketCorsOrigin(origin: string | undefined, cb: (err: Error | null, al
  * The order/dispatch services call the emit* helpers to push to exactly the
  * right room. Clients keep only a slow fallback poll for when the socket drops.
  */
-@WebSocketGateway({ cors: { origin: socketCorsOrigin, credentials: true } })
+@WebSocketGateway({
+  cors: { origin: socketCorsOrigin, credentials: true },
+  // Keep connections alive through Render's 55s proxy timeout.
+  // Ping every 25s so the connection never goes 55s silent.
+  pingInterval: 25000,
+  pingTimeout: 60000,
+  // Use polling transport first — more reliable through HTTP proxies.
+  // Upgrades to WebSocket when possible.
+  transports: ['polling', 'websocket'],
+})
 export class RealtimeGateway
   implements OnGatewayConnection, OnGatewayDisconnect
 {

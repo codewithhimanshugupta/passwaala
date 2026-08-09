@@ -26,13 +26,14 @@ export function connectSocket(): void {
   }
   socket = io(baseUrl, {
     auth: { token },
-    // Allow the polling fallback, not websocket-only: some browsers/proxies fail
-    // the direct WS upgrade, which previously left the app on the slow poll with
-    // no live updates. Polling connects first, then upgrades to WS when possible.
-    transports: ['websocket', 'polling'],
+    // polling first — more reliable through Render's HTTP proxy.
+    // Automatically upgrades to WebSocket once connected.
+    transports: ['polling', 'websocket'],
     reconnection: true,
-    reconnectionDelay: 2000,
-    reconnectionDelayMax: 10000,
+    reconnectionDelay: 1000,
+    reconnectionDelayMax: 5000,
+    // Match server ping settings to avoid silent disconnect on Render free tier
+    timeout: 20000,
   });
   // Visibility: log connection lifecycle so a failed handshake is diagnosable
   // (previously silent — the app just fell back to the 60s poll).

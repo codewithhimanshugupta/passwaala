@@ -260,8 +260,8 @@ export function OrdersScreen() {
           const col = STATUS_COLORS[o.status] ?? { bg: theme.color.surfaceAlt, fg: theme.color.textMuted };
           const open = expanded === o.orderId;
           return (
-            <Pressable key={o.orderId} style={s.card} onPress={() => setExpanded(open ? null : o.orderId)}>
-              <View style={s.cardHead}>
+            <View key={o.orderId} style={s.card}>
+              <Pressable style={s.cardHead} onPress={() => setExpanded(open ? null : o.orderId)}>
                 <View style={s.cardHeadLeft}>
                   <Text style={s.orderNo}>#{o.orderNumber}</Text>
                   <Text style={s.shopName} numberOfLines={1}>{o.shop?.name ?? '—'}</Text>
@@ -273,7 +273,7 @@ export function OrdersScreen() {
                   </View>
                   <Text style={s.total}>{formatRupees(o.totalPaise)}</Text>
                 </View>
-              </View>
+              </Pressable>
 
               {open ? (
                 <View style={s.detail}>
@@ -308,9 +308,14 @@ export function OrdersScreen() {
                   {/* Items */}
                   <Text style={s.itemsTitle}>Items</Text>
                   {o.items.map((it, i) => (
-                    <Text key={i} style={s.itemRow}>
-                      {it.qty}× {it.nameSnapshot} — {formatRupees(it.pricePaiseSnapshot)}
-                    </Text>
+                    <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Text style={[s.itemRow, it.status === 'UNAVAILABLE' && { textDecorationLine: 'line-through', color: theme.color.textFaint }]}>
+                        {it.qty}× {it.nameSnapshot} — {formatRupees(it.pricePaiseSnapshot)}
+                      </Text>
+                      {it.status === 'UNAVAILABLE' ? (
+                        <Text style={{ fontSize: theme.font.tiny, fontWeight: '700', color: '#DC2626', marginLeft: 8 }}>REMOVED</Text>
+                      ) : null}
+                    </View>
                   ))}
 
                   {/* Admin actions (live orders only) */}
@@ -411,7 +416,7 @@ export function OrdersScreen() {
                   ) : null}
                 </View>
               ) : null}
-            </Pressable>
+            </View>
           );
         })}
 

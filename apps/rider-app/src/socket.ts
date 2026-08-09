@@ -26,13 +26,12 @@ export function connectSocket(): void {
   }
   socket = io(baseUrl, {
     auth: { token },
-    // Allow the polling fallback, not websocket-only: some browsers/proxies fail
-    // the direct WS upgrade, which previously left the app on the slow poll with
-    // no live updates. Polling connects first, then upgrades to WS when possible.
-    transports: ['websocket', 'polling'],
+    // polling first — reliable through Render's HTTP proxy, upgrades to WS
+    transports: ['polling', 'websocket'],
     reconnection: true,
-    reconnectionDelay: 2000,
-    reconnectionDelayMax: 10000,
+    reconnectionDelay: 1000,
+    reconnectionDelayMax: 5000,
+    timeout: 20000,
   });
   socket.on('connect', () => console.log('[socket] connected', socket?.id));
   socket.on('connect_error', (e) => console.warn('[socket] connect_error:', e.message));

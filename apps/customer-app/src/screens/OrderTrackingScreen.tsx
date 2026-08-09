@@ -835,7 +835,15 @@ export function OrderTrackingScreen({
             )}
           </View>
         ) : null}
-        {order.items.map((it) => {
+        {(() => {
+          // Merge duplicate productId rows (can occur if items were added multiple times)
+          const merged = order.items.reduce((acc, it) => {
+            const existing = acc.find(x => x.productId === it.productId && x.status === it.status);
+            if (existing) { existing.qty += it.qty; }
+            else acc.push({ ...it });
+            return acc;
+          }, [] as typeof order.items);
+          return merged.map((it) => {
           const isCancelled = order.status === 'CANCELLED' || order.status === 'REJECTED';
           const unavail = it.status === 'UNAVAILABLE' && !isCancelled;
           return (
@@ -847,7 +855,8 @@ export function OrderTrackingScreen({
               <Text style={[styles.recapPrice, unavail && styles.recapStrike]}>{unavail ? '' : formatRupees(it.pricePaiseSnapshot * it.qty)}</Text>
             </View>
           );
-        })}
+        });
+        })()}
         <Divider style={styles.recapDivider} />
         {/* Itemized bill */}
         <View style={styles.recapRow}>

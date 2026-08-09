@@ -68,12 +68,16 @@ function actionsFor(order: FeedOrder): OrderStatus[] {
  * modal. Pull-to-refresh + a manual refresh button; re-fetches after each
  * mutation so the UI stays server-authoritative.
  */
-type TabKey = 'new' | 'preparing' | 'ready' | 'completed';
+type TabKey = 'active' | 'completed';
 
 const TABS: { key: TabKey; statuses: OrderStatus[] }[] = [
-  { key: 'new', statuses: [OrderStatus.PLACED, OrderStatus.ACCEPTED, OrderStatus.AWAITING_PAYMENT] },
-  { key: 'preparing', statuses: [OrderStatus.PREPARING] },
-  { key: 'ready', statuses: [OrderStatus.READY, OrderStatus.RIDER_ASSIGNED, OrderStatus.OUT_FOR_DELIVERY] },
+  {
+    key: 'active',
+    statuses: [
+      OrderStatus.PLACED, OrderStatus.ACCEPTED, OrderStatus.AWAITING_PAYMENT,
+      OrderStatus.PREPARING, OrderStatus.READY, OrderStatus.RIDER_ASSIGNED, OrderStatus.OUT_FOR_DELIVERY,
+    ],
+  },
   {
     key: 'completed',
     statuses: [OrderStatus.DELIVERED, OrderStatus.REJECTED, OrderStatus.CANCELLED, OrderStatus.REFUND_PENDING],
@@ -83,14 +87,9 @@ const TABS: { key: TabKey; statuses: OrderStatus[] }[] = [
 /** Localized label for a tab key. */
 function tabLabel(key: TabKey, t: Strings): string {
   switch (key) {
-    case 'new':
-      return t.orders.tabNew;
-    case 'preparing':
-      return t.orders.tabPreparing;
-    case 'ready':
-      return t.orders.tabReady;
-    case 'completed':
-      return t.orders.tabCompleted;
+    case 'active': return 'Active';
+    case 'completed': return t.orders.tabCompleted;
+    default: return key;
   }
 }
 
@@ -109,7 +108,7 @@ export function OrderFeedScreen({
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<TabKey>('new');
+  const [tab, setTab] = useState<TabKey>('active');
   const [busyId, setBusyId] = useState<string | null>(null);
   // Keyset pagination within the active tab.
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -202,7 +201,7 @@ export function OrderFeedScreen({
 
   // Per-tab badge counts derived from the server's per-status counts.
   const tabCounts = useMemo(() => {
-    const map: Record<TabKey, number> = { new: 0, preparing: 0, ready: 0, completed: 0 };
+    const map: Record<TabKey, number> = { active: 0, completed: 0 };
     for (const t of TABS) {
       map[t.key] = t.statuses.reduce((sum, s) => sum + (counts[s] ?? 0), 0);
     }

@@ -147,18 +147,32 @@ export function CartScreen({
     return () => { alive = false; };
   }, [shopId]);
 
-  // Nearby shops — use prefetch if available, else fetch
+  // Nearby shops — use prefetch if available, else fetch. Keep state across cart clear.
   const bulkCart = useBulkCart();
   const [nearbyShops, setNearbyShops] = useState<Array<{ id: string; name: string; city: string; latitude: number; longitude: number; distanceMeters: number }>>([]);
+  const [nearbyLoading, setNearbyLoading] = useState(false);
+  const nearbyShopIdRef = useRef<string | null>(null); // last shopId we fetched nearby for
   useEffect(() => {
-    if (!shopId) return;
+    const sid = shopId ?? nearbyShopIdRef.current;
+    if (!sid) return;
+    if (nearbyShopIdRef.current === sid && nearbyShops.length > 0) return; // already fetched
     const pre = getPrefetchedCheckout();
-    if (pre?.nearbyShopsForShopId === shopId && pre.nearbyShops.length > 0) {
+    if (pre?.nearbyShopsForShopId === sid && pre.nearbyShops.length > 0) {
       setNearbyShops(pre.nearbyShops);
+      nearbyShopIdRef.current = sid;
       return;
     }
     let alive = true;
-    void api.nearbyShopsForBulk(shopId).then((res) => { if (alive) setNearbyShops(res.items); }).catch(() => undefined);
+    setNearbyLoading(true);
+    void api.nearbyShopsForBulk(sid)
+      .then((res) => {
+        if (alive) {
+          setNearbyShops(res.items);
+          nearbyShopIdRef.current = sid;
+        }
+      })
+      .catch(() => undefined)
+      .finally(() => { if (alive) setNearbyLoading(false); });
     return () => { alive = false; };
   }, [shopId]);
 
@@ -493,6 +507,51 @@ export function CartScreen({
           </View>
         </View>
 
+        {/* Nearby shops bulk banner — shown right after items for visibility */}
+        {(nearbyShops.length > 0 || nearbyLoading) ? (() => {
+          const bulkShopCount = currentBulkCartShops().length;
+          if (bulkShopCount >= 3) return null;
+          const shopsToShow = nearbyShops.filter((s) => !currentBulkCartShops().includes(s.id)).slice(0, 2);
+          if (!nearbyLoading && shopsToShow.length === 0) return null;
+          return (
+            <View style={styles.bulkBanner}>
+              <View style={styles.bulkBannerTop}>
+                <Text style={styles.bulkBannerTitle}>Add from nearby shops</Text>
+                <Text style={styles.bulkBannerSub}>
+                  {nearbyLoading ? 'Finding nearby shops…' : shopsToShow.map((s) => s.name).join(' · ')}
+                </Text>
+              </View>
+              {!nearbyLoading && shopsToShow.length > 0 ? (
+                <View style={styles.bulkBannerActions}>
+                  {localCart.lines.length > 0 ? (
+                    <Pressable
+                      style={styles.bulkMoveBtn}
+                      onPress={() => {
+                        for (const line of localCart.lines) {
+                          bulkCartAddOne(line.productId, {
+                            shopId: shopId!,
+                            shopName: shopData?.name ?? localCart.shopName ?? '',
+                            name: line.name,
+                            unitPricePaise: line.unitPricePaise,
+                            imageUrl: line.imageUrl ?? null,
+                          });
+                        }
+                        onOpenBulkCart?.();
+                      }}
+                    >
+                      <Text style={styles.bulkMoveBtnText}>Move to multi-shop order</Text>
+                    </Pressable>
+                  ) : (
+                    <Pressable style={styles.bulkOpenBtn} onPress={() => onOpenBulkCart?.()}>
+                      <Text style={styles.bulkOpenBtnText}>View multi-shop cart</Text>
+                    </Pressable>
+                  )}
+                </View>
+              ) : null}
+            </View>
+          );
+        })() : null}
+
         {/* Min-order gate */}
         {!meetsMin && toMin > 0 ? (
           <View style={styles.minGate}>
@@ -569,55 +628,6 @@ export function CartScreen({
             </Pressable>
           </View>
         ) : null}
-
-        {/* Nearby shops bulk banner — shown only when:
-            • this cart has a shopId
-            • the shop uses platform delivery (riders)
-            • fewer than 3 shops are already in the bulk cart
-            • at least one nearby shop was found */}
-        {(() => {
-          if (!shopId) return null;
-          const bulkShopCount = currentBulkCartShops().length;
-          if (bulkShopCount >= 3) return null;
-          const shopsToShow = nearbyShops.filter((s) => !currentBulkCartShops().includes(s.id)).slice(0, 2);
-          if (shopsToShow.length === 0) return null;
-          return (
-            <View style={styles.bulkBanner}>
-              <View style={styles.bulkBannerTop}>
-                <Text style={styles.bulkBannerTitle}>Add from nearby shops</Text>
-                <Text style={styles.bulkBannerSub}>
-                  {shopsToShow.map((s) => s.name).join(' · ')}
-                </Text>
-              </View>
-              <View style={styles.bulkBannerActions}>
-                {localCart.lines.length > 0 ? (
-                  <Pressable
-                    style={styles.bulkMoveBtn}
-                    onPress={() => {
-                      // Move all items from the single-shop cart into the bulk cart
-                      for (const line of localCart.lines) {
-                        bulkCartAddOne(line.productId, {
-                          shopId: shopId!,
-                          shopName: shopData?.name ?? localCart.shopName ?? '',
-                          name: line.name,
-                          unitPricePaise: line.unitPricePaise,
-                          imageUrl: line.imageUrl ?? null,
-                        });
-                      }
-                      onOpenBulkCart?.();
-                    }}
-                  >
-                    <Text style={styles.bulkMoveBtnText}>Move to multi-shop order</Text>
-                  </Pressable>
-                ) : (
-                  <Pressable style={styles.bulkOpenBtn} onPress={() => onOpenBulkCart?.()}>
-                    <Text style={styles.bulkOpenBtnText}>View multi-shop cart</Text>
-                  </Pressable>
-                )}
-              </View>
-            </View>
-          );
-        })()}
 
         {/* Bill breakdown */}
         {bill ? (
@@ -1088,59 +1098,55 @@ const PLACING_STEPS = [
   {
     icon: (c: string) => (
       <Svg width={48} height={48} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
-        {/* Wifi icon */}
         <Path d="M5 12.55a11 11 0 0 1 14.08 0" />
         <Path d="M1.42 9a16 16 0 0 1 21.16 0" />
         <Path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
         <Circle cx={12} cy={20} r={1} fill={c} stroke="none" />
       </Svg>
     ),
-    text: 'Connecting to shop…',
+    text: 'Connecting to shop',
   },
   {
     icon: (c: string) => (
       <Svg width={48} height={48} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
-        {/* Package icon */}
         <Path d="M16.5 9.4 7.55 4.24" />
         <Path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 2 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
         <Polyline points="3.29 7 12 12 20.71 7" />
         <Path d="M12 22V12" />
       </Svg>
     ),
-    text: 'Checking your items…',
+    text: 'Checking your items',
   },
   {
     icon: (c: string) => (
       <Svg width={48} height={48} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
-        {/* Shield check icon */}
         <Path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
         <Polyline points="9 12 11 14 15 10" />
       </Svg>
     ),
-    text: 'Securing your order…',
+    text: 'Securing your order',
   },
   {
     icon: (c: string) => (
       <Svg width={48} height={48} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
-        {/* Store/shop icon */}
         <Path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
         <Polyline points="9 22 9 12 15 12 15 22" />
       </Svg>
     ),
-    text: 'Sending to shop…',
+    text: 'Sending to shop',
   },
   {
     icon: (c: string) => (
       <Svg width={48} height={48} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
-        {/* Check circle icon */}
         <Path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
         <Polyline points="22 4 12 14.01 9 11.01" />
       </Svg>
     ),
-    text: 'Almost there…',
+    text: 'Almost there',
   },
 ];
 const STEP_INTERVAL_MS = 1800;
+const DOT_INTERVAL_MS = 400;
 
 function PlacingOverlay({
   visible, step, onStepChange, onCancel,
@@ -1151,26 +1157,38 @@ function PlacingOverlay({
   onCancel: () => void;
 }) {
   const fadeAnim = useRef(new Animated.Value(1)).current;
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const stepIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const dotIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const stepRef = useRef(step);
   stepRef.current = step;
+  const [dots, setDots] = useState('.');
 
   useEffect(() => {
     if (!visible) {
-      if (intervalRef.current) clearInterval(intervalRef.current);
+      if (stepIntervalRef.current) clearInterval(stepIntervalRef.current);
+      if (dotIntervalRef.current) clearInterval(dotIntervalRef.current);
       return;
     }
-    intervalRef.current = setInterval(() => {
+    // Advance steps once, never loop — clamp at last step
+    stepIntervalRef.current = setInterval(() => {
+      const isLast = stepRef.current >= PLACING_STEPS.length - 1;
+      if (isLast) { if (stepIntervalRef.current) clearInterval(stepIntervalRef.current); return; }
       Animated.timing(fadeAnim, { toValue: 0, duration: 200, useNativeDriver: true }).start(() => {
-        const next = (stepRef.current + 1) % PLACING_STEPS.length;
-        onStepChange(next);
+        onStepChange(Math.min(stepRef.current + 1, PLACING_STEPS.length - 1));
         Animated.timing(fadeAnim, { toValue: 1, duration: 300, useNativeDriver: true }).start();
       });
     }, STEP_INTERVAL_MS);
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
+    // Dot pulse: . → .. → ... → . (loops always)
+    dotIntervalRef.current = setInterval(() => {
+      setDots((d) => d.length >= 3 ? '.' : d + '.');
+    }, DOT_INTERVAL_MS);
+    return () => {
+      if (stepIntervalRef.current) clearInterval(stepIntervalRef.current);
+      if (dotIntervalRef.current) clearInterval(dotIntervalRef.current);
+    };
   }, [visible]);
 
-  const current = PLACING_STEPS[step % PLACING_STEPS.length];
+  const current = PLACING_STEPS[Math.min(step, PLACING_STEPS.length - 1)];
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
@@ -1178,7 +1196,9 @@ function PlacingOverlay({
         <View style={poStyles.card}>
           <Animated.View style={[poStyles.stepRow, { opacity: fadeAnim }]}>
             {current.icon(theme.color.primary)}
-            <Text style={poStyles.stepText}>{current.text}</Text>
+            <Text style={poStyles.stepText}>
+              {current.text}<Text style={poStyles.dots}>{dots}</Text>
+            </Text>
           </Animated.View>
           <StripedProgressBar color={theme.color.primary} />
           <Pressable onPress={onCancel} style={poStyles.cancelBtn} hitSlop={8}>
@@ -1214,6 +1234,10 @@ const poStyles = StyleSheet.create({
     fontWeight: '700',
     color: theme.color.text,
     textAlign: 'center',
+  },
+  dots: {
+    color: theme.color.primary,
+    fontWeight: '800',
   },
   cancelBtn: { paddingVertical: theme.space.sm, paddingHorizontal: theme.space.xl },
   cancelText: { fontSize: theme.font.small, color: theme.color.textMuted, fontWeight: '600' },

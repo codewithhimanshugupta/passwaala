@@ -688,7 +688,26 @@ export class OrdersService {
     const newDue = isPrepaid ? order.addedItemsDuePaise + subtotalDelta : order.addedItemsDuePaise;
 
     await this.prisma.$transaction(async (tx) => {
-      await tx.orderItem.createMany({ data: newItems });
+      // Fetch existing order items to merge quantities instead of creating duplicates
+      const existingItems = await tx.orderItem.findMany({
+        where: { orderId, status: 'FULFILLED' },
+        select: { id: true, productId: true, qty: true },
+      });
+      const existingMap = new Map(existingItems.map(i => [i.productId, i]));
+
+      const toCreate = newItems.filter(i => !existingMap.has(i.productId));
+      const toUpdate = newItems.filter(i => existingMap.has(i.productId));
+
+      if (toCreate.length > 0) {
+        await tx.orderItem.createMany({ data: toCreate });
+      }
+      for (const item of toUpdate) {
+        const existing = existingMap.get(item.productId)!;
+        await tx.orderItem.update({
+          where: { id: existing.id },
+          data: { qty: { increment: item.qty } },
+        });
+      }
       await Promise.all(
         lines.map((l) =>
           tx.product.update({ where: { id: l.productId }, data: { stock: { decrement: l.qty } } }),
