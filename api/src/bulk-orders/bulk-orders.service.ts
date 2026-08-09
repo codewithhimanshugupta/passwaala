@@ -270,17 +270,12 @@ export class BulkOrdersService {
     const customerHandoffOtp = generateOtp();
 
     // Atomic transaction
-    const result = await this.prisma.$transaction(async (tx) => {
-      // Decrement coins if used
-      if (appliedCoins > 0) {
-        await tx.user.update({
-          where: { id: customerId },
-          data: { coinBalance: { decrement: appliedCoins } },
-        });
-      }
-
-      // Create BulkOrder
-      const bulkOrder = await tx.bulkOrder.create({
+    // PgBouncer in transaction mode (Supabase pooler port 6543) doesn't support
+    // Prisma interactive transactions. Use sequential operations with idempotency
+    // protection instead — the idempotencyKey check at the top guards against duplicates.
+    let bulkOrder: Awaited<ReturnType<typeof this.prisma.bulkOrder.create>>;
+    try {
+      bulkOrder = await this.prisma.bulkOrder.create({
         data: {
           shortId: bulkShortId,
           customerId,
@@ -294,75 +289,87 @@ export class BulkOrdersService {
           idempotencyKey: dto.idempotencyKey,
         },
       });
-
-      // Create sub-Orders
-      const createdOrders: Array<{ id: string; shopId: string }> = [];
-
-      // Distribute coin discount proportionally across sub-orders by subtotal weight.
-      // This ensures accrueOnDelivery computes commission on the correct base per shop.
-      const totalSubtotalForCoins = subOrderData.reduce((s, o) => s + o.subtotalPaise, 0);
-      let coinsDistributed = 0;
-      const subOrderCoins = subOrderData.map((sub, idx) => {
-        if (idx === subOrderData.length - 1) {
-          // Last sub-order absorbs rounding remainder
-          return coinDiscountPaise - coinsDistributed;
-        }
-        const share = totalSubtotalForCoins > 0
-          ? Math.floor(coinDiscountPaise * sub.subtotalPaise / totalSubtotalForCoins)
-          : 0;
-        coinsDistributed += share;
-        return share;
-      });
-
-      for (let idx = 0; idx < subOrderData.length; idx++) {
-        const sub = subOrderData[idx];
-        const subCoins = subOrderCoins[idx];
-        const subTotal = sub.subtotalPaise - sub.discountPaise + sub.platformFeePaise;
-        const order = await tx.order.create({
-          data: {
-            shortId: generateShortId('OR'),
-            customerId,
-            shopId: sub.shopId,
-            bulkOrderId: bulkOrder.id,
-            status: OrderStatus.PLACED,
-            paymentMethod: dto.paymentMethod,
-            deliveryMode: DeliveryMode.PLATFORM_RIDER,
-            addressId: dto.addressId,
-            originalTotalPaise: subTotal,
-            platformFeePaise: sub.platformFeePaise,
-            deliveryFeePaise: 0,
-            discountPaise: sub.discountPaise,
-            coinsRedeemedPaise: subCoins,
-            offerId: sub.offerId,
-            offerTitle: sub.offerTitle,
-            commissionRateSnapshot: sub.commissionRate,
-            riderPickupOtp: sub.riderPickupOtp,
-            pickupOtp: customerHandoffOtp, // same handoff OTP on all sub-orders
-            idempotencyKey: `${dto.idempotencyKey}:${sub.shopId}`,
-            items: {
-              create: sub.items.map((item) => ({
-                productId: item.productId,
-                nameSnapshot: item.name,
-                pricePaiseSnapshot: item.pricePaise,
-                weightGramsSnapshot: item.weightGrams,
-                qty: item.qty,
-              })),
-            },
-          },
+    } catch (e: any) {
+      // Unique constraint on idempotencyKey — return existing
+      if (e?.code === 'P2002') {
+        const existing = await this.prisma.bulkOrder.findUnique({
+          where: { idempotencyKey: dto.idempotencyKey },
+          include: { orders: { select: { id: true, shopId: true } } },
         });
-        createdOrders.push({ id: order.id, shopId: sub.shopId });
-
-        // Decrement stock in parallel (not sequential)
-        await Promise.all(sub.items.map(item =>
-          tx.product.update({
-            where: { id: item.productId },
-            data: { stock: { decrement: item.qty } },
-          })
-        ));
+        if (existing) {
+          return { bulkOrderId: existing.id, shortId: existing.shortId, orderIds: existing.orders.map(o => o.id), totalPaise: grandTotalPaise, pickupOtp: customerHandoffOtp };
+        }
       }
+      throw e;
+    }
 
-      return { bulkOrder, orderIds: createdOrders.map((o) => o.id), createdOrders };
+    // Decrement coins if used
+    if (appliedCoins > 0) {
+      await this.prisma.user.update({
+        where: { id: customerId },
+        data: { coinBalance: { decrement: appliedCoins } },
+      });
+    }
+
+    // Compute coin distribution across sub-orders
+    const totalSubtotalForCoins = subOrderData.reduce((s, o) => s + o.subtotalPaise, 0);
+    let coinsDistributed = 0;
+    const subOrderCoins = subOrderData.map((sub, idx) => {
+      if (idx === subOrderData.length - 1) return coinDiscountPaise - coinsDistributed;
+      const share = totalSubtotalForCoins > 0
+        ? Math.floor(coinDiscountPaise * sub.subtotalPaise / totalSubtotalForCoins) : 0;
+      coinsDistributed += share;
+      return share;
     });
+
+    // Create sub-orders and decrement stock in parallel across shops
+    const createdOrders: Array<{ id: string; shopId: string }> = [];
+    await Promise.all(subOrderData.map(async (sub, idx) => {
+      const subCoins = subOrderCoins[idx];
+      const subTotal = sub.subtotalPaise - sub.discountPaise + sub.platformFeePaise;
+      const order = await this.prisma.order.create({
+        data: {
+          shortId: generateShortId('OR'),
+          customerId,
+          shopId: sub.shopId,
+          bulkOrderId: bulkOrder.id,
+          status: OrderStatus.PLACED,
+          paymentMethod: dto.paymentMethod,
+          deliveryMode: DeliveryMode.PLATFORM_RIDER,
+          addressId: dto.addressId,
+          originalTotalPaise: subTotal,
+          platformFeePaise: sub.platformFeePaise,
+          deliveryFeePaise: 0,
+          discountPaise: sub.discountPaise,
+          coinsRedeemedPaise: subCoins,
+          offerId: sub.offerId,
+          offerTitle: sub.offerTitle,
+          commissionRateSnapshot: sub.commissionRate,
+          riderPickupOtp: sub.riderPickupOtp,
+          pickupOtp: customerHandoffOtp,
+          idempotencyKey: `${dto.idempotencyKey}:${sub.shopId}`,
+          items: {
+            create: sub.items.map((item) => ({
+              productId: item.productId,
+              nameSnapshot: item.name,
+              pricePaiseSnapshot: item.pricePaise,
+              weightGramsSnapshot: item.weightGrams,
+              qty: item.qty,
+            })),
+          },
+        },
+      });
+      createdOrders.push({ id: order.id, shopId: sub.shopId });
+      // Decrement stock in parallel
+      await Promise.all(sub.items.map(item =>
+        this.prisma.product.update({
+          where: { id: item.productId },
+          data: { stock: { decrement: item.qty } },
+        })
+      ));
+    }));
+
+    const result = { bulkOrder, orderIds: createdOrders.map((o) => o.id), createdOrders };
 
     // Notify each shop (fire-and-forget)
     for (const { id: orderId, shopId } of result.createdOrders) {
