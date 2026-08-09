@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { LoginScreen } from './src/screens/LoginScreen';
@@ -15,6 +15,7 @@ import { CouponsScreen } from './src/screens/CouponsScreen';
 import { CitiesScreen } from './src/screens/CitiesScreen';
 import { TaskboardScreen } from './src/screens/TaskboardScreen';
 import { GstScreen } from './src/screens/GstScreen';
+import { BulkOrdersScreen } from './src/screens/BulkOrdersScreen';
 import { hasSavedToken, logout, me, onAuthExpired } from './src/api';
 import { theme } from './src/theme';
 import { LanguageProvider, useLang } from './src/i18n/LanguageContext';
@@ -31,7 +32,7 @@ import { NavIcon, type NavIconName } from './src/NavIcon';
  * which each screen surfaces as a friendly "not an admin" message. On any 401
  * (expired token) the client fires onAuthExpired → we drop to login with a note.
  */
-type Nav = 'dashboard' | 'approvals' | 'shops' | 'riders' | 'customers' | 'orders' | 'settlements' | 'disputes' | 'coupons' | 'cities' | 'taskboard' | 'gst';
+type Nav = 'dashboard' | 'approvals' | 'shops' | 'riders' | 'customers' | 'orders' | 'bulk-orders' | 'settlements' | 'disputes' | 'coupons' | 'cities' | 'taskboard' | 'gst';
 
 export default function App() {
   return (
@@ -46,6 +47,7 @@ function AppRoot() {
   const [nav, setNav] = useState<Nav>('dashboard');
   const [role, setRole] = useState<string | null>(null);
   const [sessionExpired, setSessionExpired] = useState(false);
+  const reachedAppRef = useRef(false);
 
   const isOwner = role === 'OWNER';
 
@@ -54,6 +56,7 @@ function AppRoot() {
     try {
       const account = await me();
       setRole(account.role);
+      reachedAppRef.current = true;
     } catch {
       // A 401 is handled by the auth-expired listener; other errors just leave
       // the role unknown (Admins stays hidden, screens still guard with 403).
@@ -72,7 +75,8 @@ function AppRoot() {
       setAuthed(false);
       setRole(null);
       setNav('dashboard');
-      setSessionExpired(true);
+      setSessionExpired(reachedAppRef.current);
+      reachedAppRef.current = false;
     });
   }, []);
 
@@ -110,6 +114,7 @@ function AppRoot() {
           {nav === 'riders' && <RidersScreen />}
           {nav === 'customers' && <CustomersScreen />}
           {nav === 'orders' && <OrdersScreen />}
+          {nav === 'bulk-orders' && <BulkOrdersScreen />}
           {nav === 'settlements' && <PaymentClaimsScreen />}
           {nav === 'disputes' && <DisputesScreen />}
           {nav === 'coupons' && <CouponsScreen />}
@@ -187,6 +192,12 @@ function Sidebar({
           label="Orders"
           active={nav === 'orders'}
           onPress={() => onNavigate('orders')}
+        />
+        <NavItem
+          icon="orders"
+          label="Bulk Orders"
+          active={nav === 'bulk-orders'}
+          onPress={() => onNavigate('bulk-orders')}
         />
         <NavItem
           icon="settlements"

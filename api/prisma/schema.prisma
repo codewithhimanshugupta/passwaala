@@ -188,6 +188,21 @@ enum OfferType {
   FREE_DELIVERY // value = 0; waives delivery fee entirely
 }
 
+/// BulkOrder lifecycle — one envelope per multi-shop checkout.
+/// PLACED → shops accept → ACCEPTED_ALL → all READY → RIDER_ASSIGNED
+/// → PICKING_UP (rider collecting sequentially) → OUT_FOR_DELIVERY
+/// → DELIVERED. CANCELLED if the whole run is called off.
+enum BulkOrderStatus {
+  PLACED
+  ACCEPTED_ALL
+  READY_ALL
+  RIDER_ASSIGNED
+  PICKING_UP
+  OUT_FOR_DELIVERY
+  DELIVERED
+  CANCELLED
+}
+
 // ===========================================================================
 // CORE ENTITIES
 // ===========================================================================
@@ -214,6 +229,8 @@ model ServiceableCity {
   deliveryTiersJson      String?
   /// If true, platform delivery orders can only be placed when a rider is online nearby.
   requireRiderForDelivery Boolean @default(true)
+  /// Extra surcharge per additional shop in a BulkOrder (+₹10 default). Admin-configurable per city.
+  multiShopSurchargePaise Int @default(1000)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   deletedAt DateTime?
@@ -267,6 +284,8 @@ model User {
   addresses     Address[]
   reviews       Review[] // reviews written by this customer
   ridDeliveries Order[]       @relation("OrderRider") // future: orders assigned to this rider
+  bulkOrders    BulkOrder[]   @relation("BulkOrderCustomer")
+  bulkDeliveries BulkOrder[]  @relation("BulkOrderRider")
   referralsMade Referral[]    @relation("Referrer")
   referredAs    Referral[]    @relation("RefereeUser")
   adminInvites  AdminInvite[] @relation("InvitedByOwner")
@@ -483,8 +502,8 @@ model Cart {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  // One active cart per customer (single-shop cart constraint)
-  @@unique([customerId])
+  // One active cart per customer per shop (multi-shop cart support)
+  @@unique([customerId, shopId])
   @@index([shopId])
 }
 
@@ -507,6 +526,60 @@ model CartItem {
   @@unique([cartId, productId]) // one line per product per cart
   @@index([cartId])
   @@index([productId])
+}
+
+/// A BulkOrder envelope spans multiple sub-orders (one per shop). Created at
+/// checkout when the customer has carts from more than one shop. The rider
+/// picks up from each shop sequentially (nearest-first, sorted at acceptance)
+/// and delivers to the customer in a single run.
+model BulkOrder {
+  id      String @id @default(uuid())
+  /// Human-readable ID: BLK + 8 hex, e.g. BLK-4F2A9C1B
+  shortId String? @unique
+
+  customerId String
+  customer   User   @relation("BulkOrderCustomer", fields: [customerId], references: [id])
+
+  addressId String
+  address   Address @relation(fields: [addressId], references: [id])
+
+  status        BulkOrderStatus @default(PLACED)
+  paymentMethod PaymentMethod
+
+  // Financials (paise, rule #4)
+  baseDeliveryFeePaise      Int // distance-tiered fee for anchor shop → customer
+  multiShopSurchargePaise   Int // (shopCount-1) × city surcharge, snapshotted at placement
+  platformFeePaise          Int // sum of per-sub-order platform fees
+  totalPaise                Int // grand total across all sub-orders
+
+  // Rider assignment
+  riderId              String?
+  rider                User?    @relation("BulkOrderRider", fields: [riderId], references: [id])
+  /// Ordered list of sub-order IDs the rider should visit, nearest-first.
+  /// Null until a rider accepts; written at acceptance using rider's live location.
+  pickupSequenceJson   String?  // JSON: string[] of orderId
+  /// Customer handoff OTP — single OTP shown in customer app, entered by rider at final delivery.
+  pickupOtp            String?
+
+  // Dispatch fields (mirrors Order dispatch for the open-board flow)
+  offeredRiderId        String?
+  offerExpiresAt        DateTime?
+  dispatchTriedRiderIds String[]  @default([])
+  dispatchRadiusMeters  Int?
+  dispatchExhausted     Boolean   @default(false)
+
+  // Idempotency — client-generated key prevents double-placement.
+  idempotencyKey String @unique
+
+  orders    Order[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([customerId])
+  @@index([status])
+  @@index([riderId])
 }
 
 /// An order. Durable source of truth; idempotencyKey guarantees exactly-once
@@ -556,7 +629,13 @@ model Order {
   originalTotalPaise Int
   adjustedTotalPaise Int? // customer-approved reduced total after substitution
   platformFeePaise   Int // flat ₹10 platform fee line = 1000 paise
-  deliveryFeePaise   Int  @default(0)
+  deliveryFeePaise          Int  @default(0)
+  // Admin-edited extra delivery due: set when admin raises delivery fee on a prepaid
+  // (UPI_DIRECT + paymentConfirmed) order so the rider can collect the delta on delivery.
+  extraDeliveryDuePaise     Int  @default(0)
+  // Items added post-placement on a prepaid order: customer already paid the original
+  // total, so the delta is collected at the door by the rider/shop.
+  addedItemsDuePaise        Int  @default(0)
 
   // Commission snapshot (rule #6) — future commission edits never rewrite history.
   commissionRateSnapshot Float @default(0.02)
@@ -610,6 +689,10 @@ model Order {
   // Reliability — client-generated key so retries/double-taps never duplicate.
   idempotencyKey String @unique
 
+  // BulkOrder link — null for standalone single-shop orders.
+  bulkOrderId String?
+  bulkOrder   BulkOrder? @relation(fields: [bulkOrderId], references: [id])
+
   // Relations
   items     OrderItem[]
   ledger    LedgerEntry[]
@@ -625,6 +708,7 @@ model Order {
   @@index([customerId])
   @@index([status])
   @@index([riderId])
+  @@index([bulkOrderId])
   @@index([shopId, status]) // hot: shopkeeper order feed (shop + status tab)
 }
 
@@ -669,7 +753,8 @@ model Address {
   /// postgis_geog_columns migration). Unsupported so Prisma won't drop it.
   geog Unsupported("geography(Point, 4326)")?
 
-  orders Order[]
+  orders     Order[]
+  bulkOrders BulkOrder[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt

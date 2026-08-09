@@ -66,6 +66,7 @@ function AppRoot() {
   const [switchingShopId, setSwitchingShopId] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>('home');
   const [sessionExpired, setSessionExpired] = useState(false);
+  const reachedAppRef = useRef(false);
   // 'all' when the owner has >1 shop (default view on login); otherwise the active shop id.
   const [viewContext, setViewContext] = useState<ViewContext>('all');
   // One-time audio unlock: browser autoplay policy needs a user gesture before
@@ -111,6 +112,7 @@ function AppRoot() {
       setShop(myShop);
       setTab('home');
       setStage('app');
+      reachedAppRef.current = true;
       // Load the owner's shop list so we can offer a picker when they own more
       // than one. Non-fatal — a single-shop owner never sees a picker anyway.
       try {
@@ -143,7 +145,8 @@ function AppRoot() {
   useEffect(() => {
     return onAuthExpired(() => {
       setShop(null);
-      setSessionExpired(true);
+      setSessionExpired(reachedAppRef.current);
+      reachedAppRef.current = false;
       setAuthScreen('login');
       setStage('login');
     });

@@ -58,4 +58,13 @@ export const PLATFORM_DELIVERY_TIERS: ReadonlyArray<{ maxMeters: number; feePais
  */
 export const MAX_DELIVERY_RADIUS_METERS = 15000;
 
+/** Maximum number of shops in a single BulkOrder. */
+export const MAX_SHOPS_PER_BULK_ORDER = 3;
+
+/** Max distance (metres) between anchor shop and any additional shop in a BulkOrder. */
+export const MAX_BULK_SHOP_PROXIMITY_METERS = 1000;
+
+/** Default per-extra-shop surcharge in a BulkOrder (₹10). Admin can override per city. */
+export const MULTI_SHOP_SURCHARGE_PAISE = rupeesToPaise(10);
+
 

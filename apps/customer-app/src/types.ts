@@ -134,6 +134,10 @@ export interface OrderDetail {
   adjustedTotalPaise?: number | null;
   platformFeePaise: number;
   deliveryFeePaise: number;
+  discountPaise?: number;
+  coinsRedeemedPaise?: number;
+  extraDeliveryDuePaise?: number;
+  addedItemsDuePaise?: number;
   deliveryMode: DeliveryMode;
   /** 4-digit handoff OTP the customer shows the shop to mark the order DELIVERED. */
   pickupOtp?: string | null;
@@ -155,9 +159,17 @@ export interface OrderDetail {
     storefrontPhotoUrl?: string | null;
     latitude?: number | string | null;
     longitude?: number | string | null;
+    shopCategory?: string | null;
+    gstin?: string | null;
+    kyc?: { fssai?: string | null } | null;
   };
-  /** Drop address coords (delivery orders) — for the tracking map + ETA. */
-  address?: { latitude?: number | string | null; longitude?: number | string | null } | null;
+  /** Drop address (delivery orders) — line text + coords for map + ETA. */
+  address?: {
+    line?: string | null;
+    landmark?: string | null;
+    latitude?: number | string | null;
+    longitude?: number | string | null;
+  } | null;
   /** The assigned platform rider (PLATFORM_RIDER orders, once claimed). */
   rider?: {
     name: string | null;
@@ -187,6 +199,73 @@ export interface OrderHistoryItem {
   paymentMethod: PaymentMethod;
   createdAt: string;
   review?: { rating: number; comment?: string | null } | null;
+}
+
+// ─── Bulk orders ─────────────────────────────────────────────────────────────
+
+/** One sub-order summary inside a BulkOrderSummary (history list). */
+export interface BulkSubOrderSummary {
+  id: string;
+  shopId: string;
+  shop: { name: string };
+}
+
+/** GET /bulk-orders history entry. */
+export interface BulkOrderSummary {
+  id: string;
+  shortId: string;
+  status: string;
+  totalPaise: number;
+  createdAt: string;
+  orders: BulkSubOrderSummary[];
+}
+
+/** One line item inside a BulkSubOrder detail. */
+export interface BulkSubOrderItem {
+  nameSnapshot: string;
+  pricePaiseSnapshot: number;
+  qty: number;
+}
+
+/** One sub-order inside a BulkOrderDetail (per-shop). */
+export interface BulkSubOrder {
+  id: string;
+  shortId: string;
+  shopId: string;
+  status: string;
+  originalTotalPaise: number;
+  platformFeePaise: number;
+  discountPaise: number;
+  items: BulkSubOrderItem[];
+  shop: {
+    id: string;
+    name: string;
+    addressLine?: string | null;
+    latitude?: number | string | null;
+    longitude?: number | string | null;
+  };
+}
+
+/** GET /bulk-orders/:id detail response. */
+export interface BulkOrderDetail {
+  id: string;
+  shortId: string;
+  status: string;
+  paymentMethod: string;
+  totalPaise: number;
+  baseDeliveryFeePaise: number;
+  multiShopSurchargePaise: number;
+  platformFeePaise: number;
+  pickupOtp?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  address: {
+    line?: string | null;
+    landmark?: string | null;
+    latitude?: number | string | null;
+    longitude?: number | string | null;
+  };
+  orders: BulkSubOrder[];
 }
 
 export interface Review {

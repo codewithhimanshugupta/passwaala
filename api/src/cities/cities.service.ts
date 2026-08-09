@@ -104,6 +104,7 @@ export class CitiesService {
         ...(dto.deliveryRadiusMeters !== undefined ? { deliveryRadiusMeters: dto.deliveryRadiusMeters } : {}),
         ...(dto.riderCheckRadiusMeters !== undefined ? { riderCheckRadiusMeters: dto.riderCheckRadiusMeters } : {}),
         ...(dto.deliveryTiersJson !== undefined ? { deliveryTiersJson: dto.deliveryTiersJson } : {}),
+        ...(dto.multiShopSurchargePaise !== undefined ? { multiShopSurchargePaise: dto.multiShopSurchargePaise } : {}),
       },
       update: {
         enabled: dto.enabled ?? true,
@@ -112,6 +113,7 @@ export class CitiesService {
         ...(dto.deliveryRadiusMeters !== undefined ? { deliveryRadiusMeters: dto.deliveryRadiusMeters } : {}),
         ...(dto.riderCheckRadiusMeters !== undefined ? { riderCheckRadiusMeters: dto.riderCheckRadiusMeters } : {}),
         ...(dto.deliveryTiersJson !== undefined ? { deliveryTiersJson: dto.deliveryTiersJson } : {}),
+        ...(dto.multiShopSurchargePaise !== undefined ? { multiShopSurchargePaise: dto.multiShopSurchargePaise } : {}),
       },
     });
   }

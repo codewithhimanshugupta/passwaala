@@ -175,10 +175,11 @@ export function CouponScreen({
     setCodeError('Invalid coupon code. Check the code and try again.');
   }
 
+  const seenIds = new Set<string>();
   const allItems = [
     ...offers.map(o => ({ kind: 'offer' as const, id: o.id, code: o.title, type: o.type, value: o.value, description: null as string | null, minOrderPaise: o.minOrderPaise, expiresAt: null as string | null })),
     ...shopCoupons.map(c => ({ kind: 'coupon' as const, id: c.id, code: c.code, type: c.type, value: c.value, description: c.description, minOrderPaise: c.minOrderPaise, expiresAt: c.expiresAt })),
-  ];
+  ].filter(item => { if (seenIds.has(item.id)) return false; seenIds.add(item.id); return true; });
 
   return (
     <View style={s.root}>

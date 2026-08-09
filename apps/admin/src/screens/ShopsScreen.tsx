@@ -13,6 +13,7 @@ import { ApiError } from '@passwaala/api-client';
 import { api, recordPayment } from '../api';
 import { formatRupees, theme } from '../theme';
 import { useLang } from '../i18n/LanguageContext';
+import { ShopDetailModal } from './ShopDetailModal';
 
 interface AdminShop {
   id: string;
@@ -28,6 +29,12 @@ interface AdminShop {
   contactPhone: string | null;
   ownerLoginOtp?: string | null;
   ownerLoginPin?: string | null;
+  activeOrders: number;
+  totalOrders: number;
+  deliveredOrders: number;
+  gmvPaise: number;
+  revenuePaise: number;
+  refundPending: number;
 }
 
 type StatusTone = 'good' | 'warning' | 'info' | 'critical';
@@ -70,6 +77,8 @@ export function ShopsScreen() {
   const [confirmPayId, setConfirmPayId] = useState<string | null>(null);
   const [payShopId, setPayShopId] = useState<string | null>(null);
   const [payShopDraft, setPayShopDraft] = useState<Record<string, string>>({});
+  const [detailShopId, setDetailShopId] = useState<string | null>(null);
+  const [detailShopName, setDetailShopName] = useState<string | undefined>(undefined);
 
   const load = useCallback(async (cityFilter: string) => {
     setLoading(true); setError(null); setForbidden(false);
@@ -315,6 +324,14 @@ export function ShopsScreen() {
                     <View style={styles.expandPanel}>
                       {/* Stats row */}
                       <View style={styles.panelStats}>
+                        <PanelStat label="Active Orders"    value={String(shop.activeOrders)}                  warn={shop.activeOrders > 0} />
+                        <PanelStat label="Total Orders"     value={String(shop.totalOrders)} />
+                        <PanelStat label="Delivered"        value={String(shop.deliveredOrders)} />
+                        <PanelStat label="GMV"              value={formatRupees(shop.gmvPaise)} />
+                        <PanelStat label="Revenue (comm.)"  value={formatRupees(shop.revenuePaise)} />
+                        {shop.refundPending > 0 ? <PanelStat label="Refund Pending" value={String(shop.refundPending)} warn /> : null}
+                      </View>
+                      <View style={styles.panelStats}>
                         <PanelStat label="Outstanding Dues" value={formatRupees(shop.outstandingDuesPaise)} warn={hasDues} />
                         {hasPayable ? <PanelStat label="Payable to Shop" value={formatRupees(payablePaise)} /> : null}
                         <PanelStat label="Credit Limit" value={formatRupees(shop.creditLimitPaise)} />
@@ -388,6 +405,12 @@ export function ShopsScreen() {
                         </View>
                       ) : (
                         <View style={styles.panelActions}>
+                          <Pressable
+                            style={[styles.panelBtn, { backgroundColor: theme.color.accent }]}
+                            onPress={() => { setDetailShopId(shop.id); setDetailShopName(shop.name); }}
+                          >
+                            <Text style={styles.panelBtnText}>View Details</Text>
+                          </Pressable>
                           {shop.verificationStatus === 'APPROVED' && (
                             <Pressable
                               style={[styles.panelBtn, { backgroundColor: hasDues ? theme.color.accent : theme.color.surfaceAlt, borderWidth: hasDues ? 0 : 1, borderColor: theme.color.borderStrong }]}
@@ -429,6 +452,12 @@ export function ShopsScreen() {
           </View>
         )}
       </ScrollView>
+
+      <ShopDetailModal
+        shopId={detailShopId}
+        shopName={detailShopName}
+        onClose={() => setDetailShopId(null)}
+      />
     </View>
   );
 }

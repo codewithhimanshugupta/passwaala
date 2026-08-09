@@ -113,6 +113,8 @@ export interface FeedOrder {
   customerNudge?: string | null;
   customerNudgedAt?: string | null;
   rider?: { name: string | null; phone: string } | null;
+  /** Non-null when this order is part of a BulkOrder multi-shop run. */
+  bulkOrderId?: string | null;
 }
 
 /** A ledger entry row (GET /ledger). */

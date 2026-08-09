@@ -23,7 +23,7 @@ import { AuthController } from './auth.controller';
         secret: config.get<string>('JWT_SECRET') ?? 'dev-only-change-me',
         // Access-token lifetime. Dev default 7d for testing convenience; set
         // JWT_EXPIRES_IN in prod (rotating refresh tokens are a Phase-1 item).
-        signOptions: { expiresIn: config.get<string>('JWT_EXPIRES_IN') ?? '7d' },
+        signOptions: { expiresIn: config.get<string>('JWT_EXPIRES_IN') ?? '365d' },
       }),
     }),
   ],

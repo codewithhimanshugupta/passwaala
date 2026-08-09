@@ -37,6 +37,12 @@ export class AdminController {
     return this.admin.listAllShops(city);
   }
 
+  /** Full shop detail — config, KYC, products with stock, recent orders. */
+  @Get('shops/:id/detail')
+  shopDetail(@CurrentUser() user: AuthPayload, @Param('id') id: string) {
+    return this.admin.shopDetail(user.sub, id);
+  }
+
   /** Owner/platform dashboard: cross-shop aggregate stats. The Order Status
    *  widget is scoped to the caller's city + selected time period. */
   @Get('dashboard')
@@ -115,7 +121,7 @@ export class AdminController {
   /** All orders across the platform — live + completed, with OTPs and payment state. */
   @Get('orders')
   listAllOrders(@Query() page: PaginationQuery) {
-    return this.admin.listAllOrders(page, page.status);
+    return this.admin.listAllOrders(page, page.status, (page as Record<string, string>).shopId);
   }
 
   /** Record that a rider has deposited their collected COD cash → clears dues. */
@@ -178,7 +184,7 @@ export class AdminController {
     return this.admin.cancelOrder(user.sub, orderId, reason);
   }
 
-  /** Admin: assign additional riders to a heavy order (>20 kg). */
+  /** Admin: assign additional riders to a bulk order. */
   @Post('orders/:orderId/assign-riders')
   assignAdditionalRiders(
     @CurrentUser() user: AuthPayload,
@@ -186,5 +192,31 @@ export class AdminController {
     @Body('riderUserIds') riderUserIds: string[],
   ) {
     return this.admin.assignAdditionalRiders(user.sub, orderId, riderUserIds);
+  }
+
+  /** Admin: update delivery fee on a live order. For prepaid orders the delta
+   *  above the original fee is stored as extraDeliveryDuePaise (due at delivery). */
+  @Post('orders/:orderId/delivery-fee')
+  updateOrderDeliveryFee(
+    @CurrentUser() user: AuthPayload,
+    @Param('orderId') orderId: string,
+    @Body('newFeePaise') newFeePaise: number,
+  ) {
+    return this.admin.updateOrderDeliveryFee(user.sub, orderId, newFeePaise);
+  }
+
+  /** Admin: bulk orders list (keyset paginated). */
+  @Get('bulk-orders')
+  listBulkOrders(
+    @Query('limit') limit?: string,
+    @Query('cursor') cursor?: string,
+  ) {
+    return this.admin.listBulkOrders(limit ? parseInt(limit) : 20, cursor);
+  }
+
+  /** Admin: full detail for one bulk order. */
+  @Get('bulk-orders/:id')
+  getBulkOrder(@Param('id') id: string) {
+    return this.admin.getBulkOrder(id);
   }
 }

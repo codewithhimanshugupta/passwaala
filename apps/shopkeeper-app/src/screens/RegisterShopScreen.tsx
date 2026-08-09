@@ -7,6 +7,7 @@ import { Banner, Button, Card, ErrorText, Field, Screen } from '../ui';
 import { ImagePicker } from '../components/ImagePicker';
 import { LocationPicker } from '../components/LocationPicker';
 import { LanguagePicker } from '../components/LanguagePicker';
+import { UpiQrScanner } from '../components/UpiQrScanner';
 import type { PickedLocation } from '../components/LocationPicker';
 import { useLang } from '../i18n/LanguageContext';
 import type { Strings } from '../i18n/strings';
@@ -110,6 +111,7 @@ export function RegisterShopScreen({ onRegistered }: { onRegistered: (shop: MySh
 
   // Step 3 — Delivery options + Coupons
   const [upiVpa, setUpiVpa] = useState('');
+  const [upiScanError, setUpiScanError] = useState<string | null>(null);
   const [deliveryFee, setDeliveryFee] = useState('');
   const [freeAbove, setFreeAbove] = useState('');
   const [minOrder, setMinOrder] = useState('');
@@ -288,7 +290,18 @@ export function RegisterShopScreen({ onRegistered }: { onRegistered: (shop: MySh
       {step === 3 && (
         <Card>
           <View style={{ gap: theme.space.md }}>
-            <Field label="UPI ID" placeholder="yourshop@upi" autoCapitalize="none" value={upiVpa} onChangeText={setUpiVpa} hint="Customers pay to this UPI ID" />
+            <View style={{ gap: 6 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8 }}>
+                <View style={{ flex: 1 }}>
+                  <Field label="UPI ID" placeholder="yourshop@upi" autoCapitalize="none" value={upiVpa} onChangeText={(v) => { setUpiScanError(null); setUpiVpa(v); }} hint="Customers pay to this UPI ID" />
+                </View>
+                <UpiQrScanner
+                  onScan={(vpa) => { setUpiScanError(null); setUpiVpa(vpa); }}
+                  onError={(msg) => setUpiScanError(msg)}
+                />
+              </View>
+              {upiScanError ? <Text style={{ fontSize: 12, color: theme.color.danger }}>{upiScanError}</Text> : null}
+            </View>
             <View style={styles.toggleRow}>
               <View style={styles.flex}>
                 <Text style={styles.toggleLabel}>PassWaala Rider Delivery</Text>

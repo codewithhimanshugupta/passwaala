@@ -39,11 +39,8 @@ export interface RiderMe {
   creditLimitPaise: number;
   /** PassWaala's collection UPI so the rider can deposit COD dues (null if unset). */
   collectionUpi: { vpa: string; name: string } | null;
-  /** Total ever earned across all deliveries (optional — newer API field). */
   lifetimeEarnedPaise?: number;
-  /** Total ever paid out to the rider by PassWaala (optional — newer API field). */
   lifetimePaidOutPaise?: number;
-  /** Recent rider-ledger rows (up to 20), newest first (optional — newer API field). */
   ledger?: RiderLedgerEntry[];
 }
 
@@ -73,24 +70,19 @@ export interface JobAddress {
 
 /**
  * A rider job / delivery — an order in the rider-oriented shape returned by
- * /riders/jobs and /riders/deliveries. Only the fields the UI reads are typed.
+ * /riders/jobs and /riders/deliveries.
  */
 export interface RiderJob {
   id: string;
-  /** Human-readable support ID (OR + 8 hex). */
   shortId?: string | null;
   status: string;
   paymentMethod?: string;
-  /** True once the shop confirmed a COD-by-UPI payment (gates completion). */
   paymentConfirmed?: boolean;
-  /** Set when the rider claimed the customer paid this COD order by UPI/QR. */
   codUpiClaimedAt?: string | null;
   originalTotalPaise: number;
   adjustedTotalPaise?: number | null;
   deliveryFeePaise: number;
-  /** When the current dispatch offer to this rider expires (ISO); drives the countdown. */
   offerExpiresAt?: string | null;
-  /** True once dispatch opened this order to all riders (open board). */
   dispatchExhausted?: boolean;
   items: JobItem[];
   shop: JobShop;
@@ -99,3 +91,34 @@ export interface RiderJob {
   createdAt: string;
   updatedAt?: string;
 }
+
+/** A sub-order within a bulk job (one per shop). */
+export interface BulkSubOrder {
+  id: string;
+  shopId: string;
+  status: string;
+  originalTotalPaise: number;
+  riderPickupOtp?: string | null;
+  items: JobItem[];
+  shop: JobShop;
+}
+
+/** A bulk order job — spans multiple shops, single drop. */
+export interface BulkRiderJob {
+  id: string;
+  shortId?: string | null;
+  status: string;
+  paymentMethod?: string;
+  totalPaise: number;
+  baseDeliveryFeePaise: number;
+  multiShopSurchargePaise: number;
+  offerExpiresAt?: string | null;
+  dispatchExhausted?: boolean;
+  pickupSequenceJson?: string | null;
+  pickupOtp?: string | null;
+  createdAt: string;
+  updatedAt?: string;
+  address: JobAddress;
+  orders: BulkSubOrder[];
+}
+

@@ -38,4 +38,10 @@ export class UpsertCityDto {
   @IsString()
   @MaxLength(2000)
   deliveryTiersJson?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(50000)
+  multiShopSurchargePaise?: number;
 }

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Image, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Image, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { OrderStatus, PaymentMethod, DeliveryMode, buildUpiDeepLink } from '@passwaala/shared';
-import type { PlaceOrderResult } from '@passwaala/shared';
+import type { PlaceOrderResult, ProductPublic } from '@passwaala/shared';
 import { api } from '../api';
 import type { OrderDetail } from '../types';
 import { estimateOrderMinutes, formatMinutesBand, formatRupees, haversineMeters, shadow, theme } from '../theme';
@@ -121,10 +121,12 @@ export function OrderTrackingScreen({
   orderId,
   placeResult,
   onDone,
+  onOpenShop,
 }: {
   orderId: string;
   placeResult?: PlaceOrderResult;
   onDone: () => void;
+  onOpenShop?: (shopId: string) => void;
 }) {
   const { t } = useLang();
   const [order, setOrder] = useState<OrderDetail | null>(null);
@@ -151,6 +153,12 @@ export function OrderTrackingScreen({
   const hadClaimRef = useRef(false);
   // Previous order state — used to detect changes and fire browser notifications.
   const prevOrderRef = useRef<OrderDetail | null>(null);
+  // Add-items-to-order modal
+  const [showAddItems, setShowAddItems] = useState(false);
+  const [addProducts, setAddProducts] = useState<ProductPublic[]>([]);
+  const [addQty, setAddQty] = useState<Record<string, number>>({});
+  const [addProductsLoading, setAddProductsLoading] = useState(false);
+  const [addBusy, setAddBusy] = useState(false);
 
   // Request notification permission once on mount (silently — no prompt yet,
   // just prime it so we can fire when backgrounded).
@@ -330,6 +338,44 @@ export function OrderTrackingScreen({
     }
   }
 
+  async function openAddItems() {
+    if (!order) return;
+    setAddProductsLoading(true);
+    setAddQty({});
+    try {
+      const products = (await api.shopProducts(order.shop.id)) as ProductPublic[];
+      setAddProducts(products);
+      setShowAddItems(true);
+    } catch (e) {
+      setNotice((e as Error).message);
+    } finally {
+      setAddProductsLoading(false);
+    }
+  }
+
+  async function confirmAddItems() {
+    if (!order) return;
+    const items = Object.entries(addQty)
+      .filter(([, qty]) => qty > 0)
+      .map(([productId, qty]) => ({ productId, qty }));
+    if (!items.length) return;
+    setAddBusy(true);
+    try {
+      const res = await api.addItemsToOrder(order.id, items);
+      setShowAddItems(false);
+      setAddQty({});
+      await load();
+      const msg = res.isPrepaid && res.addedItemsDuePaise > 0
+        ? `${res.addedCount} item(s) added — ₹${(res.addedItemsDuePaise / 100).toFixed(2)} will be collected at delivery`
+        : `${res.addedCount} item(s) added to your order`;
+      setNotice(msg);
+    } catch (e) {
+      setNotice((e as Error).message);
+    } finally {
+      setAddBusy(false);
+    }
+  }
+
   if (loading) return <OrderTrackingSkeleton />;
   if (error && !order) return <ErrorState message={error} onRetry={load} />;
   if (!order) return <ErrorState message={t.orderTracking.orderNotFound} onRetry={load} />;
@@ -426,6 +472,7 @@ export function OrderTrackingScreen({
               <Text style={styles.stickyEtaDot}> • </Text>
               <Text style={styles.stickyEtaText}>On time</Text>
             </View>
+            <Text style={styles.stickyAutoRefresh}>Order status auto-refreshes</Text>
           </View>
         ) : null}
       </View>
@@ -502,47 +549,49 @@ export function OrderTrackingScreen({
         </View>
       ) : null}
 
-      {/* Timeline */}
+      {/* Current status card — replaces the full timeline.
+          When a rider is assigned the map is shown prominently (like the
+          screenshot); for all other active states just a single status line. */}
       {!isTerminalBad ? (
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>{t.orderTracking.orderStatus}</Text>
-          {timeline.map((step, i) => {
-            // When the order is delivered/collected, every step (including the
-            // last) reads as "done" — no node is "active", so the terminal state
-            // never shows an "In progress" badge alongside "Delivered".
-            const state: 'done' | 'active' | 'todo' = isDelivered
-              ? 'done'
-              : i < currentStep
-                ? 'done'
-                : i === currentStep
-                  ? 'active'
-                  : 'todo';
-            const isLast = i === timeline.length - 1;
-            return (
-              <View key={step.key} style={styles.timelineRow}>
-                <View style={styles.timelineGutter}>
-                  <View
-                    style={[
-                      styles.node,
-                      state === 'done' && styles.nodeDone,
-                      state === 'active' && styles.nodeActive,
-                    ]}
-                  />
-                  {!isLast ? (
-                    <View style={[styles.connector, (isDelivered || i < currentStep) && styles.connectorDone]} />
+        showMap && shopGeo && dropGeo ? (
+          /* ── Rider-assigned / out-for-delivery: map-first card ── */
+          <View style={styles.mapStatusCard}>
+            <View style={styles.mapStatusLeft}>
+              <Text style={styles.mapStatusHeadline}>
+                {order.status === 'OUT_FOR_DELIVERY' ? 'Order is on the way' : 'Rider is heading to the shop'}
+              </Text>
+              {etaBand ? (
+                <View style={styles.mapEtaChip}>
+                  <Text style={styles.mapEtaText}>{etaBand} • On time</Text>
+                </View>
+              ) : null}
+            </View>
+            <TrackingMap shop={shopGeo} drop={dropGeo} rider={riderGeo} phase={tripPhase} />
+          </View>
+        ) : (
+          /* ── All other active states: single current-status line ── */
+          <View style={styles.statusOnlyCard}>
+            {(() => {
+              const activeStep = timeline[currentStep] ?? timeline[timeline.length - 1];
+              return (
+                <>
+                  <View style={styles.statusOnlyIcon}>
+                    <View style={styles.nodeActive} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.statusOnlyLabel}>{activeStep?.label}</Text>
+                    {activeStep?.caption ? <Text style={styles.statusOnlyCaption}>{activeStep.caption}</Text> : null}
+                  </View>
+                  {etaBand && !isDelivered ? (
+                    <View style={styles.statusOnlyEta}>
+                      <Text style={styles.statusOnlyEtaText}>{etaBand}</Text>
+                    </View>
                   ) : null}
-                </View>
-                <View style={styles.timelineBody}>
-                  <Text style={[styles.stepLabel, state === 'todo' && styles.stepLabelTodo]}>
-                    {step.label}
-                  </Text>
-                  <Text style={styles.stepCaption}>{step.caption}</Text>
-                  {state === 'active' ? <Badge label={t.orderTracking.inProgress} tone="info" style={styles.stepBadge} /> : null}
-                </View>
-              </View>
-            );
-          })}
-        </View>
+                </>
+              );
+            })()}
+          </View>
+        )
       ) : (
         <View style={styles.section}>
           <Text style={styles.badReason}>
@@ -570,11 +619,39 @@ export function OrderTrackingScreen({
         </View>
       ) : null}
 
-      {/* Live tracking mini-map (platform-rider orders, once coords are known). */}
-      {showMap && shopGeo && dropGeo ? (
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>{t.orderTracking.liveTracking}</Text>
-          <TrackingMap shop={shopGeo} drop={dropGeo} rider={riderGeo} phase={tripPhase} />
+      {/* "Add more items" — appends items to this order directly */}
+      {[OrderStatus.PLACED, OrderStatus.ACCEPTED, OrderStatus.AWAITING_PAYMENT, OrderStatus.PREPARING].includes(order.status) ? (
+        <Pressable
+          style={styles.addMoreRow}
+          onPress={openAddItems}
+          disabled={addProductsLoading}
+        >
+          {addProductsLoading
+            ? <ActivityIndicator color={theme.color.primary} style={{ flex: 1 }} />
+            : <>
+                <Text style={styles.addMoreText}>Add more items</Text>
+                <Text style={styles.addMoreSub}>{order.shop.name}</Text>
+                <Text style={styles.addMoreArrow}>›</Text>
+              </>}
+        </Pressable>
+      ) : null}
+
+      {/* Delivery details — address + customer phone (Zomato-style "all in one place") */}
+      {!isTerminalBad && !isPickup ? (
+        <View style={styles.deliveryDetailsCard}>
+          <Text style={styles.deliveryDetailsHeader}>All your delivery details in one place</Text>
+          {order.address?.line ? (
+            <View style={styles.deliveryDetailRow}>
+              <Text style={styles.deliveryDetailIcon}>⌂</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.deliveryDetailLabel}>Delivery address</Text>
+                <Text style={styles.deliveryDetailValue}>{order.address.line}</Text>
+                {order.address.landmark ? (
+                  <Text style={styles.deliveryDetailSub}>{order.address.landmark}</Text>
+                ) : null}
+              </View>
+            </View>
+          ) : null}
         </View>
       ) : null}
 
@@ -739,7 +816,7 @@ export function OrderTrackingScreen({
           );
         })}
         <Divider style={styles.recapDivider} />
-        {/* Itemized bill — same breakdown the shop sees. */}
+        {/* Itemized bill */}
         <View style={styles.recapRow}>
           <Text style={styles.recapName}>{t.orderTracking.itemsSubtotal}</Text>
           <Text style={styles.recapPrice}>
@@ -752,15 +829,51 @@ export function OrderTrackingScreen({
             {order.deliveryFeePaise > 0 ? formatRupees(order.deliveryFeePaise) : t.common.free}
           </Text>
         </View>
+        {/* GST on platform fee (18% of platformFeePaise) */}
+        {order.platformFeePaise > 0 ? (
+          <View style={styles.recapRow}>
+            <Text style={styles.recapName}>GST (govt. taxes)</Text>
+            <Text style={styles.recapPrice}>{formatRupees(Math.round(order.platformFeePaise * 0.18))}</Text>
+          </View>
+        ) : null}
         <View style={styles.recapRow}>
           <Text style={styles.recapName}>{t.orderTracking.platformFee}</Text>
           <Text style={styles.recapPrice}>{formatRupees(order.platformFeePaise)}</Text>
         </View>
+        {(order.discountPaise ?? 0) > 0 ? (
+          <View style={styles.recapRow}>
+            <Text style={[styles.recapName, { color: theme.color.success }]}>Discount applied</Text>
+            <Text style={[styles.recapPrice, { color: theme.color.success }]}>−{formatRupees(order.discountPaise!)}</Text>
+          </View>
+        ) : null}
+        {(order.coinsRedeemedPaise ?? 0) > 0 ? (
+          <View style={styles.recapRow}>
+            <Text style={[styles.recapName, { color: theme.color.success }]}>PassWala Coins</Text>
+            <Text style={[styles.recapPrice, { color: theme.color.success }]}>−{formatRupees(order.coinsRedeemedPaise!)}</Text>
+          </View>
+        ) : null}
         <Divider style={styles.recapDivider} />
         <View style={styles.recapRow}>
           <Text style={[styles.recapName, styles.recapTotalLabel]}>{t.orderTracking.totalPaid}</Text>
           <Text style={styles.recapTotal}>{formatRupees(total)}</Text>
         </View>
+        {(order.extraDeliveryDuePaise ?? 0) > 0 || (order.addedItemsDuePaise ?? 0) > 0 ? (
+          <View style={styles.dueAtDeliveryBox}>
+            <Text style={styles.dueAtDeliveryLabel}>Collect at delivery</Text>
+            {(order.extraDeliveryDuePaise ?? 0) > 0 ? (
+              <View style={styles.dueRow}>
+                <Text style={styles.dueRowName}>Extra delivery fee</Text>
+                <Text style={styles.dueRowAmt}>{formatRupees(order.extraDeliveryDuePaise!)}</Text>
+              </View>
+            ) : null}
+            {(order.addedItemsDuePaise ?? 0) > 0 ? (
+              <View style={styles.dueRow}>
+                <Text style={styles.dueRowName}>Added items</Text>
+                <Text style={styles.dueRowAmt}>{formatRupees(order.addedItemsDuePaise!)}</Text>
+              </View>
+            ) : null}
+          </View>
+        ) : null}
         <View style={styles.payMethodRow}>
           <Badge
             label={isUpi ? t.orderTracking.upiBadge : t.orderTracking.codBadge}
@@ -768,6 +881,42 @@ export function OrderTrackingScreen({
           />
           {order.paymentConfirmed ? <Badge label={t.orderTracking.paymentConfirmed} tone="success" /> : null}
         </View>
+
+        {/* FSSAI / GSTIN footer — food shops only */}
+        {(order.shop.kyc?.fssai || order.shop.gstin) ? (
+          <View style={styles.licenceFooter}>
+            {order.shop.gstin ? (
+              <Text style={styles.licenceText}>GSTIN: {order.shop.gstin}</Text>
+            ) : null}
+            {order.shop.kyc?.fssai ? (
+              <Text style={styles.licenceText}>FSSAI Lic. No. {order.shop.kyc.fssai}</Text>
+            ) : null}
+          </View>
+        ) : null}
+      </View>
+
+      {/* Payment receipt card */}
+      <View style={styles.receiptCard}>
+        <View style={styles.receiptRow}>
+          <Text style={styles.receiptLabel}>Payment method</Text>
+          <Text style={styles.receiptValue}>
+            {isUpi ? 'Paid via UPI' : 'Cash on Delivery'}
+          </Text>
+        </View>
+        <View style={styles.receiptRow}>
+          <Text style={styles.receiptLabel}>Order date</Text>
+          <Text style={styles.receiptValue}>
+            {new Date(order.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}
+            {' at '}
+            {new Date(order.createdAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+          </Text>
+        </View>
+        {order.address?.line ? (
+          <View style={styles.receiptRow}>
+            <Text style={styles.receiptLabel}>Delivery address</Text>
+            <Text style={[styles.receiptValue, { flex: 1.4 }]}>{order.address.line}</Text>
+          </View>
+        ) : null}
       </View>
 
       <View style={styles.doneWrap}>
@@ -798,6 +947,106 @@ export function OrderTrackingScreen({
             />
             <Button label={t.orderTracking.submitRating} onPress={submitReview} busy={submittingReview} />
             <Button label={t.common.cancel} onPress={() => setShowReview(false)} variant="ghost" />
+          </View>
+        </View>
+      </Modal>
+
+      {/* Add-items modal — product picker scoped to this order's shop */}
+      <Modal visible={showAddItems} transparent animationType="slide" onRequestClose={() => setShowAddItems(false)}>
+        <View style={styles.addItemsOverlay}>
+          <View style={styles.addItemsSheet}>
+            {/* Header */}
+            <View style={styles.addItemsHeader}>
+              <Text style={styles.addItemsTitle}>Add items to your order</Text>
+              <Pressable onPress={() => setShowAddItems(false)} hitSlop={12} style={styles.addItemsClose}>
+                <Text style={styles.addItemsCloseText}>✕</Text>
+              </Pressable>
+            </View>
+
+            {/* Product list */}
+            <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: theme.space.md, gap: theme.space.sm }}>
+              {addProducts.length === 0 ? (
+                <Text style={{ color: theme.color.textMuted, textAlign: 'center', marginTop: theme.space.xl }}>
+                  No products available
+                </Text>
+              ) : addProducts.map((p) => {
+                const qty = addQty[p.id] ?? 0;
+                const orderable = p.available && p.inStock;
+                return (
+                  <View key={p.id} style={styles.addItemRow}>
+                    <View style={{ flex: 1, gap: 2 }}>
+                      <Text style={styles.addItemName} numberOfLines={2}>{p.name}</Text>
+                      <Text style={styles.addItemPrice}>{formatRupees(p.pricePaise)}</Text>
+                    </View>
+                    {!orderable ? (
+                      <View style={styles.addItemOos}>
+                        <Text style={styles.addItemOosText}>Out of stock</Text>
+                      </View>
+                    ) : qty === 0 ? (
+                      <Pressable
+                        style={styles.addItemAddBtn}
+                        onPress={() => setAddQty(prev => ({ ...prev, [p.id]: 1 }))}
+                      >
+                        <Text style={styles.addItemAddBtnText}>ADD</Text>
+                      </Pressable>
+                    ) : (
+                      <View style={styles.addItemStepper}>
+                        <Pressable
+                          style={styles.addItemStepBtn}
+                          onPress={() => setAddQty(prev => {
+                            const next = { ...prev };
+                            if ((next[p.id] ?? 0) <= 1) { delete next[p.id]; } else { next[p.id] = next[p.id] - 1; }
+                            return next;
+                          })}
+                        >
+                          <Text style={styles.addItemStepBtnText}>−</Text>
+                        </Pressable>
+                        <Text style={styles.addItemQty}>{qty}</Text>
+                        <Pressable
+                          style={styles.addItemStepBtn}
+                          onPress={() => setAddQty(prev => ({ ...prev, [p.id]: (prev[p.id] ?? 0) + 1 }))}
+                        >
+                          <Text style={styles.addItemStepBtnText}>+</Text>
+                        </Pressable>
+                      </View>
+                    )}
+                  </View>
+                );
+              })}
+            </ScrollView>
+
+            {/* Sticky confirm bar */}
+            {(() => {
+              const addedItems = Object.entries(addQty).filter(([, q]) => q > 0);
+              const addedCount = addedItems.reduce((s, [, q]) => s + q, 0);
+              const addedTotal = addedItems.reduce((s, [id, q]) => {
+                const p = addProducts.find(x => x.id === id);
+                return s + (p ? p.pricePaise * q : 0);
+              }, 0);
+              const isPrepaid = order.paymentMethod === PaymentMethod.UPI_DIRECT && order.paymentConfirmed;
+              return (
+                <View style={styles.addItemsConfirmBar}>
+                  {isPrepaid && addedTotal > 0 ? (
+                    <Text style={styles.addItemsPrepaidNote}>
+                      {formatRupees(addedTotal)} will be collected at delivery
+                    </Text>
+                  ) : null}
+                  <Pressable
+                    style={[styles.addItemsConfirmBtn, (addedCount === 0 || addBusy) && styles.addItemsConfirmBtnDisabled]}
+                    onPress={confirmAddItems}
+                    disabled={addedCount === 0 || addBusy}
+                  >
+                    {addBusy
+                      ? <ActivityIndicator color="#fff" />
+                      : <Text style={styles.addItemsConfirmBtnText}>
+                          {addedCount > 0
+                            ? `Add ${addedCount} item${addedCount > 1 ? 's' : ''} · ${formatRupees(addedTotal)}`
+                            : 'Select items to add'}
+                        </Text>}
+                  </Pressable>
+                </View>
+              );
+            })()}
           </View>
         </View>
       </Modal>
@@ -875,6 +1124,7 @@ const styles = StyleSheet.create({
   },
   stickyEtaText: { fontSize: theme.font.small, fontWeight: '700', color: '#fff' },
   stickyEtaDot: { color: 'rgba(255,255,255,0.6)', fontSize: theme.font.small },
+  stickyAutoRefresh: { fontSize: theme.font.tiny, color: 'rgba(255,255,255,0.55)', textAlign: 'center', marginTop: 2 },
 
   // ── Shop card (Zomato style) ──
   shopCard: {
@@ -1054,6 +1304,57 @@ const styles = StyleSheet.create({
 
   badReason: { fontSize: theme.font.body, color: theme.color.text },
 
+  // Map-first status card (rider assigned / out for delivery)
+  mapStatusCard: {
+    marginHorizontal: theme.space.lg,
+    marginBottom: theme.space.md,
+    backgroundColor: theme.color.surface,
+    borderRadius: theme.radius.lg,
+    borderWidth: 1,
+    borderColor: theme.color.border,
+    padding: theme.space.lg,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.space.lg,
+    ...shadow.md,
+  },
+  mapStatusLeft: { flex: 1, gap: theme.space.sm },
+  mapStatusHeadline: { fontSize: theme.font.h3, fontWeight: '800', color: theme.color.text },
+  mapEtaChip: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 12, paddingVertical: 5,
+    borderRadius: theme.radius.pill,
+    borderWidth: 1.5,
+    borderColor: theme.color.primary,
+    backgroundColor: theme.color.primaryLight,
+  },
+  mapEtaText: { fontSize: theme.font.small, fontWeight: '700', color: theme.color.primary },
+
+  // Single-line status card (placed / preparing / ready)
+  statusOnlyCard: {
+    marginHorizontal: theme.space.lg,
+    marginBottom: theme.space.md,
+    backgroundColor: theme.color.surface,
+    borderRadius: theme.radius.lg,
+    borderWidth: 1,
+    borderColor: theme.color.border,
+    padding: theme.space.lg,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.space.md,
+    ...shadow.md,
+  },
+  statusOnlyIcon: { width: 14, height: 14, borderRadius: 7, backgroundColor: theme.color.primary },
+  statusOnlyLabel: { fontSize: theme.font.body, fontWeight: '700', color: theme.color.text },
+  statusOnlyCaption: { fontSize: theme.font.small, color: theme.color.textMuted, marginTop: 2 },
+  statusOnlyEta: {
+    paddingHorizontal: 10, paddingVertical: 4,
+    borderRadius: theme.radius.pill,
+    borderWidth: 1, borderColor: theme.color.border,
+    backgroundColor: theme.color.surfaceAlt,
+  },
+  statusOnlyEtaText: { fontSize: theme.font.small, fontWeight: '600', color: theme.color.textMuted },
+
   recapRow: { flexDirection: 'row', alignItems: 'center', gap: theme.space.sm, paddingVertical: 3 },
   recapQty: { fontSize: theme.font.body, fontWeight: "700", color: theme.color.primary, minWidth: 28 },
   recapName: { flex: 1, fontSize: theme.font.body, color: theme.color.text },
@@ -1065,6 +1366,52 @@ const styles = StyleSheet.create({
   recapTotalLabel: { fontWeight: "700" },
   recapTotal: { fontSize: theme.font.h3, fontWeight: "800", color: theme.color.text },
   payMethodRow: { flexDirection: 'row', gap: theme.space.sm, marginTop: theme.space.md, flexWrap: 'wrap' },
+  licenceFooter: { marginTop: theme.space.md, paddingTop: theme.space.sm, borderTopWidth: 1, borderTopColor: theme.color.border, gap: 3 },
+  licenceText: { fontSize: theme.font.tiny, color: theme.color.textFaint },
+
+  // "Add more items" row
+  addMoreRow: {
+    flexDirection: 'row', alignItems: 'center', gap: theme.space.sm,
+    marginHorizontal: theme.space.lg,
+    backgroundColor: theme.color.surface,
+    borderRadius: theme.radius.lg,
+    borderWidth: 1, borderColor: theme.color.border,
+    paddingHorizontal: theme.space.md, paddingVertical: theme.space.md,
+    ...shadow.sm,
+  },
+  addMoreText: { fontSize: theme.font.body, fontWeight: '700', color: theme.color.text, flex: 1 },
+  addMoreSub: { fontSize: theme.font.small, color: theme.color.textMuted },
+  addMoreArrow: { fontSize: 22, color: theme.color.textFaint },
+
+  // Delivery details card
+  deliveryDetailsCard: {
+    marginHorizontal: theme.space.lg,
+    backgroundColor: '#FFFBEB',
+    borderRadius: theme.radius.lg,
+    borderWidth: 1, borderColor: '#FDE68A',
+    padding: theme.space.md,
+    gap: theme.space.sm,
+  },
+  deliveryDetailsHeader: { fontSize: theme.font.small, fontWeight: '700', color: '#92400E', marginBottom: 2 },
+  deliveryDetailRow: { flexDirection: 'row', alignItems: 'flex-start', gap: theme.space.sm },
+  deliveryDetailIcon: { fontSize: 16, color: theme.color.textMuted, width: 20, textAlign: 'center' },
+  deliveryDetailLabel: { fontSize: theme.font.tiny, fontWeight: '700', color: theme.color.textMuted, textTransform: 'uppercase', letterSpacing: 0.3 },
+  deliveryDetailValue: { fontSize: theme.font.small, fontWeight: '600', color: theme.color.text, marginTop: 1 },
+  deliveryDetailSub: { fontSize: theme.font.tiny, color: theme.color.textMuted, marginTop: 1 },
+
+  // Payment receipt card
+  receiptCard: {
+    marginHorizontal: theme.space.lg,
+    backgroundColor: theme.color.surface,
+    borderRadius: theme.radius.lg,
+    borderWidth: 1, borderColor: theme.color.border,
+    padding: theme.space.md,
+    gap: theme.space.sm,
+    ...shadow.sm,
+  },
+  receiptRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: theme.space.sm },
+  receiptLabel: { fontSize: theme.font.small, fontWeight: '600', color: theme.color.textMuted, flex: 1 },
+  receiptValue: { fontSize: theme.font.small, fontWeight: '700', color: theme.color.text, flex: 1, textAlign: 'right' },
 
   doneWrap: { paddingHorizontal: theme.space.lg },
 
@@ -1127,4 +1474,50 @@ const styles = StyleSheet.create({
     textAlignVertical: 'top',
     marginBottom: theme.space.sm,
   },
+
+  // Due-at-delivery box (prepaid orders)
+  dueAtDeliveryBox: { marginTop: theme.space.sm, backgroundColor: '#FEF3C7', borderRadius: theme.radius.md, padding: theme.space.sm, borderWidth: 1, borderColor: '#FDE68A', gap: 4 },
+  dueAtDeliveryLabel: { fontSize: theme.font.tiny, fontWeight: '800', color: '#92400E', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 2 },
+  dueRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  dueRowName: { fontSize: theme.font.small, color: '#92400E' },
+  dueRowAmt: { fontSize: theme.font.small, fontWeight: '700', color: '#92400E' },
+
+  // Add-items modal
+  addItemsOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
+  addItemsSheet: {
+    backgroundColor: theme.color.surface,
+    borderTopLeftRadius: theme.radius.xl,
+    borderTopRightRadius: theme.radius.xl,
+    maxHeight: '85%',
+    overflow: 'hidden',
+  },
+  addItemsHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: theme.space.lg, paddingVertical: theme.space.md,
+    borderBottomWidth: 1, borderBottomColor: theme.color.border,
+  },
+  addItemsTitle: { fontSize: theme.font.h3, fontWeight: '800', color: theme.color.text },
+  addItemsClose: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
+  addItemsCloseText: { fontSize: theme.font.h3, color: theme.color.textMuted },
+  addItemRow: {
+    flexDirection: 'row', alignItems: 'center', gap: theme.space.md,
+    backgroundColor: theme.color.card,
+    borderRadius: theme.radius.md, borderWidth: 1, borderColor: theme.color.border,
+    padding: theme.space.md,
+  },
+  addItemName: { fontSize: theme.font.body, fontWeight: '600', color: theme.color.text },
+  addItemPrice: { fontSize: theme.font.small, color: theme.color.primary, fontWeight: '700' },
+  addItemOos: { paddingHorizontal: theme.space.sm, paddingVertical: 4, borderRadius: theme.radius.sm, backgroundColor: theme.color.surfaceAlt },
+  addItemOosText: { fontSize: theme.font.tiny, color: theme.color.textFaint, fontWeight: '600' },
+  addItemAddBtn: { paddingHorizontal: theme.space.md, paddingVertical: 6, borderRadius: theme.radius.sm, borderWidth: 1.5, borderColor: theme.color.primary },
+  addItemAddBtnText: { fontSize: theme.font.small, fontWeight: '800', color: theme.color.primary },
+  addItemStepper: { flexDirection: 'row', alignItems: 'center', gap: 4, borderWidth: 1.5, borderColor: theme.color.primary, borderRadius: theme.radius.sm, overflow: 'hidden' },
+  addItemStepBtn: { width: 30, height: 30, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.color.primaryLight },
+  addItemStepBtnText: { fontSize: theme.font.h3, fontWeight: '700', color: theme.color.primary },
+  addItemQty: { minWidth: 24, textAlign: 'center', fontSize: theme.font.body, fontWeight: '800', color: theme.color.text },
+  addItemsConfirmBar: { padding: theme.space.md, borderTopWidth: 1, borderTopColor: theme.color.border, gap: theme.space.xs },
+  addItemsPrepaidNote: { fontSize: theme.font.tiny, color: '#92400E', fontWeight: '600', textAlign: 'center' },
+  addItemsConfirmBtn: { backgroundColor: theme.color.primary, borderRadius: theme.radius.lg, paddingVertical: theme.space.md, alignItems: 'center' },
+  addItemsConfirmBtnDisabled: { opacity: 0.4 },
+  addItemsConfirmBtnText: { color: '#fff', fontWeight: '800', fontSize: theme.font.body },
 });

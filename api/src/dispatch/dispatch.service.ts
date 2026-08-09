@@ -1,5 +1,5 @@
 import { Injectable, Logger, NotImplementedException, OnApplicationBootstrap, OnModuleDestroy } from '@nestjs/common';
-import { DeliveryMode, OrderStatus } from '@passwaala/shared';
+import { BulkOrderStatus, DeliveryMode, OrderStatus } from '@passwaala/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { WebPushService } from '../notifications/web-push.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
@@ -254,6 +254,7 @@ export class DispatchService implements OnApplicationBootstrap, OnModuleDestroy 
         deliveryMode: DeliveryMode.PLATFORM_RIDER,
         status: OrderStatus.READY,
         riderId: null,
+        bulkOrderId: null, // standalone orders only — bulk orders handled below
         dispatchExhausted: false,
         deletedAt: null,
         OR: [{ offeredRiderId: null }, { offerExpiresAt: { lte: now } }],
@@ -261,13 +262,119 @@ export class DispatchService implements OnApplicationBootstrap, OnModuleDestroy 
       select: { id: true },
     });
     for (const o of stale) {
-      // Clear the stale offer first so offerNext picks a fresh candidate.
       await this.prisma.order.update({
         where: { id: o.id },
         data: { offeredRiderId: null, offerExpiresAt: null },
       });
       await this.offerNext(o.id);
     }
+
+    // Sweep stale BulkOrder offers
+    const staleBulk = await this.prisma.bulkOrder.findMany({
+      where: {
+        status: BulkOrderStatus.READY_ALL,
+        riderId: null,
+        dispatchExhausted: false,
+        deletedAt: null,
+        OR: [{ offeredRiderId: null }, { offerExpiresAt: { lte: now } }],
+      },
+      select: { id: true },
+    });
+    for (const b of staleBulk) {
+      await this.prisma.bulkOrder.update({
+        where: { id: b.id },
+        data: { offeredRiderId: null, offerExpiresAt: null },
+      });
+      await this.offerNextForBulk(b.id);
+    }
+  }
+
+  // ---- Bulk-order dispatch ----
+
+  /**
+   * Offer a BulkOrder to the nearest eligible rider, widening rings as usual.
+   * Uses the anchor shop (first in sequence) as the pickup origin.
+   */
+  async offerNextForBulk(bulkOrderId: string): Promise<string | null> {
+    const bulk = await this.prisma.bulkOrder.findFirst({
+      where: {
+        id: bulkOrderId,
+        status: BulkOrderStatus.READY_ALL,
+        riderId: null,
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+        dispatchTriedRiderIds: true,
+        dispatchRadiusMeters: true,
+        dispatchExhausted: true,
+        orders: {
+          take: 1,
+          select: { shop: { select: { latitude: true, longitude: true, city: true } } },
+        },
+      },
+    });
+    if (!bulk || bulk.dispatchExhausted) return null;
+
+    const anchorShop = bulk.orders[0]?.shop;
+    if (!anchorShop?.latitude || !anchorShop?.longitude) return null;
+
+    const shopGeo: LatLng = { lat: Number(anchorShop.latitude), lng: Number(anchorShop.longitude) };
+    const shopCity = anchorShop.city;
+    const tried = bulk.dispatchTriedRiderIds;
+    const startRing = bulk.dispatchRadiusMeters ?? DispatchService.RINGS[0];
+    const startIdx = Math.max(0, DispatchService.RINGS.indexOf(startRing));
+
+    for (let i = startIdx; i < DispatchService.RINGS.length; i += 1) {
+      const radius = DispatchService.RINGS[i];
+      const candidates = await this.candidatesFor(shopGeo, shopCity, tried, radius);
+      if (candidates.length > 0) {
+        const chosen = candidates[0];
+        await this.prisma.bulkOrder.update({
+          where: { id: bulkOrderId },
+          data: {
+            offeredRiderId: chosen.userId,
+            offerExpiresAt: new Date(Date.now() + DispatchService.OFFER_TTL_MS),
+            dispatchTriedRiderIds: { push: chosen.userId },
+            dispatchRadiusMeters: radius,
+          },
+        });
+        void this.webPush.sendToUser(chosen.userId, {
+          title: '🛵 Bulk delivery job!',
+          body: 'A multi-shop delivery near you is ready. Tap to accept.',
+          tag: `bulk-${bulkOrderId}`,
+          url: '/',
+        });
+        this.realtime.emitJobOffered(chosen.userId, { orderId: bulkOrderId });
+        return chosen.userId;
+      }
+    }
+
+    await this.prisma.bulkOrder.update({
+      where: { id: bulkOrderId },
+      data: {
+        offeredRiderId: null,
+        offerExpiresAt: null,
+        dispatchExhausted: true,
+        dispatchRadiusMeters: DispatchService.RINGS[DispatchService.RINGS.length - 1],
+      },
+    });
+    return null;
+  }
+
+  /** Initialise dispatch state for a READY_ALL BulkOrder and make the first offer. */
+  async startForBulkOrder(bulkOrderId: string): Promise<string | null> {
+    await this.prisma.bulkOrder.update({
+      where: { id: bulkOrderId },
+      data: {
+        dispatchRadiusMeters: DispatchService.RINGS[0],
+        dispatchTriedRiderIds: [],
+        dispatchExhausted: false,
+        offeredRiderId: null,
+        offerExpiresAt: null,
+      },
+    });
+    return this.offerNextForBulk(bulkOrderId);
   }
 
   // ---- Generic seam (future service categories) — still deferred ----

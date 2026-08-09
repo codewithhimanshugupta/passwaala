@@ -51,6 +51,7 @@ function AppRoot() {
   const [tab, setTab] = useState<Tab>('home');
   const [online, setOnline] = useState(false);
   const [sessionExpired, setSessionExpired] = useState(false);
+  const reachedAppRef = useRef(false);
   // One-time audio unlock: browser autoplay policy needs a user gesture before
   // the new-job beep can sound. We flip this on the first touch after login.
   const audioUnlockedRef = useRef(false);
@@ -100,6 +101,7 @@ function AppRoot() {
       setOnline(rider.online);
       setTab('home');
       setStage('app');
+      reachedAppRef.current = true;
     } catch (err) {
       // A 401 / expired session must NOT be treated as "not a rider yet" — the
       // onUnauthorized listener already routes us to login. Only a 403/404
@@ -129,7 +131,8 @@ function AppRoot() {
   useEffect(() => {
     return onAuthExpired(() => {
       setOnline(false);
-      setSessionExpired(true);
+      setSessionExpired(reachedAppRef.current);
+      reachedAppRef.current = false;
       setAuthScreen('login');
       setStage('login');
     });

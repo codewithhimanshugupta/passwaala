@@ -184,3 +184,19 @@ export enum OfferType {
   FLAT_OFF      = 'FLAT_OFF',      // value = paise amount off subtotal
   FREE_DELIVERY = 'FREE_DELIVERY', // waives delivery fee entirely
 }
+
+/**
+ * BulkOrder lifecycle status (append-only). Envelope over multiple sub-orders.
+ * PLACED → ACCEPTED_ALL → READY_ALL → RIDER_ASSIGNED → PICKING_UP
+ * → OUT_FOR_DELIVERY → DELIVERED. CANCELLED ends the run.
+ */
+export enum BulkOrderStatus {
+  PLACED           = 'PLACED',
+  ACCEPTED_ALL     = 'ACCEPTED_ALL',
+  READY_ALL        = 'READY_ALL',
+  RIDER_ASSIGNED   = 'RIDER_ASSIGNED',
+  PICKING_UP       = 'PICKING_UP',
+  OUT_FOR_DELIVERY = 'OUT_FOR_DELIVERY',
+  DELIVERED        = 'DELIVERED',
+  CANCELLED        = 'CANCELLED',
+}

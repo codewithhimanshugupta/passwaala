@@ -5,19 +5,14 @@ import { formatRupees, theme } from '../theme';
 import { Badge, Banner, Card, ErrorText } from '../ui';
 import { DisputeModal } from '../components/DisputeModal';
 import { useLang } from '../i18n/LanguageContext';
-import type { RiderJob } from '../types';
+import type { RiderJob, BulkRiderJob } from '../types';
 
-/** Deliveries fetched per page (initial load + each scroll-to-end). */
 const PAGE_SIZE = 20;
 
-/**
- * DeliveriesScreen — the rider's completed-delivery HISTORY. Active work (claimed
- * orders being picked up / delivered) lives on the Jobs tab; an order only lands
- * here once it's DELIVERED. Keyset paginated — loads a page at a time as the
- * rider scrolls, so a long history never ships in one call.
- */
+type HistoryItem = { type: 'order'; data: RiderJob } | { type: 'bulk'; data: BulkRiderJob };
+
 export function DeliveriesScreen() {
-  const [deliveries, setDeliveries] = useState<RiderJob[]>([]);
+  const [items, setItems] = useState<HistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -27,12 +22,21 @@ export function DeliveriesScreen() {
 
   const load = useCallback(async () => {
     try {
-      const page = (await api.riderDeliveryHistory({ limit: PAGE_SIZE })) as {
-        items: RiderJob[];
-        nextCursor: string | null;
+      const page = (await api.riderDeliveryHistory({ limit: PAGE_SIZE })) as unknown as {
+        orders: RiderJob[];
+        ordersNextCursor: string | null;
+        bulkOrders: BulkRiderJob[];
       };
-      setDeliveries(page.items);
-      setNextCursor(page.nextCursor);
+      const combined: HistoryItem[] = [
+        ...(page.orders ?? []).map((d): HistoryItem => ({ type: 'order', data: d })),
+        ...(page.bulkOrders ?? []).map((d): HistoryItem => ({ type: 'bulk', data: d })),
+      ].sort((a, b) => {
+        const ta = new Date((a.data.updatedAt ?? a.data.createdAt) as string).getTime();
+        const tb = new Date((b.data.updatedAt ?? b.data.createdAt) as string).getTime();
+        return tb - ta;
+      });
+      setItems(combined);
+      setNextCursor(page.ordersNextCursor);
       setError(null);
     } catch (e) {
       setError((e as Error).message);
@@ -46,46 +50,35 @@ export function DeliveriesScreen() {
     if (loadingMore || !nextCursor) return;
     setLoadingMore(true);
     try {
-      const page = (await api.riderDeliveryHistory({ limit: PAGE_SIZE, cursor: nextCursor })) as {
-        items: RiderJob[];
-        nextCursor: string | null;
+      const page = (await api.riderDeliveryHistory({ limit: PAGE_SIZE, cursor: nextCursor })) as unknown as {
+        orders: RiderJob[];
+        ordersNextCursor: string | null;
+        bulkOrders: BulkRiderJob[];
       };
-      setDeliveries((prev) => [...prev, ...page.items]);
-      setNextCursor(page.nextCursor);
+      const newItems: HistoryItem[] = (page.orders ?? []).map((d): HistoryItem => ({ type: 'order', data: d }));
+      setItems((prev) => [...prev, ...newItems]);
+      setNextCursor(page.ordersNextCursor);
     } catch {
-      // Keep what's loaded; the next scroll retries.
+      /* keep loaded; next scroll retries */
     } finally {
       setLoadingMore(false);
     }
   }, [loadingMore, nextCursor]);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  useEffect(() => { load(); }, [load]);
 
   if (loading) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator color={theme.color.accent} size="large" />
-      </View>
-    );
+    return <View style={styles.center}><ActivityIndicator color={theme.color.accent} size="large" /></View>;
   }
 
   return (
     <FlatList
       style={styles.screen}
       contentContainerStyle={styles.content}
-      data={deliveries}
-      keyExtractor={(d) => d.id}
+      data={items}
+      keyExtractor={(item) => item.data.id}
       refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={() => {
-            setRefreshing(true);
-            load();
-          }}
-          tintColor={theme.color.accent}
-        />
+        <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={theme.color.accent} />
       }
       onEndReached={loadMore}
       onEndReachedThreshold={0.4}
@@ -96,17 +89,71 @@ export function DeliveriesScreen() {
         </>
       }
       ListEmptyComponent={
-        <Banner
-          tone="info"
-          title={t.deliveries.emptyTitle}
-          message={t.deliveries.emptyMessage}
-        />
+        <Banner tone="info" title={t.deliveries.emptyTitle} message={t.deliveries.emptyMessage} />
       }
       ListFooterComponent={
         loadingMore ? <ActivityIndicator style={styles.footer} color={theme.color.accent} /> : null
       }
-      renderItem={({ item }) => <DeliveryCard delivery={item} />}
+      renderItem={({ item }) =>
+        item.type === 'bulk'
+          ? <BulkDeliveryCard bulk={item.data} />
+          : <DeliveryCard delivery={item.data} />
+      }
     />
+  );
+}
+
+function BulkDeliveryCard({ bulk }: { bulk: BulkRiderJob }) {
+  const { t } = useLang();
+  const dateStr = bulk.updatedAt ?? bulk.createdAt;
+  const deliveredAt = dateStr
+    ? new Date(dateStr as string).toLocaleString('en-IN', {
+        day: '2-digit', month: 'short', year: 'numeric',
+        hour: '2-digit', minute: '2-digit',
+      })
+    : null;
+  const earnedPaise = bulk.baseDeliveryFeePaise + bulk.multiShopSurchargePaise;
+  const drop = [bulk.address?.line, bulk.address?.landmark].filter(Boolean).join(', ');
+  return (
+    <Card>
+      <View style={styles.cardHeader}>
+        <View style={styles.headerInfo}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <View style={styles.bulkBadge}><Text style={styles.bulkBadgeText}>BULK</Text></View>
+            <Text style={styles.shopName} numberOfLines={1}>
+              {bulk.orders?.map((o) => o.shop?.name).filter(Boolean).join(' + ')}
+            </Text>
+          </View>
+          <Text style={styles.orderNo}>{bulk.shortId ?? `BLK${bulk.id.replace(/-/g,'').slice(0,8).toUpperCase()}`}</Text>
+        </View>
+        <Badge label={t.deliveries.delivered} tone="success" />
+      </View>
+
+      <View style={styles.leg}>
+        <Text style={styles.legLabel}>STOPS</Text>
+        <Text style={styles.legText}>{bulk.orders?.length ?? 0} shops</Text>
+      </View>
+      <View style={styles.leg}>
+        <Text style={styles.legLabel}>{t.deliveries.dropLabel}</Text>
+        <Text style={styles.legText}>{drop || t.deliveries.dropUnavailable}</Text>
+      </View>
+
+      <View style={styles.metaRow}>
+        <Text style={[styles.meta, styles.earnedAmount]}>
+          {t.deliveries.earned} {formatRupees(earnedPaise)}
+        </Text>
+        {deliveredAt ? (
+          <>
+            <Text style={styles.metaDot}>·</Text>
+            <Text style={styles.meta}>{deliveredAt}</Text>
+          </>
+        ) : null}
+      </View>
+      <View style={styles.orderTotalRow}>
+        <Text style={styles.orderTotalLabel}>Order value</Text>
+        <Text style={styles.orderTotalValue}>{formatRupees(bulk.totalPaise)}</Text>
+      </View>
+    </Card>
   );
 }
 
@@ -196,4 +243,6 @@ const styles = StyleSheet.create({
   orderTotalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: theme.space.xs, borderTopWidth: 1, borderTopColor: theme.color.border, marginTop: theme.space.xs },
   orderTotalLabel: { fontSize: theme.font.small, color: theme.color.textMuted },
   orderTotalValue: { fontSize: theme.font.small, fontWeight: '700', color: theme.color.text },
+  bulkBadge: { backgroundColor: '#7C3AED', borderRadius: theme.radius.pill, paddingHorizontal: 7, paddingVertical: 2 },
+  bulkBadgeText: { color: '#FFFFFF', fontSize: theme.font.tiny, fontWeight: '800' },
 });

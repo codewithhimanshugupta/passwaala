@@ -1,9 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
-import { CancelledBy, DeliveryMode, OrderStatus } from '@passwaala/shared';
+import { DeliveryMode, OrderStatus } from '@passwaala/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
-import { DisputesService } from '../disputes/disputes.service';
 
 /**
  * AutomationService — all system-driven background jobs. Every action is written
@@ -11,10 +10,13 @@ import { DisputesService } from '../disputes/disputes.service';
  *
  * Jobs:
  *  1. remindShopsOfNewOrders    — re-emit order.created every 5 min for PLACED orders
- *  2. cancelStaleOrders         — auto-cancel PLACED orders idle ≥15 min
- *  3. autoOpenCloseShops        — toggle isOpen based on workingHours every minute
- *  4. redispatchExpiredOffers   — re-offer RIDER_ASSIGNED orders whose offer window expired
- *  5. closeShopsAtCreditLimit   — safety net: ensure over-limit shops are closed
+ *  2. autoOpenCloseShops        — toggle isOpen based on workingHours every minute
+ *  3. redispatchExpiredOffers   — re-offer RIDER_ASSIGNED orders whose offer window expired
+ *  4. closeShopsAtCreditLimit   — safety net: ensure over-limit shops are closed
+ *
+ * Note: auto-cancellation of stale orders (no shop response in 15 min) is now
+ * handled by a per-order setTimeout fired at placement in OrdersService, so
+ * no cron sweep is needed here.
  */
 @Injectable()
 export class AutomationService {
@@ -23,7 +25,6 @@ export class AutomationService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly realtime: RealtimeGateway,
-    private readonly disputes: DisputesService,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -64,79 +65,6 @@ export class AutomationService {
     }
     if (orders.length > 0) {
       this.logger.log(`AUTOMATION reminded ${orders.length} shop(s) of pending orders`);
-    }
-  }
-
-  // ---------------------------------------------------------------------------
-  // Job 2 — Auto-cancel PLACED orders idle ≥15 min, restore stock + refund coins
-  // ---------------------------------------------------------------------------
-  @Cron('*/2 * * * *')
-  async cancelStaleOrders() {
-    const cutoff = new Date(Date.now() - 15 * 60 * 1000);
-    const orders = await this.prisma.order.findMany({
-      where: { status: OrderStatus.PLACED, createdAt: { lt: cutoff }, deletedAt: null },
-      select: {
-        id: true,
-        shortId: true,
-        customerId: true,
-        shopId: true,
-        coinsRedeemedPaise: true,
-        items: { select: { productId: true, qty: true } },
-        shop: { select: { shortId: true, name: true } },
-      },
-    });
-
-    for (const order of orders) {
-      try {
-        await this.prisma.$transaction([
-          this.prisma.order.update({
-            where: { id: order.id },
-            data: {
-              status: OrderStatus.CANCELLED,
-              cancelledBy: CancelledBy.SYSTEM,
-              cancellationReason: 'No response from shop within 15 minutes',
-              cancelledAt: new Date(),
-            },
-          }),
-          ...order.items.map((item) =>
-            this.prisma.product.update({
-              where: { id: item.productId },
-              data: { stock: { increment: item.qty } },
-            }),
-          ),
-          ...(order.coinsRedeemedPaise > 0
-            ? [
-                this.prisma.user.update({
-                  where: { id: order.customerId },
-                  data: { coinBalance: { increment: order.coinsRedeemedPaise } },
-                }),
-              ]
-            : []),
-        ]);
-
-        this.realtime.emitOrderStatusChanged(order.customerId, {
-          orderId: order.id,
-          status: OrderStatus.CANCELLED,
-        });
-
-        await this.disputes.openSystemDispute(order.id, 'No response from shop within 15 minutes — auto-cancelled by system.');
-
-        const orderRef = (order as { shortId?: string | null }).shortId ?? `OR${order.id.replace(/-/g,'').slice(0,8).toUpperCase()}`;
-        const shopRef = (order as { shop?: { shortId?: string | null; name?: string } }).shop?.shortId
-          ? `${(order as { shop: { shortId: string; name: string } }).shop.shortId} (${(order as { shop: { name: string } }).shop.name})`
-          : order.shopId.slice(0, 8).toUpperCase();
-
-        await this.log({
-          action: 'ORDER_AUTO_CANCELLED',
-          detail: `Auto-cancelled after 15 min — no shop response. Order ${orderRef} · Shop ${shopRef}.${order.coinsRedeemedPaise > 0 ? ` Refunded ${order.coinsRedeemedPaise / 100} coins.` : ''}`,
-          orderId: order.id,
-          shopId: order.shopId,
-        });
-
-        this.logger.log(`AUTOMATION auto-cancelled order=${orderRef}`);
-      } catch (err) {
-        this.logger.error(`AUTOMATION cancel failed for order=${order.id}: ${(err as Error).message}`);
-      }
     }
   }
 

@@ -4,13 +4,14 @@ import {
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
-import { DeliveryMode, OrderStatus, PaymentMethod, RiderLedgerType, UserRole } from '@passwaala/shared';
+import { DeliveryMode, OrderStatus, PaymentMethod, RiderLedgerType, UserRole, BulkOrderStatus, haversineMeters } from '@passwaala/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
 import { DispatchService } from '../dispatch/dispatch.service';
 import { CitiesService } from '../cities/cities.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { LedgerService } from '../ledger/ledger.service';
+import { ReferralsService } from '../referrals/referrals.service';
 import { RIDER_ORDER_SELECT } from '../orders/order-select';
 import { PaginationQuery, cursorArgs, toPage } from '../common/pagination';
 import { titleCaseName } from '../common/text.util';
@@ -38,6 +39,7 @@ export class RidersService {
     private readonly cities: CitiesService,
     private readonly realtime: RealtimeGateway,
     private readonly ledger: LedgerService,
+    private readonly referrals: ReferralsService,
   ) {}
 
   /** Register the caller as a RIDER (idempotent) + return a fresh RIDER token. */
@@ -247,25 +249,62 @@ export class RidersService {
       select: { online: true, serviceCity: true },
     });
     if (!profile?.online) {
-      return [];
+      return { orders: [], bulkOrders: [] };
     }
-    const orders = await this.prisma.order.findMany({
-      where: {
-        deliveryMode: DeliveryMode.PLATFORM_RIDER,
-        status: OrderStatus.READY,
-        riderId: null,
-        deletedAt: null,
-        // City scope: only jobs from shops in the rider's service city.
-        shop: { city: profile.serviceCity },
-        OR: [
-          { offeredRiderId: userId, offerExpiresAt: { gt: new Date() } },
-          { dispatchExhausted: true },
-        ],
-      },
-      orderBy: { createdAt: 'asc' },
-      select: RIDER_ORDER_SELECT,
-    });
-    return orders;
+    const [orders, bulkOrders] = await Promise.all([
+      this.prisma.order.findMany({
+        where: {
+          deliveryMode: DeliveryMode.PLATFORM_RIDER,
+          status: OrderStatus.READY,
+          riderId: null,
+          bulkOrderId: null, // standalone only — bulk handled separately
+          deletedAt: null,
+          shop: { city: profile.serviceCity },
+          OR: [
+            { offeredRiderId: userId, offerExpiresAt: { gt: new Date() } },
+            { dispatchExhausted: true },
+          ],
+        },
+        orderBy: { createdAt: 'asc' },
+        select: RIDER_ORDER_SELECT,
+      }),
+      this.prisma.bulkOrder.findMany({
+        where: {
+          status: BulkOrderStatus.READY_ALL,
+          riderId: null,
+          deletedAt: null,
+          orders: { some: { shop: { city: profile.serviceCity } } },
+          OR: [
+            { offeredRiderId: userId, offerExpiresAt: { gt: new Date() } },
+            { dispatchExhausted: true },
+          ],
+        },
+        orderBy: { createdAt: 'asc' },
+        select: {
+          id: true,
+          shortId: true,
+          status: true,
+          paymentMethod: true,
+          totalPaise: true,
+          baseDeliveryFeePaise: true,
+          multiShopSurchargePaise: true,
+          offerExpiresAt: true,
+          dispatchExhausted: true,
+          createdAt: true,
+          address: { select: { line: true, landmark: true, latitude: true, longitude: true } },
+          orders: {
+            select: {
+              id: true,
+              shopId: true,
+              originalTotalPaise: true,
+              items: { select: { nameSnapshot: true, qty: true } },
+              shop: { select: { name: true, addressLine: true, city: true, latitude: true, longitude: true, upiVpa: true } },
+            },
+          },
+        },
+      }),
+    ]);
+    return { orders, bulkOrders };
   }
 
   /**
@@ -274,38 +313,102 @@ export class RidersService {
    * polls this to surface in-hand work.
    */
   async myDeliveries(userId: string) {
-    return this.prisma.order.findMany({
-      where: {
-        riderId: userId,
-        deletedAt: null,
-        status: { in: [OrderStatus.RIDER_ASSIGNED, OrderStatus.OUT_FOR_DELIVERY] },
-      },
-      orderBy: { updatedAt: 'desc' },
-      select: RIDER_ORDER_SELECT,
-    });
+    const [orders, bulkOrders] = await Promise.all([
+      this.prisma.order.findMany({
+        where: {
+          riderId: userId,
+          bulkOrderId: null, // standalone only
+          deletedAt: null,
+          status: { in: [OrderStatus.RIDER_ASSIGNED, OrderStatus.OUT_FOR_DELIVERY] },
+        },
+        orderBy: { updatedAt: 'desc' },
+        select: RIDER_ORDER_SELECT,
+      }),
+      this.prisma.bulkOrder.findMany({
+        where: {
+          riderId: userId,
+          deletedAt: null,
+          status: {
+            in: [
+              BulkOrderStatus.RIDER_ASSIGNED,
+              BulkOrderStatus.PICKING_UP,
+              BulkOrderStatus.OUT_FOR_DELIVERY,
+            ],
+          },
+        },
+        orderBy: { updatedAt: 'desc' },
+        select: {
+          id: true,
+          shortId: true,
+          status: true,
+          paymentMethod: true,
+          totalPaise: true,
+          baseDeliveryFeePaise: true,
+          multiShopSurchargePaise: true,
+          pickupSequenceJson: true,
+          pickupOtp: true,
+          createdAt: true,
+          updatedAt: true,
+          address: { select: { line: true, landmark: true, latitude: true, longitude: true } },
+          orders: {
+            select: {
+              id: true,
+              shopId: true,
+              status: true,
+              originalTotalPaise: true,
+              riderPickupOtp: true,
+              codUpiClaimedAt: true,
+              paymentConfirmed: true,
+              items: { select: { nameSnapshot: true, qty: true } },
+              shop: { select: { name: true, addressLine: true, city: true, latitude: true, longitude: true, upiVpa: true } },
+            },
+          },
+        },
+      }),
+    ]);
+    return { orders, bulkOrders };
   }
 
   /**
    * The caller's completed-delivery HISTORY (DELIVERED), newest first. Keyset
    * paginated — grows unbounded, so the Deliveries screen loads a page at a time.
+   * Includes both standalone orders AND completed bulk-order envelopes.
    */
   async deliveryHistory(userId: string, page: PaginationQuery = {}) {
-    const rows = await this.prisma.order.findMany({
-      where: { riderId: userId, deletedAt: null, status: OrderStatus.DELIVERED },
-      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
-      ...cursorArgs(page.limit, page.cursor),
-      select: RIDER_ORDER_SELECT,
-    });
-    return toPage(rows, page.limit);
+    const [orders, bulkOrders] = await Promise.all([
+      this.prisma.order.findMany({
+        where: { riderId: userId, bulkOrderId: null, deletedAt: null, status: OrderStatus.DELIVERED },
+        orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+        ...cursorArgs(page.limit, page.cursor),
+        select: RIDER_ORDER_SELECT,
+      }),
+      this.prisma.bulkOrder.findMany({
+        where: { riderId: userId, deletedAt: null, status: BulkOrderStatus.DELIVERED },
+        orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+        take: (page.limit ?? 20) + 1,
+        ...(page.cursor ? { cursor: { id: page.cursor }, skip: 1 } : {}),
+        select: {
+          id: true, shortId: true, status: true, paymentMethod: true,
+          totalPaise: true, baseDeliveryFeePaise: true, multiShopSurchargePaise: true,
+          createdAt: true, updatedAt: true,
+          address: { select: { line: true, landmark: true, latitude: true, longitude: true } },
+          orders: {
+            select: {
+              id: true, shopId: true, originalTotalPaise: true,
+              items: { select: { nameSnapshot: true, qty: true } },
+              shop: { select: { name: true, addressLine: true, city: true, latitude: true, longitude: true } },
+            },
+          },
+        },
+      }),
+    ]);
+    return {
+      orders: toPage(orders, page.limit).items,
+      ordersNextCursor: toPage(orders, page.limit).nextCursor,
+      bulkOrders,
+    };
   }
 
-  /**
-   * Claim an available job (first-come). Enforces the active-order cap (a rider
-   * holds 1 order; a 2nd only if its drop is within the same-area radius of the
-   * first), then atomically sets riderId only if still unclaimed + READY, moving
-   * it RIDER_ASSIGNED (the rider must verify the shop's pickup OTP before it goes
-   * OUT_FOR_DELIVERY).
-   */
   /**
    * Claim the order currently OFFERED to this rider (proximity dispatch), or any
    * order on the open board once dispatch has exhausted all rings. Enforces the
@@ -569,5 +672,266 @@ export class RidersService {
       }),
     ]);
     return { paid: true, newEarningsPaise: updated.earningsPaise };
+  }
+
+  // ── Bulk-order rider operations ─────────────────────────────────────────────
+
+  /** Accept a BulkOrder (proximity offer or open board). */
+  async acceptBulk(userId: string, bulkOrderId: string) {
+    const me = await this.prisma.riderProfile.findUnique({
+      where: { userId },
+      select: { duesPaise: true, creditLimitPaise: true, latitude: true, longitude: true },
+    });
+    if (me && me.duesPaise >= me.creditLimitPaise) {
+      throw new BadRequestException('Clear your COD dues before taking new orders.');
+    }
+    // Active-order cap: a BulkOrder counts as 1
+    const activeCount = await this.prisma.order.count({
+      where: {
+        riderId: userId,
+        status: { in: [OrderStatus.RIDER_ASSIGNED, OrderStatus.OUT_FOR_DELIVERY] },
+        bulkOrderId: null,
+        deletedAt: null,
+      },
+    });
+    const activeBulkCount = await this.prisma.bulkOrder.count({
+      where: {
+        riderId: userId,
+        status: { in: [BulkOrderStatus.RIDER_ASSIGNED, BulkOrderStatus.PICKING_UP, BulkOrderStatus.OUT_FOR_DELIVERY] },
+        deletedAt: null,
+      },
+    });
+    if (activeCount + activeBulkCount >= RidersService.MAX_ACTIVE_ORDERS) {
+      throw new BadRequestException('You already have the maximum active orders. Finish one first.');
+    }
+
+    // Compute pickup sequence from rider's current location (nearest shop first)
+    const bulk = await this.prisma.bulkOrder.findFirst({
+      where: {
+        id: bulkOrderId,
+        status: BulkOrderStatus.READY_ALL,
+        riderId: null,
+        deletedAt: null,
+        OR: [
+          { offeredRiderId: userId, offerExpiresAt: { gt: new Date() } },
+          { dispatchExhausted: true },
+        ],
+      },
+      select: {
+        id: true,
+        orders: {
+          select: { id: true, shop: { select: { latitude: true, longitude: true } } },
+        },
+      },
+    });
+    if (!bulk) throw new BadRequestException('This bulk job is no longer available to you.');
+
+    // Sort shops nearest-first from rider's current position
+    const riderLat = me?.latitude != null ? Number(me.latitude) : NaN;
+    const riderLng = me?.longitude != null ? Number(me.longitude) : NaN;
+    const sorted = [...bulk.orders].sort((a, b) => {
+      if (!Number.isFinite(riderLat) || !Number.isFinite(riderLng)) return 0;
+      const da = haversineMeters(
+        { latitude: riderLat, longitude: riderLng },
+        { latitude: a.shop?.latitude, longitude: a.shop?.longitude },
+      );
+      const db = haversineMeters(
+        { latitude: riderLat, longitude: riderLng },
+        { latitude: b.shop?.latitude, longitude: b.shop?.longitude },
+      );
+      return da - db;
+    });
+    const pickupSequenceJson = JSON.stringify(sorted.map((o) => o.id));
+
+    // Atomic claim
+    const claimed = await this.prisma.bulkOrder.updateMany({
+      where: {
+        id: bulkOrderId,
+        status: BulkOrderStatus.READY_ALL,
+        riderId: null,
+        deletedAt: null,
+        OR: [
+          { offeredRiderId: userId, offerExpiresAt: { gt: new Date() } },
+          { dispatchExhausted: true },
+        ],
+      },
+      data: {
+        riderId: userId,
+        status: BulkOrderStatus.RIDER_ASSIGNED,
+        pickupSequenceJson,
+        offeredRiderId: null,
+        offerExpiresAt: null,
+      },
+    });
+    if (claimed.count === 0) throw new BadRequestException('This bulk job is no longer available to you.');
+
+    // Mark all sub-orders RIDER_ASSIGNED
+    await this.prisma.order.updateMany({
+      where: { bulkOrderId, deletedAt: null },
+      data: { riderId: userId, status: OrderStatus.RIDER_ASSIGNED },
+    });
+
+    // Notify customer their bulk order has a rider assigned
+    const cust = await this.prisma.bulkOrder.findUnique({ where: { id: bulkOrderId }, select: { customerId: true } });
+    if (cust) this.realtime.emitOrderStatusChanged(cust.customerId, { orderId: bulkOrderId, status: 'RIDER_ASSIGNED' });
+
+    return { accepted: true, pickupSequenceJson };
+  }
+
+  /** Decline a BulkOrder offer → re-offer to next rider. */
+  async declineBulk(userId: string, bulkOrderId: string) {
+    const bulk = await this.prisma.bulkOrder.findFirst({
+      where: { id: bulkOrderId, offeredRiderId: userId, status: BulkOrderStatus.READY_ALL, riderId: null, deletedAt: null },
+      select: { id: true, dispatchTriedRiderIds: true },
+    });
+    if (!bulk) return { declined: true };
+    const tried = bulk.dispatchTriedRiderIds.includes(userId)
+      ? bulk.dispatchTriedRiderIds
+      : [...bulk.dispatchTriedRiderIds, userId];
+    await this.prisma.bulkOrder.update({
+      where: { id: bulkOrderId },
+      data: { offeredRiderId: null, offerExpiresAt: null, dispatchTriedRiderIds: tried },
+    });
+    await this.dispatch.offerNextForBulk(bulkOrderId).catch(() => undefined);
+    return { declined: true };
+  }
+
+  /**
+   * Confirm pickup at one shop in the bulk run. The rider enters the
+   * riderPickupOtp shown on that shop's screen. Moves the sub-order
+   * RIDER_ASSIGNED → OUT_FOR_DELIVERY. When ALL sub-orders are picked up,
+   * the BulkOrder becomes OUT_FOR_DELIVERY.
+   */
+  async confirmBulkPickup(userId: string, subOrderId: string, otp: string) {
+    const order = await this.prisma.order.findFirst({
+      where: { id: subOrderId, riderId: userId, deletedAt: null },
+      select: { id: true, status: true, riderPickupOtp: true, bulkOrderId: true },
+    });
+    if (!order) throw new NotFoundException('Order not found');
+    if (!order.bulkOrderId) throw new BadRequestException('Not a bulk sub-order');
+    if (order.status !== OrderStatus.RIDER_ASSIGNED) {
+      throw new BadRequestException(`Cannot confirm pickup from status ${order.status}`);
+    }
+    if (order.riderPickupOtp) {
+      if (!otp?.trim()) throw new BadRequestException("Enter the shop's pickup OTP");
+      if (otp.trim() !== order.riderPickupOtp) throw new BadRequestException("Wrong OTP — ask the shop for the correct 4-digit code");
+    }
+    await this.prisma.order.update({
+      where: { id: subOrderId },
+      data: { status: OrderStatus.OUT_FOR_DELIVERY },
+    });
+
+    // Advance BulkOrder envelope stage
+    await this.advanceBulkStage(order.bulkOrderId);
+
+    const bulk = await this.prisma.bulkOrder.findUnique({ where: { id: order.bulkOrderId }, select: { customerId: true, status: true } });
+    if (bulk) this.realtime.emitOrderStatusChanged(bulk.customerId, { orderId: order.bulkOrderId, status: bulk.status });
+
+    return { status: OrderStatus.OUT_FOR_DELIVERY };
+  }
+
+  /**
+   * Complete the bulk delivery — rider enters the single customer handoff OTP
+   * (same OTP on the BulkOrder, shared across all sub-orders). Marks every
+   * sub-order DELIVERED and the BulkOrder DELIVERED. Credits earnings.
+   */
+  async completeBulkDelivery(userId: string, bulkOrderId: string, otp: string, codPaidViaUpi = false) {
+    const bulk = await this.prisma.bulkOrder.findFirst({
+      where: { id: bulkOrderId, riderId: userId, deletedAt: null },
+      select: {
+        id: true, status: true, pickupOtp: true, paymentMethod: true, totalPaise: true,
+        baseDeliveryFeePaise: true, multiShopSurchargePaise: true, customerId: true,
+        orders: { select: { id: true, status: true, paymentMethod: true, paymentConfirmed: true } },
+      },
+    });
+    if (!bulk) throw new NotFoundException('Bulk delivery not found');
+    if (bulk.status !== BulkOrderStatus.OUT_FOR_DELIVERY) {
+      throw new BadRequestException(`Cannot complete from status ${bulk.status}`);
+    }
+    if (bulk.pickupOtp) {
+      if (!otp?.trim()) throw new BadRequestException("Enter the customer's handoff OTP");
+      if (otp.trim() !== bulk.pickupOtp) throw new BadRequestException("Wrong OTP — ask the customer for the correct 4-digit code");
+    }
+    const paidViaUpi = bulk.paymentMethod === PaymentMethod.COD && codPaidViaUpi;
+    if (paidViaUpi && !bulk.orders.every((o) => o.paymentConfirmed)) {
+      throw new BadRequestException('Waiting for all shops to confirm they received the UPI payment.');
+    }
+    const isCodCash = bulk.paymentMethod === PaymentMethod.COD && !codPaidViaUpi;
+    const collectedPaise = isCodCash ? bulk.totalPaise : 0;
+    const earnedPaise = bulk.baseDeliveryFeePaise + bulk.multiShopSurchargePaise;
+
+    await this.prisma.$transaction([
+      // Deliver all sub-orders
+      this.prisma.order.updateMany({
+        where: { bulkOrderId, deletedAt: null },
+        data: { status: OrderStatus.DELIVERED },
+      }),
+      // Deliver the BulkOrder envelope
+      this.prisma.bulkOrder.update({
+        where: { id: bulkOrderId },
+        data: { status: BulkOrderStatus.DELIVERED },
+      }),
+      // Rider earnings
+      this.prisma.riderProfile.update({
+        where: { userId },
+        data: {
+          earningsPaise: { increment: earnedPaise },
+          ...(collectedPaise > 0 ? { duesPaise: { increment: collectedPaise } } : {}),
+        },
+      }),
+      this.prisma.riderLedger.create({
+        data: { riderUserId: userId, type: RiderLedgerType.DELIVERY_EARNING, amountPaise: earnedPaise, note: `Bulk delivery fee earned (${bulk.id})` },
+      }),
+      ...(collectedPaise > 0 ? [this.prisma.riderLedger.create({
+        data: { riderUserId: userId, type: RiderLedgerType.COD_COLLECTED, amountPaise: collectedPaise, note: `COD cash collected for bulk ${bulk.id}` },
+      })] : []),
+    ]);
+
+    // Accrue ledger for each sub-order
+    for (const subOrder of bulk.orders) {
+      await this.ledger.accrueOnDelivery(subOrder.id).catch(() => undefined);
+    }
+
+    // Notify customer the bulk order is delivered
+    const customerId = bulk.customerId;
+    this.realtime.emitOrderStatusChanged(customerId, { orderId: bulkOrderId, status: BulkOrderStatus.DELIVERED });
+
+    // Qualify referral for the customer (first bulk delivery counts as a qualifying order)
+    await this.referrals.qualifyOnDelivery(customerId).catch(() => undefined);
+
+    return { status: BulkOrderStatus.DELIVERED, earnedPaise, collectedPaise };
+  }
+
+  async claimBulkSubOrderUpiPaid(userId: string, subOrderId: string) {
+    const order = await this.prisma.order.findFirst({
+      where: { id: subOrderId, riderId: userId, bulkOrderId: { not: null }, deletedAt: null },
+      select: { id: true, status: true, shopId: true, paymentMethod: true },
+    });
+    if (!order) throw new NotFoundException('Order not found');
+    if (order.paymentMethod !== PaymentMethod.COD) throw new BadRequestException('Only COD orders');
+    if (order.status !== OrderStatus.OUT_FOR_DELIVERY) throw new BadRequestException(`Cannot claim from status ${order.status}`);
+    await this.prisma.order.update({ where: { id: subOrderId }, data: { codUpiClaimedAt: new Date() } });
+    this.realtime.emitOrderShopUpdate(order.shopId, { orderId: subOrderId, status: order.status as OrderStatus });
+    return { claimed: true };
+  }
+
+  private async advanceBulkStage(bulkOrderId: string): Promise<void> {
+    const bulk = await this.prisma.bulkOrder.findUnique({
+      where: { id: bulkOrderId },
+      select: { id: true, status: true, orders: { select: { status: true } } },
+    });
+    if (!bulk) return;
+    const allPickedUp = bulk.orders.every((o) => o.status === OrderStatus.OUT_FOR_DELIVERY);
+    if (allPickedUp) {
+      await this.prisma.bulkOrder.update({
+        where: { id: bulkOrderId },
+        data: { status: BulkOrderStatus.OUT_FOR_DELIVERY },
+      });
+    } else if (bulk.status === BulkOrderStatus.RIDER_ASSIGNED) {
+      await this.prisma.bulkOrder.update({
+        where: { id: bulkOrderId },
+        data: { status: BulkOrderStatus.PICKING_UP },
+      });
+    }
   }
 }

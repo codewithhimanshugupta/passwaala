@@ -78,16 +78,158 @@ export class AdminService {
         outstandingDuesPaise: true,
         creditLimitPaise: true,
         contactPhone: true,
-        // Owner's login PIN + legacy backup OTP (decrypted below) so admin can
-        // help a locked-out shopkeeper sign in.
         owner: { select: { loginOtpEnc: true, loginPinEnc: true } },
       },
     });
-    return shops.map(({ owner, ...shop }) => ({
-      ...shop,
+
+    const shopIds = shops.map((s) => s.id);
+
+    // Per-shop order stats — two groupBys, each a single DB round-trip.
+    const [statusGroups, gmvGroups, revenueGroups] = await Promise.all([
+      // Active + total counts per shop
+      this.prisma.order.groupBy({
+        by: ['shopId', 'status'],
+        where: { deletedAt: null, shopId: { in: shopIds } },
+        _count: { _all: true },
+      }),
+      // Delivered GMV per shop
+      this.prisma.order.groupBy({
+        by: ['shopId'],
+        where: { deletedAt: null, status: OrderStatus.DELIVERED, shopId: { in: shopIds } },
+        _sum: { originalTotalPaise: true },
+        _count: { _all: true },
+      }),
+      // Commission/platform-fee revenue per shop
+      this.prisma.ledgerEntry.groupBy({
+        by: ['shopId'],
+        where: {
+          deletedAt: null,
+          shopId: { in: shopIds },
+          type: { in: [LedgerEntryType.COMMISSION, LedgerEntryType.PLATFORM_FEE] },
+        },
+        _sum: { totalPaise: true },
+      }),
+    ]);
+
+    const ACTIVE_STATUSES = new Set([
+      OrderStatus.PLACED, OrderStatus.ACCEPTED, OrderStatus.AWAITING_PAYMENT,
+      OrderStatus.PREPARING, OrderStatus.READY,
+      OrderStatus.RIDER_ASSIGNED, OrderStatus.OUT_FOR_DELIVERY,
+    ]);
+    // Build lookup maps: shopId → aggregated stats
+    type StatusMap = Map<string, number>;
+    const byShopStatus = new Map<string, StatusMap>();
+    for (const g of statusGroups) {
+      if (!g.shopId) continue;
+      if (!byShopStatus.has(g.shopId)) byShopStatus.set(g.shopId, new Map());
+      byShopStatus.get(g.shopId)!.set(g.status, g._count._all);
+    }
+    const gmvByShop = new Map(gmvGroups.map((g) => [g.shopId, { paise: g._sum.originalTotalPaise ?? 0, count: g._count._all }]));
+    const revByShop = new Map(revenueGroups.map((g) => [g.shopId, g._sum.totalPaise ?? 0]));
+
+    return shops.map(({ owner, ...shop }) => {
+      const statusMap = byShopStatus.get(shop.id) ?? new Map<string, number>();
+      let activeOrders = 0;
+      let totalOrders = 0;
+      let refundPending = 0;
+      for (const [status, count] of statusMap) {
+        totalOrders += count;
+        if (ACTIVE_STATUSES.has(status as OrderStatus)) activeOrders += count;
+        if (status === OrderStatus.REFUND_PENDING) refundPending += count;
+      }
+      const gmv = gmvByShop.get(shop.id) ?? { paise: 0, count: 0 };
+      return {
+        ...shop,
+        ownerLoginOtp: decryptOtp(owner?.loginOtpEnc) ?? null,
+        ownerLoginPin: decryptOtp(owner?.loginPinEnc) ?? null,
+        activeOrders,
+        totalOrders,
+        deliveredOrders: gmv.count,
+        gmvPaise: gmv.paise,
+        revenuePaise: revByShop.get(shop.id) ?? 0,
+        refundPending,
+      };
+    });
+  }
+
+  /**
+   * Admin: full shop detail — all config fields, KYC, products with stock,
+   * and a recent-orders slice. Single endpoint so the detail modal needs one
+   * round-trip.
+   */
+  async shopDetail(adminUserId: string, shopId: string) {
+    const [shop, kyc, products, recentOrders] = await Promise.all([
+      this.prisma.shop.findFirst({
+        where: { id: shopId, deletedAt: null },
+        select: {
+          id: true, shortId: true, name: true, shopCategory: true, city: true,
+          addressLine: true, contactPhone: true, storefrontPhotoUrl: true,
+          logoUrl: true, bannerUrl: true, upiVpa: true, gstin: true,
+          legalName: true, stateCode: true,
+          latitude: true, longitude: true,
+          verificationStatus: true, isOpen: true,
+          commissionRate: true, commissionFreeUntil: true,
+          creditLimitPaise: true, outstandingDuesPaise: true,
+          minOrderValuePaise: true, deliveryFeePaise: true,
+          freeDeliveryAbovePaise: true, platformDeliveryEnabled: true,
+          selfPickupEnabled: true, offerText: true, workingHours: true,
+          avgRating: true, ratingCount: true,
+          createdAt: true, updatedAt: true,
+          owner: { select: { loginOtpEnc: true, loginPinEnc: true } },
+        },
+      }),
+      this.prisma.shopKyc.findFirst({
+        where: { shopId, deletedAt: null },
+        select: { aadhaarPan: true, gstOrLicence: true, fssai: true, bankProofUrl: true, docUrls: true, createdAt: true },
+      }),
+      this.prisma.product.findMany({
+        where: { shopId, deletedAt: null },
+        orderBy: [{ available: 'desc' }, { orderCount: 'desc' }, { name: 'asc' }],
+        select: {
+          id: true, name: true, pricePaise: true, mrpPaise: true,
+          stock: true, available: true, orderCount: true,
+          imageUrl: true, categoryId: true,
+          createdAt: true,
+        },
+      }),
+      this.prisma.order.findMany({
+        where: { shopId, deletedAt: null },
+        orderBy: [{ createdAt: 'desc' }],
+        take: 20,
+        select: {
+          id: true, shortId: true, status: true, originalTotalPaise: true,
+          adjustedTotalPaise: true, paymentMethod: true, deliveryMode: true,
+          cancellationReason: true, rejectionReason: true, createdAt: true,
+          customer: { select: { name: true, phone: true } },
+          items: { select: { nameSnapshot: true, qty: true } },
+        },
+      }),
+    ]);
+
+    if (!shop) throw new NotFoundException('Shop not found');
+
+    this.logger.log(`AUDIT shop.detail admin=${adminUserId} shop=${shopId} at=${new Date().toISOString()}`);
+
+    const { owner, ...shopFields } = shop;
+    return {
+      ...shopFields,
       ownerLoginOtp: decryptOtp(owner?.loginOtpEnc) ?? null,
       ownerLoginPin: decryptOtp(owner?.loginPinEnc) ?? null,
-    }));
+      kyc,
+      products,
+      recentOrders: recentOrders.map((o) => ({
+        orderId: o.id,
+        orderNumber: o.shortId ?? `OR${o.id.replace(/-/g, '').slice(0, 8).toUpperCase()}`,
+        status: o.status,
+        totalPaise: o.adjustedTotalPaise ?? o.originalTotalPaise,
+        paymentMethod: o.paymentMethod,
+        deliveryMode: o.deliveryMode,
+        reason: o.cancellationReason ?? o.rejectionReason ?? null,
+        customer: o.customer ? { name: o.customer.name, phone: o.customer.phone } : null,
+        itemCount: o.items.reduce((s, it) => s + it.qty, 0),
+        createdAt: o.createdAt.toISOString(),
+      })),
+    };
   }
 
   /**
@@ -703,9 +845,13 @@ export class AdminService {
 
   /** Admin: all orders across the platform — live and completed. Includes OTPs
    *  and payment state so the admin can verify any order end-to-end. */
-  async listAllOrders(page: PaginationQuery = {}, status?: string) {
+  async listAllOrders(page: PaginationQuery = {}, status?: string, shopId?: string) {
     const where: Record<string, unknown> = { deletedAt: null };
-    if (status) where.status = status;
+    if (status) {
+      const statuses = status.split(',').map((s) => s.trim()).filter(Boolean);
+      where.status = statuses.length === 1 ? statuses[0] : { in: statuses };
+    }
+    if (shopId) where.shopId = shopId;
     const rows = await this.prisma.order.findMany({
       where,
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
@@ -720,6 +866,7 @@ export class AdminService {
         adjustedTotalPaise: true,
         platformFeePaise: true,
         deliveryFeePaise: true,
+        extraDeliveryDuePaise: true,
         paymentConfirmed: true,
         paymentClaimedAt: true,
         codUpiClaimedAt: true,
@@ -730,6 +877,7 @@ export class AdminService {
         riderPickupOtp: true,
         createdAt: true,
         updatedAt: true,
+        additionalRiderIds: true,
         shop: { select: { id: true, shortId: true, name: true, city: true } },
         customer: { select: { id: true, shortId: true, name: true, phone: true } },
         rider: { select: { id: true, shortId: true, name: true, phone: true } },
@@ -747,6 +895,7 @@ export class AdminService {
         totalPaise: o.adjustedTotalPaise ?? o.originalTotalPaise,
         platformFeePaise: o.platformFeePaise,
         deliveryFeePaise: o.deliveryFeePaise,
+        extraDeliveryDuePaise: o.extraDeliveryDuePaise,
         paymentConfirmed: o.paymentConfirmed,
         paymentClaimedAt: o.paymentClaimedAt?.toISOString() ?? null,
         codUpiClaimedAt: o.codUpiClaimedAt?.toISOString() ?? null,
@@ -757,6 +906,7 @@ export class AdminService {
         shop: o.shop,
         customer: o.customer ? { id: o.customer.id, shortId: o.customer.shortId, name: o.customer.name, phone: o.customer.phone } : null,
         rider: o.rider ? { id: o.rider.id, shortId: o.rider.shortId, name: o.rider.name, phone: o.rider.phone } : null,
+        additionalRiderIds: o.additionalRiderIds,
         items: o.items,
         createdAt: o.createdAt.toISOString(),
         updatedAt: o.updatedAt.toISOString(),
@@ -959,15 +1109,72 @@ export class AdminService {
   }
 
   /**
-   * Admin: assign additional rider(s) to an order whose weight exceeds 20 kg.
+   * Admin: update the delivery fee on a live order.
+   *
+   * If the order is prepaid (UPI_DIRECT + paymentConfirmed), we cannot ask the
+   * customer to pay again via UPI, so the delta above the original fee is stored
+   * in extraDeliveryDuePaise — the rider collects it as cash/UPI at the door.
+   *
+   * Allowed on any non-terminal status so dispatch delays don't block the edit.
+   */
+  async updateOrderDeliveryFee(adminId: string, orderId: string, newFeePaise: number) {
+    if (!Number.isInteger(newFeePaise) || newFeePaise < 0) {
+      throw new BadRequestException('newFeePaise must be a non-negative integer');
+    }
+
+    const TERMINAL = ['DELIVERED', 'CANCELLED', 'REJECTED', 'REFUNDED'];
+    const order = await this.prisma.order.findFirst({
+      where: { id: orderId, deletedAt: null },
+      select: {
+        id: true,
+        status: true,
+        paymentMethod: true,
+        paymentConfirmed: true,
+        deliveryFeePaise: true,
+        extraDeliveryDuePaise: true,
+      },
+    });
+    if (!order) throw new NotFoundException('Order not found');
+    if (TERMINAL.includes(order.status)) {
+      throw new BadRequestException(`Cannot edit delivery fee on a terminal order (${order.status})`);
+    }
+
+    const isPrepaid = order.paymentMethod === 'UPI_DIRECT' && order.paymentConfirmed;
+    const delta = newFeePaise - order.deliveryFeePaise;
+
+    // For prepaid orders the original fee is already settled; any increase becomes
+    // a due amount the rider collects at delivery. Decreases reduce the due first.
+    const newDue = isPrepaid
+      ? Math.max(0, order.extraDeliveryDuePaise + delta)
+      : 0;
+
+    await this.prisma.order.update({
+      where: { id: orderId },
+      data: { deliveryFeePaise: newFeePaise, extraDeliveryDuePaise: newDue },
+    });
+
+    this.logger.log(
+      `AUDIT admin.updateDeliveryFee admin=${adminId} orderId=${orderId} ` +
+      `fee=${order.deliveryFeePaise}->${newFeePaise} due=${order.extraDeliveryDuePaise}->${newDue} prepaid=${isPrepaid}`,
+    );
+    return { deliveryFeePaise: newFeePaise, extraDeliveryDuePaise: newDue, isPrepaid };
+  }
+
+  /**
+   * Admin: assign additional rider(s) to a bulk/heavy order.
    * The primary riderId is unchanged; this appends to additionalRiderIds.
    * Idempotent — re-adding an already-assigned rider is a no-op.
    */
   async assignAdditionalRiders(adminId: string, orderId: string, riderUserIds: string[]) {
+    const TERMINAL = ['DELIVERED', 'CANCELLED', 'REJECTED', 'REFUNDED'];
     const order = await this.prisma.order.findFirst({
       where: { id: orderId, deletedAt: null },
       select: { id: true, status: true, additionalRiderIds: true, totalWeightGrams: true },
     });
+    if (!order) throw new NotFoundException('Order not found');
+    if (TERMINAL.includes(order.status)) {
+      throw new BadRequestException(`Cannot assign riders to a terminal order (${order.status})`);
+    }
     if (!order) throw new NotFoundException('Order not found');
 
     // Validate all rider IDs exist and are riders
@@ -989,5 +1196,58 @@ export class AdminService {
     });
     this.logger.log(`AUDIT admin.assignAdditionalRiders admin=${adminId} orderId=${orderId} riders=${merged.join(',')}`);
     return { additionalRiderIds: merged };
+  }
+
+  /** Admin: full detail for one bulk order — sub-orders, items, shop, customer, rider, address. */
+  async getBulkOrder(id: string) {
+    const bulk = await this.prisma.bulkOrder.findUnique({
+      where: { id, deletedAt: null },
+      include: {
+        customer: { select: { id: true, name: true, phone: true } },
+        rider: { select: { name: true, phone: true } },
+        address: { select: { line: true, landmark: true, latitude: true, longitude: true } },
+        orders: {
+          select: {
+            id: true, shortId: true, shopId: true, status: true,
+            originalTotalPaise: true, platformFeePaise: true, discountPaise: true, coinsRedeemedPaise: true, deliveryFeePaise: true,
+            paymentMethod: true, paymentConfirmed: true, riderPickupOtp: true,
+            items: { select: { nameSnapshot: true, pricePaiseSnapshot: true, qty: true } },
+            shop: { select: { id: true, name: true, upiVpa: true, contactPhone: true } },
+          },
+        },
+      },
+    });
+    if (!bulk) throw new NotFoundException('Bulk order not found');
+    return bulk;
+  }
+
+  /** Admin: list bulk orders newest-first, keyset paginated. */
+  async listBulkOrders(limit = 20, cursor?: string) {
+    const rows = await this.prisma.bulkOrder.findMany({
+      where: { deletedAt: null, ...(cursor ? { id: { lt: cursor } } : {}) },
+      orderBy: { createdAt: 'desc' },
+      take: limit + 1,
+      select: {
+        id: true,
+        shortId: true,
+        status: true,
+        paymentMethod: true,
+        totalPaise: true,
+        baseDeliveryFeePaise: true,
+        multiShopSurchargePaise: true,
+        createdAt: true,
+        rider: { select: { name: true, phone: true } },
+        orders: {
+          select: {
+            id: true,
+            shopId: true,
+            status: true,
+            shop: { select: { name: true } },
+          },
+        },
+      },
+    });
+    const hasMore = rows.length > limit;
+    return { items: rows.slice(0, limit), nextCursor: hasMore ? rows[limit - 1].id : null };
   }
 }

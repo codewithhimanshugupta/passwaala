@@ -6,10 +6,11 @@ import { DispatchModule } from '../dispatch/dispatch.module';
 import { RealtimeModule } from '../realtime/realtime.module';
 import { PaymentClaimsModule } from '../payment-claims/payment-claims.module';
 import { LedgerModule } from '../ledger/ledger.module';
+import { ReferralsModule } from '../referrals/referrals.module';
 
 /** RidersModule — platform delivery network (rider job board + earnings). */
 @Module({
-  imports: [AuthModule, DispatchModule, RealtimeModule, PaymentClaimsModule, LedgerModule],
+  imports: [AuthModule, DispatchModule, RealtimeModule, PaymentClaimsModule, LedgerModule, ReferralsModule],
   controllers: [RidersController],
   providers: [RidersService],
   exports: [RidersService],

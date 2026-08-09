@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, SafeAreaView, StyleSheet, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import type { PlaceOrderResult } from '@passwaala/shared';
@@ -9,6 +9,7 @@ import { LocationPermissionScreen } from './src/screens/LocationPermissionScreen
 import { DiscoveryScreen } from './src/screens/DiscoveryScreen';
 import { StorefrontScreen } from './src/screens/StorefrontScreen';
 import { CartScreen } from './src/screens/CartScreen';
+import { BulkCartScreen } from './src/screens/BulkCartScreen';
 import { OrderTrackingScreen } from './src/screens/OrderTrackingScreen';
 import { OrdersScreen } from './src/screens/OrdersScreen';
 import { ProfileScreen } from './src/screens/ProfileScreen';
@@ -172,7 +173,9 @@ type Stack =
   | { name: 'tabs' }
   | { name: 'shop'; shopId: string }
   | { name: 'confirmed'; orderId: string; result: PlaceOrderResult }
-  | { name: 'track'; orderId: string; result?: PlaceOrderResult };
+  | { name: 'track'; orderId: string; result?: PlaceOrderResult }
+  | { name: 'bulkCart' }
+  | { name: 'bulkConfirmed'; bulkOrderId: string; shortId: string; totalPaise: number };
 
 export default function App() {
   return (
@@ -189,6 +192,7 @@ function AppRoot() {
   const [tab, setTab] = useState<Tab>('home');
   const [stack, setStack] = useState<Stack>({ name: 'tabs' });
   const [sessionExpired, setSessionExpired] = useState(false);
+  const reachedAppRef = useRef(false);
   // Persist discovery view mode + selected map shop so back-from-shop returns correctly.
   const [discoveryViewMode, setDiscoveryViewMode] = useState<'list' | 'map'>('list');
   const [discoverySelectedShopId, setDiscoverySelectedShopId] = useState<string | null>(null);
@@ -250,6 +254,7 @@ function AppRoot() {
     try {
       const me = (await api.me()) as Account;
       setNameStatus(me.name && me.name.trim() ? 'ok' : 'needed');
+      reachedAppRef.current = true;
     } catch {
       // If we can't verify (transient), don't block the app — proceed to tabs.
       setNameStatus('ok');
@@ -274,7 +279,8 @@ function AppRoot() {
     return onAuthExpired(() => {
       resetCartStore();
       clearCheckoutPrefetch();
-      setSessionExpired(true);
+      setSessionExpired(reachedAppRef.current);
+      reachedAppRef.current = false;
       setLoggedIn(false);
       setNameStatus('checking');
       setTab('home');
@@ -408,6 +414,33 @@ function AppRoot() {
           orderId={stack.orderId}
           placeResult={stack.result}
           onDone={() => goTab('orders')}
+          onOpenShop={(shopId) => setStack({ name: 'shop', shopId })}
+        />
+      </Shell>
+    );
+  }
+
+  if (stack.name === 'bulkCart') {
+    return (
+      <Shell showTabs={false} tab={tab} onTab={goTab}>
+        <BulkCartScreen
+          onBack={() => setStack({ name: 'tabs' })}
+          onPlaced={(result) =>
+            setStack({ name: 'bulkConfirmed', bulkOrderId: result.bulkOrderId, shortId: result.shortId, totalPaise: result.totalPaise })
+          }
+        />
+      </Shell>
+    );
+  }
+
+  if (stack.name === 'bulkConfirmed') {
+    return (
+      <Shell showTabs={false} tab={tab} onTab={goTab}>
+        <OrderConfirmedScreen
+          orderId={stack.bulkOrderId}
+          result={{ orderId: stack.bulkOrderId, shortId: stack.shortId, totalPaise: stack.totalPaise } as unknown as PlaceOrderResult}
+          onTrack={() => goTab('orders')}
+          onHome={() => { goTab('home'); setStack({ name: 'tabs' }); }}
         />
       </Shell>
     );
@@ -435,6 +468,7 @@ function AppRoot() {
           onBrowse={() => goTab('home')}
           onOpenShop={(shopId) => setStack({ name: 'shop', shopId })}
           onPlaced={(result) => setStack({ name: 'confirmed', orderId: result.orderId, result })}
+          onOpenBulkCart={() => setStack({ name: 'bulkCart' })}
         />
       )}
       {tab === 'orders' && (

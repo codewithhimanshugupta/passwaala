@@ -605,7 +605,17 @@ function OrderCard({
       <View style={styles.cardHeader}>
         <View>
           {(order.shop?.name ?? order.shopName) ? <Text style={styles.shopNameLabel}>{order.shop?.name ?? order.shopName}</Text> : null}
-          <Text style={styles.orderId}>#{shortId}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Text style={styles.orderId}>#{shortId}</Text>
+            {order.bulkOrderId ? (
+              <View style={styles.bulkBadge}>
+                <Text style={styles.bulkBadgeText}>BULK</Text>
+              </View>
+            ) : null}
+          </View>
+          {order.bulkOrderId ? (
+            <Text style={styles.bulkRefText}>Multi-shop order</Text>
+          ) : null}
           <Text style={styles.orderMeta}>{when} · {order.paymentMethod}</Text>
         </View>
         <Badge label={meta.label} tone={meta.tone} />
@@ -827,6 +837,9 @@ const styles = StyleSheet.create({
   },
   cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   shopNameLabel: { fontSize: theme.font.tiny, fontWeight: '800', color: theme.color.accent, textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 2 },
+  bulkBadge: { backgroundColor: '#7C3AED', borderRadius: theme.radius.pill, paddingHorizontal: 7, paddingVertical: 2 },
+  bulkBadgeText: { color: '#FFFFFF', fontSize: theme.font.tiny, fontWeight: '800', letterSpacing: 0.5 },
+  bulkRefText: { fontSize: theme.font.tiny, color: '#7C3AED', fontWeight: '600', marginBottom: 2 },
   orderId: { fontWeight: '900', fontSize: theme.font.body, color: theme.color.text },
   orderMeta: { fontSize: theme.font.tiny, color: theme.color.textMuted, marginTop: 2 },
 

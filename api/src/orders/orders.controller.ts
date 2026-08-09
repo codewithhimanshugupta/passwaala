@@ -9,6 +9,7 @@ import { AdvanceOrderDto } from './dto/advance-order.dto';
 import { PlaceOrderDto } from './dto/place-order.dto';
 import { MarkUnavailableDto } from './dto/mark-unavailable.dto';
 import { FeedQuery } from './dto/feed-query.dto';
+import { AddOrderItemsDto } from './dto/add-order-items.dto';
 
 /**
  * OrdersController — customer places/tracks orders; shopkeeper reads their
@@ -90,6 +91,16 @@ export class OrdersController {
   @Get(':id')
   findOne(@CurrentUser() user: AuthPayload, @Param('id') id: string) {
     return this.orders.findOneForCustomer(user.sub, id);
+  }
+
+  /** Customer: add more items to a live order (PLACED/ACCEPTED/AWAITING_PAYMENT/PREPARING). */
+  @Post(':id/add-items')
+  addItems(
+    @CurrentUser() user: AuthPayload,
+    @Param('id') id: string,
+    @Body() dto: AddOrderItemsDto,
+  ) {
+    return this.orders.addItemsToOrder(user.sub, id, dto.items);
   }
 
   /** Customer claims they've paid (a claim — the shop verifies). */

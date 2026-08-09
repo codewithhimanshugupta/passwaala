@@ -682,4 +682,46 @@ export class ShopsService {
       .filter(r => r.offerId)
       .map(r => ({ offerId: r.offerId!, usedCount: r._count._all }));
   }
+
+  /**
+   * Nearby shops for multi-shop bulk orders: APPROVED + open + platformDelivery,
+   * within 1 km of the anchor shop, excluding the anchor itself.
+   */
+  async nearbyForBulk(anchorShopId: string) {
+    const anchor = await this.prisma.shop.findUnique({
+      where: { id: anchorShopId, deletedAt: null },
+      select: { latitude: true, longitude: true, city: true },
+    });
+    if (!anchor?.latitude || !anchor?.longitude) return [];
+
+    const rows = await this.prisma.$queryRawUnsafe<
+      Array<{ id: string; name: string; city: string; latitude: unknown; longitude: unknown; distance_meters: number }>
+    >(
+      `SELECT id, name, city, latitude, longitude,
+              ST_Distance(geog, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography) AS distance_meters
+         FROM "Shop"
+        WHERE "deletedAt" IS NULL
+          AND "verificationStatus" = 'APPROVED'
+          AND "isOpen" = TRUE
+          AND "platformDeliveryEnabled" = TRUE
+          AND geog IS NOT NULL
+          AND id != $3
+          AND city = $4
+          AND ST_DWithin(geog, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, 1000)
+        ORDER BY distance_meters ASC
+        LIMIT 10`,
+      Number(anchor.longitude),
+      Number(anchor.latitude),
+      anchorShopId,
+      anchor.city,
+    );
+    return rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      city: r.city,
+      latitude: r.latitude != null ? Number(r.latitude) : 0,
+      longitude: r.longitude != null ? Number(r.longitude) : 0,
+      distanceMeters: Math.round(r.distance_meters),
+    }));
+  }
 }

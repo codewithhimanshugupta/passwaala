@@ -52,6 +52,10 @@ function load(): LocalCart {
 let local: LocalCart = load();
 const listeners = new Set<() => void>();
 let version = 0; // bumps on every change so useSyncExternalStore re-reads
+// Once any local mutation runs, the in-memory state is authoritative. This flag
+// prevents hydrateFromIdb() from overwriting a user-initiated cart change with a
+// stale IDB snapshot that hasn't been flushed yet (the IDB write is fire-and-forget).
+let didMutate = false;
 
 /**
  * Durable persistence lives in IndexedDB (idbSet also mirrors to localStorage
@@ -59,6 +63,7 @@ let version = 0; // bumps on every change so useSyncExternalStore re-reads
  * instant; the in-memory `local` is the source of truth for the UI.
  */
 function persist() {
+  didMutate = true;
   version += 1;
   cached = snapshot();
   for (const l of listeners) l();
@@ -69,11 +74,14 @@ function persist() {
  * Hydrate from the durable IndexedDB copy on startup. If IDB holds a cart the
  * synchronous localStorage read missed (e.g. mirror cleared but IDB intact),
  * adopt it and notify subscribers. Called once at module init.
+ *
+ * Skipped if any mutation has already run — the in-memory state is newer than
+ * what IDB holds and we must not clobber it with a stale IDB read.
  */
 async function hydrateFromIdb(): Promise<void> {
   try {
     const stored = await idbGet<LocalCart>(STORAGE_KEY);
-    if (stored && stored.lines && local.lines.length === 0 && stored.lines.length > 0) {
+    if (!didMutate && stored && stored.lines && local.lines.length === 0 && stored.lines.length > 0) {
       local = stored;
       version += 1;
       cached = snapshot();

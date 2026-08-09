@@ -22,6 +22,7 @@ import { ImageOrInitial } from '../ImageOrInitial';
 import { getPrefetchedCheckout, clearCheckoutPrefetch } from '../checkoutPrefetch';
 import { StripedProgressBar } from '../StripedProgressBar';
 import { useLang } from '../i18n/LanguageContext';
+import { useBulkCart, bulkCartAddOne, currentBulkCartShops } from '../bulkCart';
 
 /**
  * CartScreen — cart review + checkout (plan → Cart & Checkout). Line items with
@@ -35,11 +36,13 @@ export function CartScreen({
   onBrowse,
   onOpenShop,
   onPlaced,
+  onOpenBulkCart,
 }: {
   onBack: () => void;
   onBrowse: () => void;
   onOpenShop: (shopId: string) => void;
   onPlaced: (result: PlaceOrderResult) => void;
+  onOpenBulkCart?: () => void;
 }) {
   const { t } = useLang();
   const localCart = useCart();
@@ -146,6 +149,18 @@ export function CartScreen({
     void api
       .shopDeliveryAvailable(shopId)
       .then((d) => { if (alive) setRiderAvailableFromCart(d.deliveryAvailable !== false); })
+      .catch(() => undefined);
+    return () => { alive = false; };
+  }, [shopId]);
+
+  // Nearby shops for the "Add from nearby shops" bulk banner
+  const bulkCart = useBulkCart();
+  const [nearbyShops, setNearbyShops] = useState<Array<{ id: string; name: string; city: string; latitude: number; longitude: number; distanceMeters: number }>>([]);
+  useEffect(() => {
+    if (!shopId) return;
+    let alive = true;
+    void api.nearbyShopsForBulk(shopId)
+      .then((shops) => { if (alive) setNearbyShops(shops); })
       .catch(() => undefined);
     return () => { alive = false; };
   }, [shopId]);
@@ -551,6 +566,56 @@ export function CartScreen({
             </Pressable>
           </View>
         ) : null}
+
+        {/* Nearby shops bulk banner — shown only when:
+            • this cart has a shopId
+            • the shop uses platform delivery (riders)
+            • fewer than 3 shops are already in the bulk cart
+            • at least one nearby shop was found */}
+        {(() => {
+          if (!shopId) return null;
+          if (!platformDelivery) return null;
+          const bulkShopCount = currentBulkCartShops().length;
+          if (bulkShopCount >= 3) return null;
+          const shopsToShow = nearbyShops.filter((s) => !currentBulkCartShops().includes(s.id)).slice(0, 2);
+          if (shopsToShow.length === 0) return null;
+          return (
+            <View style={styles.bulkBanner}>
+              <View style={styles.bulkBannerTop}>
+                <Text style={styles.bulkBannerTitle}>Add from nearby shops</Text>
+                <Text style={styles.bulkBannerSub}>
+                  {shopsToShow.map((s) => s.name).join(' · ')}
+                </Text>
+              </View>
+              <View style={styles.bulkBannerActions}>
+                {localCart.lines.length > 0 ? (
+                  <Pressable
+                    style={styles.bulkMoveBtn}
+                    onPress={() => {
+                      // Move all items from the single-shop cart into the bulk cart
+                      for (const line of localCart.lines) {
+                        bulkCartAddOne(line.productId, {
+                          shopId: shopId!,
+                          shopName: shopData?.name ?? localCart.shopName ?? '',
+                          name: line.name,
+                          unitPricePaise: line.unitPricePaise,
+                          imageUrl: line.imageUrl ?? null,
+                        });
+                      }
+                      onOpenBulkCart?.();
+                    }}
+                  >
+                    <Text style={styles.bulkMoveBtnText}>Move to multi-shop order</Text>
+                  </Pressable>
+                ) : (
+                  <Pressable style={styles.bulkOpenBtn} onPress={() => onOpenBulkCart?.()}>
+                    <Text style={styles.bulkOpenBtnText}>View multi-shop cart</Text>
+                  </Pressable>
+                )}
+              </View>
+            </View>
+          );
+        })()}
 
         {/* Bill breakdown */}
         {bill ? (
@@ -1355,5 +1420,54 @@ const styles = StyleSheet.create({
     fontWeight: theme.weight.bold,
     color: theme.color.text,
     textAlign: 'center',
+  },
+
+  // ── Nearby-shops bulk upgrade banner ──
+  bulkBanner: {
+    marginHorizontal: theme.space.lg,
+    backgroundColor: '#F5F3FF',
+    borderRadius: theme.radius.lg,
+    borderWidth: 1.5,
+    borderColor: '#7C3AED',
+    padding: theme.space.md,
+    gap: theme.space.sm,
+    ...shadow.sm,
+  },
+  bulkBannerTop: { gap: 2 },
+  bulkBannerTitle: {
+    fontSize: theme.font.body,
+    fontWeight: theme.weight.bold,
+    color: '#5B21B6',
+  },
+  bulkBannerSub: {
+    fontSize: theme.font.small,
+    color: '#7C3AED',
+    fontWeight: theme.weight.medium,
+  },
+  bulkBannerActions: { flexDirection: 'row', gap: theme.space.sm, marginTop: 2 },
+  bulkMoveBtn: {
+    flex: 1,
+    backgroundColor: '#7C3AED',
+    borderRadius: theme.radius.md,
+    paddingVertical: theme.space.sm,
+    alignItems: 'center',
+  },
+  bulkMoveBtnText: {
+    color: '#fff',
+    fontWeight: theme.weight.bold,
+    fontSize: theme.font.small,
+  },
+  bulkOpenBtn: {
+    flex: 1,
+    borderRadius: theme.radius.md,
+    paddingVertical: theme.space.sm,
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: '#7C3AED',
+  },
+  bulkOpenBtnText: {
+    color: '#7C3AED',
+    fontWeight: theme.weight.bold,
+    fontSize: theme.font.small,
   },
 });

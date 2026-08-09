@@ -277,12 +277,12 @@ export function DashboardScreen() {
         }
       >
         <View style={styles.statusGrid}>
-          <OrderStatusTile label="Pending Order"    value={sc.pending}      accentColor="#3B82F6" statusKey="PLACED"         selected={selectedStatus === 'PLACED'}         onPress={setSelectedStatus} />
-          <OrderStatusTile label="Processing Order" value={sc.processing}   accentColor="#8B5CF6" statusKey="PREPARING"      selected={selectedStatus === 'PREPARING'}      onPress={setSelectedStatus} />
-          <OrderStatusTile label="Completed Order"  value={sc.completed}    accentColor="#10B981" statusKey="DELIVERED"      selected={selectedStatus === 'DELIVERED'}      onPress={setSelectedStatus} />
-          <OrderStatusTile label="Cancelled Order"  value={sc.cancelled}    accentColor="#EF4444" statusKey="CANCELLED"      selected={selectedStatus === 'CANCELLED'}      onPress={setSelectedStatus} />
-          <OrderStatusTile label="Refund Pending"   value={sc.refundPending} accentColor="#F59E0B" statusKey="REFUND_PENDING" selected={selectedStatus === 'REFUND_PENDING'} onPress={setSelectedStatus} />
-          <OrderStatusTile label="Refunded"         value={sc.refunded}     accentColor="#14B8A6" statusKey="REFUNDED"       selected={selectedStatus === 'REFUNDED'}       onPress={setSelectedStatus} />
+          <OrderStatusTile label="Pending Order"    value={sc.pending}      accentColor="#3B82F6" statusKey="PLACED,ACCEPTED,AWAITING_PAYMENT"                        selected={selectedStatus === 'PLACED,ACCEPTED,AWAITING_PAYMENT'}                        onPress={setSelectedStatus} />
+          <OrderStatusTile label="Processing Order" value={sc.processing}   accentColor="#8B5CF6" statusKey="PREPARING,READY,RIDER_ASSIGNED,OUT_FOR_DELIVERY"           selected={selectedStatus === 'PREPARING,READY,RIDER_ASSIGNED,OUT_FOR_DELIVERY'}           onPress={setSelectedStatus} />
+          <OrderStatusTile label="Completed Order"  value={sc.completed}    accentColor="#10B981" statusKey="DELIVERED"                                                  selected={selectedStatus === 'DELIVERED'}                                                  onPress={setSelectedStatus} />
+          <OrderStatusTile label="Cancelled Order"  value={sc.cancelled}    accentColor="#EF4444" statusKey="REJECTED,CANCELLED"                                        selected={selectedStatus === 'REJECTED,CANCELLED'}                                        onPress={setSelectedStatus} />
+          <OrderStatusTile label="Refund Pending"   value={sc.refundPending} accentColor="#F59E0B" statusKey="REFUND_PENDING"                                           selected={selectedStatus === 'REFUND_PENDING'}                                            onPress={setSelectedStatus} />
+          <OrderStatusTile label="Refunded"         value={sc.refunded}     accentColor="#14B8A6" statusKey="REFUNDED"                                                  selected={selectedStatus === 'REFUNDED'}                                                  onPress={setSelectedStatus} />
         </View>
       </SectionBlock>
 

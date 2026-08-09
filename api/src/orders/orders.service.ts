@@ -11,6 +11,7 @@ import {
   OrderStatus,
   PaymentMethod,
   VerificationStatus,
+  BulkOrderStatus,
   canTransition,
   computeBill,
   haversineMeters,
@@ -423,7 +424,41 @@ export class OrdersService {
       url: '/',
     });
 
+    // Auto-cancel directly after 15 min if the shop hasn't responded.
+    // No queue needed — one setTimeout per order, fires once, then discards itself.
+    const AUTO_CANCEL_MS = 15 * 60 * 1000;
+    setTimeout(() => { void this.cancelAsSystem(created.id); }, AUTO_CANCEL_MS);
+
     return this.toPlacedResult(created);
+  }
+
+  /**
+   * Cancel one order as the system (no-op if already past PLACED). Used both by
+   * the per-order 15-min setTimeout fired at placement and as a shared helper for
+   * admin force-cancel with SYSTEM actor.
+   */
+  async cancelAsSystem(orderId: string, reason = 'No response from shop within 15 minutes'): Promise<void> {
+    const order = await this.prisma.order.findFirst({
+      where: { id: orderId, status: OrderStatus.PLACED, deletedAt: null },
+      select: { id: true, shortId: true, customerId: true, shopId: true, coinsRedeemedPaise: true, items: { select: { productId: true, qty: true } } },
+    });
+    if (!order) return; // already accepted, cancelled, or delivered — nothing to do
+
+    await this.prisma.$transaction([
+      this.prisma.order.update({
+        where: { id: order.id },
+        data: { status: OrderStatus.CANCELLED, cancelledBy: CancelledBy.SYSTEM, cancellationReason: reason, cancelledAt: new Date() },
+      }),
+      ...order.items.map((item) =>
+        this.prisma.product.update({ where: { id: item.productId }, data: { stock: { increment: item.qty } } }),
+      ),
+      ...(order.coinsRedeemedPaise > 0
+        ? [this.prisma.user.update({ where: { id: order.customerId }, data: { coinBalance: { increment: order.coinsRedeemedPaise } } })]
+        : []),
+    ]);
+
+    this.realtime.emitOrderStatusChanged(order.customerId, { orderId: order.id, status: OrderStatus.CANCELLED });
+    await this.disputes.openSystemDispute(order.id, `${reason} — auto-cancelled by system.`);
   }
 
   /**
@@ -472,6 +507,106 @@ export class OrdersService {
       })),
       nextCursor,
     };
+  }
+
+  /**
+   * Customer: append items to a live order.
+   *
+   * Allowed statuses: PLACED, ACCEPTED, AWAITING_PAYMENT, PREPARING.
+   * Blocked at READY and beyond — the shop is already packing or dispatching.
+   *
+   * Payment delta:
+   * - COD: adjustedTotalPaise updated; customer pays the new total at delivery.
+   * - AWAITING_PAYMENT (UPI not yet confirmed): adjustedTotalPaise updated;
+   *   the existing UPI Pay-Now link picks up the new total automatically.
+   * - Prepaid (UPI_DIRECT + paymentConfirmed): customer already paid the
+   *   original amount. The delta is stored in addedItemsDuePaise for
+   *   rider/shop to collect at the door.
+   */
+  async addItemsToOrder(
+    customerId: string,
+    orderId: string,
+    lines: Array<{ productId: string; qty: number }>,
+  ) {
+    if (!lines.length) throw new BadRequestException('No items provided');
+
+    const ALLOWED = [
+      OrderStatus.PLACED, OrderStatus.ACCEPTED,
+      OrderStatus.AWAITING_PAYMENT, OrderStatus.PREPARING,
+    ];
+
+    const order = await this.prisma.order.findFirst({
+      where: { id: orderId, customerId, deletedAt: null },
+      select: {
+        id: true, shortId: true, shopId: true, status: true,
+        paymentMethod: true, paymentConfirmed: true,
+        originalTotalPaise: true, adjustedTotalPaise: true,
+        addedItemsDuePaise: true,
+      },
+    });
+    if (!order) throw new NotFoundException('Order not found');
+    if (!ALLOWED.includes(order.status as OrderStatus)) {
+      throw new BadRequestException(
+        `Cannot add items — order is already ${order.status}`,
+      );
+    }
+
+    const productIds = lines.map((l) => l.productId);
+    const products = await this.prisma.product.findMany({
+      where: { id: { in: productIds }, shopId: order.shopId, deletedAt: null },
+      select: { id: true, name: true, pricePaise: true, stock: true, available: true, weightGrams: true },
+    });
+
+    if (products.length !== productIds.length) {
+      throw new BadRequestException('One or more products not found in this shop');
+    }
+
+    const productMap = new Map(products.map((p) => [p.id, p]));
+    const newItems = lines.map((l) => {
+      const p = productMap.get(l.productId)!;
+      if (!p.available) throw new BadRequestException(`"${p.name}" is not available`);
+      if (p.stock < l.qty) throw new BadRequestException(`"${p.name}" does not have enough stock`);
+      return {
+        orderId,
+        productId: l.productId,
+        nameSnapshot: p.name,
+        pricePaiseSnapshot: p.pricePaise,
+        weightGramsSnapshot: (p as { weightGrams?: number | null }).weightGrams ?? null,
+        qty: l.qty,
+      };
+    });
+
+    const subtotalDelta = newItems.reduce(
+      (sum, it) => sum + it.pricePaiseSnapshot * it.qty, 0,
+    );
+    const existingTotal = order.adjustedTotalPaise ?? order.originalTotalPaise;
+    const newTotal = existingTotal + subtotalDelta;
+
+    const isPrepaid = order.paymentMethod === PaymentMethod.UPI_DIRECT && order.paymentConfirmed;
+    const newDue = isPrepaid ? order.addedItemsDuePaise + subtotalDelta : order.addedItemsDuePaise;
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.orderItem.createMany({ data: newItems });
+      await Promise.all(
+        lines.map((l) =>
+          tx.product.update({ where: { id: l.productId }, data: { stock: { decrement: l.qty } } }),
+        ),
+      );
+      await tx.order.update({
+        where: { id: orderId },
+        data: { adjustedTotalPaise: newTotal, addedItemsDuePaise: newDue },
+      });
+    });
+
+    this.realtime.emitOrderShopUpdate(order.shopId, { orderId, status: order.status });
+    this.realtime.emitOrderStatusChanged(customerId, { orderId, status: order.status });
+    void this.pushToShopOwner(order.shopId, {
+      title: 'Items added to your order',
+      body: `Customer added ${newItems.length} item(s) to order #${order.shortId ?? orderId.slice(0, 8).toUpperCase()}`,
+      tag: `order-items-added-${orderId}`,
+    });
+
+    return { addedCount: newItems.length, newTotalPaise: newTotal, addedItemsDuePaise: newDue, isPrepaid };
   }
 
   /**
@@ -1002,7 +1137,7 @@ export class OrdersService {
     const id = requireShopScope(shopId);
     const order = await this.prisma.order.findFirst({
       where: { id: orderId, deletedAt: null },
-      select: { id: true, shopId: true, status: true, customerId: true, pickupOtp: true, deliveryMode: true, paymentConfirmed: true, paymentMethod: true },
+      select: { id: true, shopId: true, status: true, customerId: true, pickupOtp: true, deliveryMode: true, paymentConfirmed: true, paymentMethod: true, bulkOrderId: true },
     });
     // 404 if missing OR another shop's order (no existence leak).
     const owned = assertOwnedByShop(order, id);
@@ -1103,7 +1238,41 @@ export class OrdersService {
     // When a platform-rider order becomes READY, start proximity dispatch: offer
     // it to the nearest online rider (the sweep re-offers on timeout). Best-effort.
     if (dto.status === OrderStatus.READY && owned.deliveryMode === DeliveryMode.PLATFORM_RIDER) {
-      await this.dispatch.startForOrder(orderId).catch(() => undefined);
+      if (owned.bulkOrderId) {
+        // For bulk sub-orders: check if ALL sub-orders are READY; if so dispatch the envelope.
+        await this.maybeTriggerBulkDispatch(owned.bulkOrderId).catch(() => undefined);
+      } else {
+        await this.dispatch.startForOrder(orderId).catch(() => undefined);
+      }
+    }
+
+    // When a bulk sub-order is ACCEPTED, check if all sub-orders are accepted.
+    if (dto.status === OrderStatus.ACCEPTED && owned.bulkOrderId) {
+      await this.maybeAdvanceBulkToAcceptedAll(owned.bulkOrderId).catch(() => undefined);
+    }
+
+    // When a bulk sub-order is REJECTED or CANCELLED, cancel the whole BulkOrder
+    // (cancel all other pending sub-orders too) and notify the customer.
+    if (
+      (dto.status === OrderStatus.REJECTED || dto.status === OrderStatus.CANCELLED) &&
+      owned.bulkOrderId
+    ) {
+      await this.maybeCancelBulkOrder(owned.bulkOrderId, owned.customerId, dto.status).catch(() => undefined);
+    }
+
+    // Re-fetch the BulkOrder status after any hooks have run and emit it to the
+    // customer's tracking screen so it reflects the latest aggregate state.
+    if (owned.bulkOrderId) {
+      const bulkStatus = await this.prisma.bulkOrder.findUnique({
+        where: { id: owned.bulkOrderId },
+        select: { status: true },
+      }).catch(() => null);
+      if (bulkStatus) {
+        this.realtime.emitOrderStatusChanged(owned.customerId, {
+          orderId: owned.bulkOrderId,
+          status: bulkStatus.status as unknown as OrderStatus,
+        });
+      }
     }
 
     return updated;
@@ -1157,5 +1326,122 @@ export class OrdersService {
     // Notify the shop that customer accepted
     this.realtime.emitOrderShopUpdate(order.shopId, { orderId, status: 'CHANGES_ACCEPTED' as never });
     return updated;
+  }
+
+  /** When a bulk sub-order becomes ACCEPTED, check if all siblings are accepted too. */
+  private async maybeAdvanceBulkToAcceptedAll(bulkOrderId: string): Promise<void> {
+    const bulk = await this.prisma.bulkOrder.findUnique({
+      where: { id: bulkOrderId },
+      select: { id: true, status: true, orders: { select: { status: true } } },
+    });
+    if (!bulk || bulk.status !== BulkOrderStatus.PLACED) return;
+    const allAccepted = bulk.orders.every(
+      (o) => [
+        OrderStatus.ACCEPTED, OrderStatus.AWAITING_PAYMENT,
+        OrderStatus.PREPARING, OrderStatus.READY,
+      ].includes(o.status as OrderStatus),
+    );
+    if (allAccepted) {
+      await this.prisma.bulkOrder.update({
+        where: { id: bulkOrderId },
+        data: { status: BulkOrderStatus.ACCEPTED_ALL },
+      });
+    }
+  }
+
+  /**
+   * When any sub-order in a BulkOrder is REJECTED or CANCELLED, cancel the
+   * entire BulkOrder envelope and all remaining in-flight sub-orders. Sub-orders
+   * that were already paid via UPI_DIRECT (paymentConfirmed = true) are moved to
+   * REFUND_PENDING instead of CANCELLED so admin can action them. Emits a
+   * BULK_CANCELLED socket event to the customer.
+   */
+  private async maybeCancelBulkOrder(
+    bulkOrderId: string,
+    customerId: string,
+    reason: OrderStatus,
+  ): Promise<void> {
+    const TERMINAL: string[] = [
+      OrderStatus.DELIVERED,
+      OrderStatus.CANCELLED,
+      OrderStatus.REJECTED,
+      OrderStatus.REFUNDED,
+    ];
+
+    // Fetch all sub-orders so we can handle the UPI_DIRECT paid ones separately.
+    const subOrders = await this.prisma.order.findMany({
+      where: { bulkOrderId, deletedAt: null },
+      select: {
+        id: true,
+        status: true,
+        paymentMethod: true,
+        paymentConfirmed: true,
+      },
+    });
+
+    const upiPaidIds = subOrders
+      .filter(
+        (o) =>
+          !TERMINAL.includes(o.status) &&
+          o.paymentMethod === PaymentMethod.UPI_DIRECT &&
+          o.paymentConfirmed === true,
+      )
+      .map((o) => o.id);
+
+    const plainCancelIds = subOrders
+      .filter(
+        (o) => !TERMINAL.includes(o.status) && !upiPaidIds.includes(o.id),
+      )
+      .map((o) => o.id);
+
+    // Cancel plain non-paid pending sub-orders.
+    if (plainCancelIds.length > 0) {
+      await this.prisma.order.updateMany({
+        where: { id: { in: plainCancelIds } },
+        data: {
+          status: OrderStatus.CANCELLED,
+          cancelledBy: CancelledBy.SHOP,
+          cancellationReason: `Bulk order cancelled — sibling shop ${reason.toLowerCase()} the order`,
+          cancelledAt: new Date(),
+        },
+      });
+    }
+
+    // Move UPI-paid sub-orders to REFUND_PENDING so admin sees them for refund.
+    if (upiPaidIds.length > 0) {
+      await this.prisma.order.updateMany({
+        where: { id: { in: upiPaidIds } },
+        data: { status: OrderStatus.REFUND_PENDING },
+      });
+    }
+
+    // Mark the BulkOrder itself as CANCELLED.
+    await this.prisma.bulkOrder.update({
+      where: { id: bulkOrderId },
+      data: { status: BulkOrderStatus.CANCELLED },
+    });
+
+    // Notify the customer that their entire bulk order is cancelled.
+    this.realtime.emitOrderStatusChanged(customerId, {
+      orderId: bulkOrderId,
+      status: 'BULK_CANCELLED' as unknown as OrderStatus,
+    });
+  }
+
+  /** When a bulk sub-order becomes READY, check if all siblings are READY → dispatch. */
+  private async maybeTriggerBulkDispatch(bulkOrderId: string): Promise<void> {
+    const bulk = await this.prisma.bulkOrder.findUnique({
+      where: { id: bulkOrderId },
+      select: { id: true, status: true, orders: { select: { status: true } } },
+    });
+    if (!bulk) return;
+    const allReady = bulk.orders.every((o) => o.status === OrderStatus.READY);
+    if (allReady && (bulk.status === BulkOrderStatus.ACCEPTED_ALL || bulk.status === BulkOrderStatus.PLACED)) {
+      await this.prisma.bulkOrder.update({
+        where: { id: bulkOrderId },
+        data: { status: BulkOrderStatus.READY_ALL },
+      });
+      await this.dispatch.startForBulkOrder(bulkOrderId);
+    }
   }
 }

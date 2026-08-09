@@ -125,4 +125,50 @@ export class RidersController {
   claimDuesPayment(@CurrentUser() user: AuthPayload, @Body() dto: ClaimPaymentDto) {
     return this.claims.claimRiderPayment(user.sub, dto.amountPaise);
   }
+
+  // ── Bulk-order routes ──────────────────────────────────────────────────────
+
+  /** Accept a bulk-order job (proximity offer or open board). */
+  @Roles(UserRole.RIDER)
+  @Post('bulk-jobs/:bulkOrderId/accept')
+  acceptBulk(@CurrentUser() user: AuthPayload, @Param('bulkOrderId') bulkOrderId: string) {
+    return this.riders.acceptBulk(user.sub, bulkOrderId);
+  }
+
+  /** Decline the bulk-order job currently offered to this rider. */
+  @Roles(UserRole.RIDER)
+  @Post('bulk-jobs/:bulkOrderId/decline')
+  declineBulk(@CurrentUser() user: AuthPayload, @Param('bulkOrderId') bulkOrderId: string) {
+    return this.riders.declineBulk(user.sub, bulkOrderId);
+  }
+
+  /** Confirm pickup at one shop in the bulk run (requires that shop's riderPickupOtp). */
+  @Roles(UserRole.RIDER)
+  @Post('bulk-deliveries/:subOrderId/pickup')
+  confirmBulkPickup(
+    @CurrentUser() user: AuthPayload,
+    @Param('subOrderId') subOrderId: string,
+    @Body('otp') otp: string,
+  ) {
+    return this.riders.confirmBulkPickup(user.sub, subOrderId, otp);
+  }
+
+  /** Complete a bulk delivery (requires the customer's single handoff OTP). */
+  @Roles(UserRole.RIDER)
+  @Post('bulk-deliveries/:bulkOrderId/complete')
+  completeBulkDelivery(
+    @CurrentUser() user: AuthPayload,
+    @Param('bulkOrderId') bulkOrderId: string,
+    @Body('otp') otp: string,
+    @Body('codPaidViaUpi') codPaidViaUpi?: boolean,
+  ) {
+    return this.riders.completeBulkDelivery(user.sub, bulkOrderId, otp, codPaidViaUpi === true);
+  }
+
+  /** Rider claims the customer paid a COD bulk sub-order by UPI/QR (shop then confirms). */
+  @Roles(UserRole.RIDER)
+  @Post('bulk-deliveries/:subOrderId/claim-upi')
+  claimBulkSubUpi(@CurrentUser() user: AuthPayload, @Param('subOrderId') subOrderId: string) {
+    return this.riders.claimBulkSubOrderUpiPaid(user.sub, subOrderId);
+  }
 }

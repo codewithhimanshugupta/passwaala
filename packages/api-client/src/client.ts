@@ -336,6 +336,9 @@ export class PasswaalaApiClient {
   adminShopKyc(shopId: string): Promise<unknown> {
     return this.get(`/admin/shops/${shopId}/kyc`);
   }
+  adminShopDetail(shopId: string): Promise<unknown> {
+    return this.get(`/admin/shops/${shopId}/detail`);
+  }
   adminApproveShop(shopId: string): Promise<unknown> {
     return this.post(`/admin/shops/${shopId}/approve`, {});
   }
@@ -545,7 +548,7 @@ export class PasswaalaApiClient {
   }
   ownerUpsertCity(
     name: string,
-    opts: { enabled?: boolean; collectionUpiVpa?: string; collectionUpiName?: string; deliveryRadiusMeters?: number; riderCheckRadiusMeters?: number; deliveryTiersJson?: string } = {},
+    opts: { enabled?: boolean; collectionUpiVpa?: string; collectionUpiName?: string; deliveryRadiusMeters?: number; riderCheckRadiusMeters?: number; deliveryTiersJson?: string; multiShopSurchargePaise?: number } = {},
   ): Promise<unknown> {
     return this.post('/cities', { name, enabled: opts.enabled ?? true, ...opts });
   }
@@ -692,9 +695,21 @@ export class PasswaalaApiClient {
   adminCancelOrder(orderId: string, reason: string): Promise<{ cancelled: true }> {
     return this.post(`/admin/orders/${orderId}/cancel`, { reason });
   }
-  /** Admin: assign additional riders to a heavy order (>20 kg). */
+  /** Admin: assign additional riders to a bulk order. */
   adminAssignAdditionalRiders(orderId: string, riderUserIds: string[]): Promise<{ additionalRiderIds: string[] }> {
     return this.post(`/admin/orders/${orderId}/assign-riders`, { riderUserIds });
+  }
+  /** Admin: list bulk orders (keyset paginated), newest first. */
+  adminListBulkOrders(opts: PageParams = {}): Promise<Paginated<unknown>> {
+    return this.get(`/admin/bulk-orders${pageQuery(opts)}`);
+  }
+
+  /** Admin: detail for one bulk order. */
+  adminBulkOrder(id: string): Promise<unknown> {
+    return this.get(`/admin/bulk-orders/${id}`);
+  }
+  adminUpdateOrderDeliveryFee(orderId: string, newFeePaise: number): Promise<{ deliveryFeePaise: number; extraDeliveryDuePaise: number; isPrepaid: boolean }> {
+    return this.post(`/admin/orders/${orderId}/delivery-fee`, { newFeePaise });
   }
 
   // ---- Orders (customer) ----
@@ -707,12 +722,55 @@ export class PasswaalaApiClient {
   order(id: string): Promise<unknown> {
     return this.get(`/orders/${id}`);
   }
+  /** Customer: append items to a live order. Returns updated total + due-at-delivery amount for prepaid orders. */
+  addItemsToOrder(orderId: string, items: Array<{ productId: string; qty: number }>): Promise<{ addedCount: number; newTotalPaise: number; addedItemsDuePaise: number; isPrepaid: boolean }> {
+    return this.post(`/orders/${orderId}/add-items`, { items });
+  }
   /** Customer: claim payment sent ("I've paid"). The shop verifies it. */
   confirmPayment(id: string): Promise<unknown> {
     return this.post(`/orders/${id}/confirm-payment`, {});
   }
   reorder(id: string): Promise<unknown> {
     return this.post(`/orders/${id}/reorder`, {});
+  }
+
+  // ---- Bulk Orders (customer) ----
+  placeBulkOrder(body: {
+    shops: Array<{ shopId: string; items: Array<{ productId: string; qty: number }> }>;
+    addressId: string;
+    paymentMethod: string;
+    idempotencyKey: string;
+    redeemCoins?: number;
+  }): Promise<{ bulkOrderId: string; shortId: string; orderIds: string[]; totalPaise: number; pickupOtp: string }> {
+    return this.post('/bulk-orders', body);
+  }
+  bulkOrder(id: string): Promise<unknown> {
+    return this.get(`/bulk-orders/${id}`);
+  }
+  bulkOrderHistory(opts: PageParams = {}): Promise<Paginated<unknown>> {
+    return this.get(`/bulk-orders${pageQuery(opts)}`);
+  }
+  /** Nearby shops within 1 km of an anchor shop — for the multi-shop cart banner. */
+  nearbyShopsForBulk(anchorShopId: string): Promise<Array<{ id: string; name: string; city: string; latitude: number; longitude: number; distanceMeters: number }>> {
+    return this.get(`/shops/nearby-for-bulk?anchorShopId=${encodeURIComponent(anchorShopId)}`);
+  }
+
+  // ---- Rider bulk-job routes ----
+  riderAcceptBulk(bulkOrderId: string): Promise<{ accepted: true; pickupSequenceJson: string }> {
+    return this.post(`/riders/bulk-jobs/${bulkOrderId}/accept`, {});
+  }
+  riderDeclineBulk(bulkOrderId: string): Promise<{ declined: true }> {
+    return this.post(`/riders/bulk-jobs/${bulkOrderId}/decline`, {});
+  }
+  riderConfirmBulkPickup(subOrderId: string, otp: string): Promise<{ status: string }> {
+    return this.post(`/riders/bulk-deliveries/${subOrderId}/pickup`, { otp });
+  }
+  riderCompleteBulk(bulkOrderId: string, otp: string, codPaidViaUpi = false): Promise<unknown> {
+    return this.post(`/riders/bulk-deliveries/${bulkOrderId}/complete`, { otp, codPaidViaUpi });
+  }
+  /** Rider: claim the customer paid a COD bulk sub-order by UPI/QR at the door (shop confirms). */
+  riderClaimBulkSubUpi(subOrderId: string): Promise<{ claimed: true }> {
+    return this.post(`/riders/bulk-deliveries/${subOrderId}/claim-upi`, {});
   }
 
   // ---- Shopkeeper ----

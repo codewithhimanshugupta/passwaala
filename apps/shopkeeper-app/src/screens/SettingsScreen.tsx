@@ -6,6 +6,7 @@ import { paiseToRupeeInput, placeholderImage, rupeeInputToPaise, theme } from '.
 import { Badge, Banner, Button, Card, ErrorText, Field, Screen, SectionTitle } from '../ui';
 import { ImagePicker } from '../components/ImagePicker';
 import { LanguagePicker } from '../components/LanguagePicker';
+import { UpiQrScanner } from '../components/UpiQrScanner';
 import { verificationMeta } from '../status';
 import { useLang } from '../i18n/LanguageContext';
 import type { Strings } from '../i18n/strings';
@@ -95,6 +96,7 @@ export function SettingsScreen({
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [upiScanError, setUpiScanError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!shop.city) return;
@@ -196,7 +198,18 @@ export function SettingsScreen({
             </View>
             <Field label="Address" placeholder="Shop address" value={addressLine} onChangeText={(v) => { setSaved(false); setAddressLine(v); }} />
             <Field label="Contact Phone" placeholder="Public contact number" keyboardType="phone-pad" maxLength={15} value={contactPhone} onChangeText={(v) => { setSaved(false); setContactPhone(v); }} />
-            <Field label="UPI ID" placeholder="yourshop@upi" autoCapitalize="none" value={upiVpa} onChangeText={(v) => { setSaved(false); setUpiVpa(v); }} hint="Customers pay to this UPI ID" />
+            <View style={{ gap: 6 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8 }}>
+                <View style={{ flex: 1 }}>
+                  <Field label="UPI ID" placeholder="yourshop@upi" autoCapitalize="none" value={upiVpa} onChangeText={(v) => { setSaved(false); setUpiScanError(null); setUpiVpa(v); }} hint="Customers pay to this UPI ID" />
+                </View>
+                <UpiQrScanner
+                  onScan={(vpa) => { setSaved(false); setUpiScanError(null); setUpiVpa(vpa); }}
+                  onError={(msg) => setUpiScanError(msg)}
+                />
+              </View>
+              {upiScanError ? <Text style={{ fontSize: 12, color: theme.color.danger }}>{upiScanError}</Text> : null}
+            </View>
             {!upiVpa.trim() && <Banner tone="warning" title="UPI not set" message="Customers won't be able to pay by UPI QR." />}
             <Field label="GSTIN" placeholder="15-character GSTIN" autoCapitalize="characters" maxLength={15} value={gstin} onChangeText={(v) => { setSaved(false); setGstin(v); }} hint="Optional — for GST-registered shops" />
             <Field label="State Code" placeholder="e.g. 27" keyboardType="number-pad" maxLength={2} value={stateCode} onChangeText={(v) => { setSaved(false); setStateCode(v); }} hint="Optional — 2-digit GST state code" />

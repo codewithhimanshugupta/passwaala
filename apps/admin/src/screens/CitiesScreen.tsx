@@ -25,6 +25,7 @@ interface City {
   deliveryRadiusMeters: number;
   riderCheckRadiusMeters: number;
   deliveryTiersJson: string | null;
+  multiShopSurchargePaise: number;
   admin: { phone: string | null } | null;
 }
 
@@ -638,7 +639,7 @@ function CityRow({ city, admins, busy, onToggle, onAddAdmin, onUpdate }: {
   busy: boolean;
   onToggle: () => void;
   onAddAdmin: () => void;
-  onUpdate: (data: { deliveryRadiusMeters?: number; riderCheckRadiusMeters?: number; deliveryTiersJson?: string }) => void;
+  onUpdate: (data: { deliveryRadiusMeters?: number; riderCheckRadiusMeters?: number; deliveryTiersJson?: string; multiShopSurchargePaise?: number }) => void;
 }) {
   const isLive = city.enabled && admins.length > 0;
   const isAlmost = city.enabled && admins.length === 0;
@@ -756,7 +757,58 @@ function CityRow({ city, admins, busy, onToggle, onAddAdmin, onUpdate }: {
           </View>
         </View>
         <DeliveryTierEditor city={city} onUpdate={onUpdate} />
+        <SurchargeEditor city={city} onUpdate={onUpdate} />
       </View>
+    </View>
+  );
+}
+
+function SurchargeEditor({
+  city,
+  onUpdate,
+}: {
+  city: City;
+  onUpdate: (data: { multiShopSurchargePaise?: number }) => void;
+}) {
+  const current = city.multiShopSurchargePaise ?? 1000;
+  const [draft, setDraft] = useState(String(Math.round(current / 100)));
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function save() {
+    const rupees = parseInt(draft, 10);
+    if (isNaN(rupees) || rupees < 0) { setErr('Enter a valid amount in ₹'); return; }
+    setSaving(true); setErr(null);
+    try {
+      await api.ownerUpsertCity(city.name, { multiShopSurchargePaise: rupees * 100 });
+      onUpdate({ multiShopSurchargePaise: rupees * 100 });
+    } catch (e) { setErr((e as Error).message); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <View style={{ marginTop: 12 }}>
+      <Text style={{ fontSize: 12, fontWeight: '700', color: '#6B7280', marginBottom: 6 }}>
+        MULTI-SHOP SURCHARGE (per extra stop)
+      </Text>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <Text style={{ fontSize: 14, color: '#374151' }}>₹</Text>
+        <TextInput
+          value={draft}
+          onChangeText={setDraft}
+          keyboardType="numeric"
+          style={{ borderWidth: 1, borderColor: '#D1D5DB', borderRadius: 6, paddingHorizontal: 10, paddingVertical: 6, width: 80, fontSize: 14, color: '#111827' }}
+        />
+        <Pressable
+          onPress={save}
+          disabled={saving}
+          style={{ backgroundColor: '#7C3AED', borderRadius: 6, paddingHorizontal: 14, paddingVertical: 8, opacity: saving ? 0.6 : 1 }}
+        >
+          <Text style={{ color: '#fff', fontWeight: '700', fontSize: 13 }}>{saving ? 'Saving…' : 'Save'}</Text>
+        </Pressable>
+        <Text style={{ fontSize: 12, color: '#9CA3AF' }}>Current: ₹{Math.round(current / 100)}/stop</Text>
+      </View>
+      {err ? <Text style={{ color: '#DC2626', fontSize: 12, marginTop: 4 }}>{err}</Text> : null}
     </View>
   );
 }

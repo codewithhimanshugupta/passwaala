@@ -29,6 +29,7 @@ import { AutomationModule } from './automation/automation.module';
 import { DisputesModule } from './disputes/disputes.module';
 import { CouponsModule } from './coupons/coupons.module';
 import { GstModule } from './gst/gst.module';
+import { BulkOrdersModule } from './bulk-orders/bulk-orders.module';
 
 /**
  * AppModule — root module.
@@ -73,6 +74,7 @@ import { GstModule } from './gst/gst.module';
     DisputesModule,
     CouponsModule,
     GstModule,
+    BulkOrdersModule,
   ],
   controllers: [HealthController],
   providers: [

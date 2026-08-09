@@ -85,6 +85,16 @@ export class ShopsController {
   }
 
   /**
+   * Public: shops within 1 km of an anchor shop for multi-shop bulk orders.
+   * Declared before :id so it isn't captured as a shop ID param.
+   */
+  @Public()
+  @Get('nearby-for-bulk')
+  nearbyForBulk(@Query('anchorShopId') anchorShopId: string) {
+    return this.shops.nearbyForBulk(anchorShopId);
+  }
+
+  /**
    * Public, cheap "can this shop deliver right now?" check — called lazily when
    * a customer opens a storefront (NOT for every shop in the list). Declared
    * before :id so "delivery-available" isn't captured as an id param.

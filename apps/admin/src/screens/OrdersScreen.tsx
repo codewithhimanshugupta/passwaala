@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -24,6 +24,7 @@ interface AdminOrder {
   totalPaise: number;
   platformFeePaise: number;
   deliveryFeePaise: number;
+  extraDeliveryDuePaise: number;
   paymentConfirmed: boolean;
   paymentClaimedAt: string | null;
   codUpiClaimedAt: string | null;
@@ -31,6 +32,7 @@ interface AdminOrder {
   reason: string | null;
   pickupOtp: string | null;
   riderPickupOtp: string | null;
+  additionalRiderIds: string[];
   shop: { id: string; shortId?: string | null; name: string; city: string } | null;
   customer: { id: string; shortId?: string | null; name: string | null; phone: string | null } | null;
   rider: { id: string; shortId?: string | null; name: string | null; phone: string | null } | null;
@@ -75,6 +77,24 @@ export function OrdersScreen() {
   const [filter, setFilter] = useState<'all' | 'live' | 'done'>('all');
   const [expanded, setExpanded] = useState<string | null>(null);
 
+  // Per-order action state
+  const [riderInput, setRiderInput] = useState<Record<string, string>>({});
+  const [riderBusy, setRiderBusy] = useState<Record<string, boolean>>({});
+  const [riderMsg, setRiderMsg] = useState<Record<string, string>>({});
+  const [feeInput, setFeeInput] = useState<Record<string, string>>({});
+  const [feeBusy, setFeeBusy] = useState<Record<string, boolean>>({});
+  const [feeMsg, setFeeMsg] = useState<Record<string, string>>({});
+
+  // Initialise fee input when an order is expanded
+  const prevExpanded = useRef<string | null>(null);
+  useEffect(() => {
+    if (expanded && expanded !== prevExpanded.current) {
+      const o = orders.find(x => x.orderId === expanded);
+      if (o) setFeeInput(prev => ({ ...prev, [expanded]: String(Math.round(o.deliveryFeePaise / 100)) }));
+    }
+    prevExpanded.current = expanded;
+  }, [expanded, orders]);
+
   const load = useCallback(async () => {
     setLoading(true); setError(null); setForbidden(false);
     try {
@@ -103,6 +123,50 @@ export function OrdersScreen() {
       setNextCursor(res.nextCursor ?? null);
     } catch { /* keep what we have */ }
     finally { setLoadingMore(false); }
+  }
+
+  async function assignRiders(orderId: string) {
+    const raw = (riderInput[orderId] ?? '').trim();
+    if (!raw) return;
+    const ids = raw.split(/[\s,]+/).filter(Boolean);
+    setRiderBusy(p => ({ ...p, [orderId]: true }));
+    setRiderMsg(p => ({ ...p, [orderId]: '' }));
+    try {
+      const res = await api.adminAssignAdditionalRiders(orderId, ids);
+      setOrders(prev => prev.map(o => o.orderId === orderId ? { ...o, additionalRiderIds: res.additionalRiderIds } : o));
+      setRiderInput(p => ({ ...p, [orderId]: '' }));
+      setRiderMsg(p => ({ ...p, [orderId]: `Assigned ${res.additionalRiderIds.length} rider(s)` }));
+    } catch (e) {
+      setRiderMsg(p => ({ ...p, [orderId]: (e as Error).message }));
+    } finally {
+      setRiderBusy(p => ({ ...p, [orderId]: false }));
+    }
+  }
+
+  async function updateDeliveryFee(orderId: string) {
+    const raw = (feeInput[orderId] ?? '').trim();
+    const rupees = parseFloat(raw);
+    if (isNaN(rupees) || rupees < 0) {
+      setFeeMsg(p => ({ ...p, [orderId]: 'Enter a valid amount in rupees' }));
+      return;
+    }
+    const paise = Math.round(rupees * 100);
+    setFeeBusy(p => ({ ...p, [orderId]: true }));
+    setFeeMsg(p => ({ ...p, [orderId]: '' }));
+    try {
+      const res = await api.adminUpdateOrderDeliveryFee(orderId, paise);
+      setOrders(prev => prev.map(o => o.orderId === orderId
+        ? { ...o, deliveryFeePaise: res.deliveryFeePaise, extraDeliveryDuePaise: res.extraDeliveryDuePaise }
+        : o));
+      const note = res.isPrepaid && res.extraDeliveryDuePaise > 0
+        ? ` · ₹${(res.extraDeliveryDuePaise / 100).toFixed(2)} due at delivery`
+        : '';
+      setFeeMsg(p => ({ ...p, [orderId]: `Updated to ₹${(res.deliveryFeePaise / 100).toFixed(2)}${note}` }));
+    } catch (e) {
+      setFeeMsg(p => ({ ...p, [orderId]: (e as Error).message }));
+    } finally {
+      setFeeBusy(p => ({ ...p, [orderId]: false }));
+    }
   }
 
   const q = search.trim().toLowerCase();
@@ -196,12 +260,18 @@ export function OrdersScreen() {
                   <Row label="Shop" value={`${o.shop?.shortId ?? ''} · ${o.shop?.name ?? '—'}${o.shop?.city ? ` · ${o.shop.city}` : ''}`} />
                   <Row label="Customer" value={`${o.customer?.shortId ?? ''} · ${o.customer?.name ?? '—'} · ${o.customer?.phone ?? ''}`} />
                   {o.rider ? <Row label="Rider" value={`${o.rider.shortId ?? ''} · ${o.rider.name ?? '—'} · ${o.rider.phone ?? ''}`} /> : null}
+                  {o.additionalRiderIds.length > 0
+                    ? <Row label="Additional riders" value={o.additionalRiderIds.join(', ')} />
+                    : null}
 
                   {/* Money */}
                   <Row label="Payment" value={`${o.paymentMethod} · ${o.deliveryMode}`} />
                   <Row label="Total" value={formatRupees(o.totalPaise)} />
                   <Row label="Platform fee" value={formatRupees(o.platformFeePaise)} />
                   <Row label="Delivery fee" value={formatRupees(o.deliveryFeePaise)} />
+                  {o.extraDeliveryDuePaise > 0
+                    ? <Row label="Due at delivery" value={formatRupees(o.extraDeliveryDuePaise)} warn />
+                    : null}
                   <Row label="Payment confirmed" value={o.paymentConfirmed ? 'Yes' : 'No'} warn={!o.paymentConfirmed && o.paymentMethod === 'UPI_DIRECT'} />
                   {o.paymentClaimedAt ? <Row label="Payment claimed at" value={fmtDate(o.paymentClaimedAt)} /> : null}
                   {o.codUpiClaimedAt ? <Row label="COD UPI claimed at" value={fmtDate(o.codUpiClaimedAt)} /> : null}
@@ -221,6 +291,72 @@ export function OrdersScreen() {
                       {it.qty}× {it.nameSnapshot} — {formatRupees(it.pricePaiseSnapshot)}
                     </Text>
                   ))}
+
+                  {/* Admin actions (live orders only) */}
+                  {isLive(o.status) ? (
+                    <View style={s.actionsBlock}>
+                      {/* Assign additional riders */}
+                      <Text style={s.actionTitle}>Assign additional riders</Text>
+                      <Text style={s.actionHint}>Paste rider user IDs separated by comma or space</Text>
+                      <View style={s.actionRow}>
+                        <TextInput
+                          style={[s.actionInput, { flex: 1 }]}
+                          placeholder="rider-id-1, rider-id-2"
+                          placeholderTextColor={theme.color.textFaint}
+                          value={riderInput[o.orderId] ?? ''}
+                          onChangeText={v => setRiderInput(p => ({ ...p, [o.orderId]: v }))}
+                          autoCorrect={false}
+                          autoCapitalize="none"
+                        />
+                        <Pressable
+                          style={[s.actionBtn, riderBusy[o.orderId] && s.actionBtnDisabled]}
+                          onPress={() => assignRiders(o.orderId)}
+                          disabled={riderBusy[o.orderId]}
+                        >
+                          {riderBusy[o.orderId]
+                            ? <ActivityIndicator color="#fff" size="small" />
+                            : <Text style={s.actionBtnText}>Assign</Text>}
+                        </Pressable>
+                      </View>
+                      {riderMsg[o.orderId] ? (
+                        <Text style={[s.actionFeedback, riderMsg[o.orderId]?.startsWith('Assigned') && s.actionFeedbackOk]}>
+                          {riderMsg[o.orderId]}
+                        </Text>
+                      ) : null}
+
+                      {/* Edit delivery fee */}
+                      <Text style={[s.actionTitle, { marginTop: theme.space.md }]}>Delivery fee</Text>
+                      {o.paymentMethod === 'UPI_DIRECT' && o.paymentConfirmed ? (
+                        <Text style={s.actionHint}>Prepaid order — any increase will be collected by rider at delivery</Text>
+                      ) : (
+                        <Text style={s.actionHint}>COD order — fee update applies directly</Text>
+                      )}
+                      <View style={s.actionRow}>
+                        <TextInput
+                          style={[s.actionInput, { flex: 1 }]}
+                          placeholder="Amount in ₹"
+                          placeholderTextColor={theme.color.textFaint}
+                          keyboardType="decimal-pad"
+                          value={feeInput[o.orderId] ?? ''}
+                          onChangeText={v => setFeeInput(p => ({ ...p, [o.orderId]: v }))}
+                        />
+                        <Pressable
+                          style={[s.actionBtn, feeBusy[o.orderId] && s.actionBtnDisabled]}
+                          onPress={() => updateDeliveryFee(o.orderId)}
+                          disabled={feeBusy[o.orderId]}
+                        >
+                          {feeBusy[o.orderId]
+                            ? <ActivityIndicator color="#fff" size="small" />
+                            : <Text style={s.actionBtnText}>Update</Text>}
+                        </Pressable>
+                      </View>
+                      {feeMsg[o.orderId] ? (
+                        <Text style={[s.actionFeedback, feeMsg[o.orderId]?.startsWith('Updated') && s.actionFeedbackOk]}>
+                          {feeMsg[o.orderId]}
+                        </Text>
+                      ) : null}
+                    </View>
+                  ) : null}
                 </View>
               ) : null}
             </Pressable>
@@ -305,4 +441,14 @@ const s = StyleSheet.create({
   notice: { maxWidth: 420, padding: theme.space.xl, borderRadius: theme.radius.lg, backgroundColor: theme.color.criticalBg, borderWidth: 1, borderColor: '#FCA5A5', gap: theme.space.sm },
   noticeTitle: { fontSize: theme.font.h3, fontWeight: '800', color: theme.color.critical },
   noticeBody: { fontSize: theme.font.body, color: theme.color.text },
+  actionsBlock: { borderTopWidth: 1, borderTopColor: theme.color.border, paddingTop: theme.space.md, gap: theme.space.sm },
+  actionTitle: { fontSize: theme.font.small, fontWeight: '800', color: theme.color.text, textTransform: 'uppercase', letterSpacing: 0.3 },
+  actionHint: { fontSize: theme.font.tiny, color: theme.color.textMuted },
+  actionRow: { flexDirection: 'row', gap: theme.space.sm, alignItems: 'center' },
+  actionInput: { borderWidth: 1, borderColor: theme.color.borderStrong, borderRadius: theme.radius.md, paddingHorizontal: theme.space.md, paddingVertical: theme.space.sm, fontSize: theme.font.small, color: theme.color.text, backgroundColor: theme.color.surfaceAlt },
+  actionBtn: { paddingVertical: theme.space.sm, paddingHorizontal: theme.space.lg, borderRadius: theme.radius.md, backgroundColor: theme.color.accent, alignItems: 'center', justifyContent: 'center', minWidth: 72 },
+  actionBtnDisabled: { opacity: 0.5 },
+  actionBtnText: { color: '#fff', fontWeight: '700', fontSize: theme.font.small },
+  actionFeedback: { fontSize: theme.font.tiny, color: theme.color.critical, fontWeight: '600' },
+  actionFeedbackOk: { color: theme.color.good },
 });
