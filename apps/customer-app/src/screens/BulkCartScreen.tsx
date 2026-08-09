@@ -134,7 +134,7 @@ export function BulkCartScreen({
   // Bill calculation
   const shopCount = bulkCart.length;
   const subtotalPaise = bulkCart.reduce((sum, s) => sum + s.lines.reduce((a, l) => a + l.unitPricePaise * l.qty, 0), 0);
-  const platformFeePaise = (() => { const g = computeGst(PLATFORM_FEE_PAISE); return g.totalPaise * shopCount; })();
+  const platformFeePaise = (() => { const g = computeGst(PLATFORM_FEE_PAISE); return g.totalPaise; })();
   // Base delivery: use first shop coords → selected address
   const addr = addresses.find((a) => a.id === selectedAddress);
   const anchorShop = nearbyShops.find((s) => s.id === anchorShopId) ??
@@ -251,7 +251,7 @@ export function BulkCartScreen({
               value={`+${formatRupees(multiShopSurchargePaise)}`}
             />
           ) : null}
-          <BillRow label={`Platform fee (×${shopCount})`} value={formatRupees(platformFeePaise)} />
+          <BillRow label="Platform fee" value={formatRupees(platformFeePaise)} />
           <Divider style={{ marginVertical: theme.space.sm }} />
           <BillRow label="Total" value={formatRupees(totalPaise)} bold />
           <Text style={styles.surchargeNote}>
