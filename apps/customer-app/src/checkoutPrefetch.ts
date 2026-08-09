@@ -17,6 +17,8 @@ export interface CheckoutData {
   pendingCancelFeePaise: number;
   nearbyShops: Array<{ id: string; name: string; city: string; latitude: number; longitude: number; distanceMeters: number }>;
   nearbyShopsForShopId: string | null;
+  shopDeliveryAvailable: boolean;
+  shopDeliveryShopId: string | null;
 }
 
 const TTL_MS = 60_000;
@@ -46,6 +48,8 @@ export function prefetchCheckout(shopId?: string | null): Promise<CheckoutData> 
       pendingCancelFeePaise: me,
       nearbyShops: nearby,
       nearbyShopsForShopId: shopId ?? null,
+      shopDeliveryAvailable: true,
+      shopDeliveryShopId: null,
     };
     cached = { data, at: Date.now() };
     inflight = null;

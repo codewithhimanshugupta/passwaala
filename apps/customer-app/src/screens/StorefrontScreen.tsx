@@ -42,6 +42,19 @@ import { useLang } from '../i18n/LanguageContext';
 /** Products rendered per page (client-side pagination; grows on scroll). */
 const PRODUCT_PAGE = 5;
 
+/** Module-level product + shop cache — keyed by shopId. Survives navigation. */
+export const _shopProductCache = new Map<string, ProductPublic[]>();
+export const _shopDataCache2 = new Map<string, ShopView>();
+
+/** Prefetch a shop's products + config in the background. Safe to call multiple times. */
+export function prefetchShop(shopId: string): void {
+  if (_shopProductCache.has(shopId)) return; // already cached
+  void Promise.all([
+    api.shopProducts(shopId).then(p => { _shopProductCache.set(shopId, p); }).catch(() => undefined),
+    api.shop(shopId).then(s => { _shopDataCache2.set(shopId, s as ShopView); }).catch(() => undefined),
+  ]);
+}
+
 /**
  * StorefrontScreen — a shop's catalog (plan → Catalog & Product). Banner header,
  * product list with thumbnails + MRP strike-through, the signature inline +/-
@@ -95,18 +108,29 @@ export function StorefrontScreen({
 
   const load = useCallback(async () => {
     if (!shopId) return;
-    // Only show skeleton on first load; re-fetches keep existing data visible
+    // Use prefetched cache for instant render — no skeleton if already cached
+    const cachedShop = _shopDataCache2.get(shopId);
+    const cachedProducts = _shopProductCache.get(shopId);
+    if (cachedShop && cachedProducts) {
+      setShop(cachedShop);
+      setProducts(cachedProducts);
+      setLoading(false);
+      // Still refresh in background silently
+      void Promise.all([
+        api.shop(shopId).then(s => { _shopDataCache2.set(shopId, s as ShopView); setShop(s as ShopView); }),
+        api.shopProducts(shopId).then(p => { _shopProductCache.set(shopId, p); setProducts(p); }),
+      ]).catch(() => undefined);
+      return;
+    }
     if (!shop) setLoading(true);
     setError(null);
     try {
-      // FIRST PAINT only needs the shop + its products — fetch those together and
-      // render as soon as they arrive. Reviews + categories aren't needed for the
-      // initial view, so they load in the BACKGROUND (below) and populate when
-      // ready. This gets the storefront on screen faster on the slow tier.
       const [shopData, list] = await Promise.all([
         api.shop(shopId) as Promise<ShopView>,
         api.shopProducts(shopId),
       ]);
+      _shopDataCache2.set(shopId, shopData);
+      _shopProductCache.set(shopId, list);
       setShop(shopData);
       setProducts(list);
     } catch (e) {

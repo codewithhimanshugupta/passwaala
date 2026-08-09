@@ -6,6 +6,7 @@ import { api } from '../api';
 import type { OrderDetail } from '../types';
 import { estimateOrderMinutes, formatMinutesBand, formatRupees, haversineMeters, shadow, theme } from '../theme';
 import { Badge, Button, Divider, ErrorState, SkeletonBlock } from '../ui';
+import { prefetchShop, _shopProductCache } from './StorefrontScreen';
 import { TrackingMap } from '../components/TrackingMap';
 import { UpiQr } from '../components/UpiQr';
 import { DisputeModal, type DisputeModalHandle } from '../components/DisputeModal';
@@ -344,10 +345,23 @@ export function OrderTrackingScreen({
 
   async function openAddItems() {
     if (!order) return;
-    setAddProductsLoading(true);
     setAddQty({});
+    // Use cached products if available — instant open, refresh in background
+    const cached = _shopProductCache.get(order.shop.id);
+    if (cached) {
+      setAddProducts(cached);
+      setShowAddItems(true);
+      // Refresh silently in background
+      void api.shopProducts(order.shop.id).then(p => {
+        _shopProductCache.set(order.shop.id, p as ProductPublic[]);
+        setAddProducts(p as ProductPublic[]);
+      }).catch(() => undefined);
+      return;
+    }
+    setAddProductsLoading(true);
     try {
       const products = (await api.shopProducts(order.shop.id)) as ProductPublic[];
+      _shopProductCache.set(order.shop.id, products);
       setAddProducts(products);
       setShowAddItems(true);
     } catch (e) {

@@ -16,6 +16,7 @@ import {
 import type { NearbyShop } from '@passwaala/api-client';
 import { api } from '../api';
 import { prefetchCheckout, getPrefetchedCheckout } from '../checkoutPrefetch';
+import { prefetchShop } from './StorefrontScreen';
 import type { ShopContactFields, Address } from '../types';
 import { bannerImage, logoImage, formatDistance, formatEta, formatRupees, shadow, theme } from '../theme';
 import { Badge, Button, EmptyState, ErrorState, SkeletonBlock } from '../ui';
@@ -228,10 +229,11 @@ export function DiscoveryScreen({
       });
       setShops(result);
       setCanLoadMore(!isMap && result.length === PAGE_SIZE);
-      // Write to module-level cache for instant display on next back-navigation
       if (!isMap) {
         _cachedShops = result;
         _cacheKey = makeCacheKey(coords.lat, coords.lng, sort, category ?? '', openNow);
+        // Prefetch products for first 5 visible shops in background
+        result.slice(0, 5).forEach(s => prefetchShop(s.id));
       }
       if (restoredShopId) {
         const restored = result.find(s => s.id === restoredShopId);
@@ -277,6 +279,8 @@ export function DiscoveryScreen({
         return updated;
       });
       setCanLoadMore(next.length === PAGE_SIZE);
+      // Prefetch products for newly visible shops
+      next.slice(0, 5).forEach(s => prefetchShop(s.id));
       // Pre-fetch the page after this one silently
       const nextOffset = shops.length + next.length;
       if (next.length === PAGE_SIZE) {

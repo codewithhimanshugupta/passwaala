@@ -11,6 +11,7 @@ import {
 import { PaymentMethod } from '@passwaala/shared';
 import { api } from '../api';
 import { resetBulkCartStore, useBulkCart, bulkCartSetQty, bulkCartRemoveShop } from '../bulkCart';
+import { prefetchShop } from './StorefrontScreen';
 import type { Address } from '../types';
 import { AddressForm } from '../components/AddressForm';
 import { formatRupees, shadow, theme, haversineMeters } from '../theme';
@@ -50,6 +51,8 @@ export function BulkCartScreen({
   const [error, setError] = useState<string | null>(null);
   const [showAddrForm, setShowAddrForm] = useState(false);
   const [showAddrPicker, setShowAddrPicker] = useState(false);
+  // Collapsed by default — tap shop header to expand
+  const [expandedShops, setExpandedShops] = useState<Set<string>>(new Set());
   const [nearbyShops, setNearbyShops] = useState<NearbyShop[]>([]);
   const [nearbyHasMore, setNearbyHasMore] = useState(false);
   const [nearbyOffset, setNearbyOffset] = useState(0);
@@ -92,9 +95,12 @@ export function BulkCartScreen({
     setNearbyHasMore(false);
     void api.nearbyShopsForBulk(lockedAnchor, 0)
       .then((res) => {
-        setNearbyShops(res.items.filter((s) => !bulkCart.some((c) => c.shopId === s.id)));
+        const fresh = res.items.filter((s) => !bulkCart.some((c) => c.shopId === s.id));
+        setNearbyShops(fresh);
         setNearbyHasMore(res.hasMore);
         setNearbyOffset(res.items.length);
+        // Prefetch products for all nearby shops in parallel (cache-aware — skips already cached)
+        res.items.forEach(s => prefetchShop(s.id));
       })
       .catch(() => undefined);
   }, [lockedAnchor]);
@@ -108,6 +114,8 @@ export function BulkCartScreen({
       setNearbyShops((prev) => [...prev, ...fresh]);
       setNearbyHasMore(res.hasMore);
       setNearbyOffset((prev) => prev + res.items.length);
+      // Prefetch new shops' products (skips cached)
+      res.items.forEach(s => prefetchShop(s.id));
     } catch {
       // ignore
     } finally {
@@ -181,34 +189,55 @@ export function BulkCartScreen({
       <Header onBack={onBack} title="Multi-shop order" subtitle={`${shopCount} shops`} />
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
 
-        {/* Per-shop item sections */}
-        {bulkCart.map((shopCart) => (
-          <View key={shopCart.shopId} style={styles.section}>
-            <View style={styles.sectionHead}>
-              <Text style={styles.shopName}>{shopCart.shopName}</Text>
-              <Pressable onPress={() => bulkCartRemoveShop(shopCart.shopId)}>
-                <Text style={styles.removeShop}>Remove</Text>
+        {/* Per-shop collapsible sections */}
+        {bulkCart.map((shopCart) => {
+          const isExpanded = expandedShops.has(shopCart.shopId);
+          const shopTotal = shopCart.lines.reduce((s, l) => s + l.unitPricePaise * l.qty, 0);
+          const itemCount = shopCart.lines.reduce((s, l) => s + l.qty, 0);
+          return (
+            <View key={shopCart.shopId} style={styles.section}>
+              <Pressable
+                style={styles.sectionHead}
+                onPress={() => setExpandedShops(prev => {
+                  const next = new Set(prev);
+                  if (next.has(shopCart.shopId)) next.delete(shopCart.shopId);
+                  else next.add(shopCart.shopId);
+                  return next;
+                })}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.shopName}>{shopCart.shopName}</Text>
+                  <Text style={{ fontSize: theme.font.tiny, color: theme.color.textMuted, marginTop: 1 }}>
+                    {itemCount} item{itemCount !== 1 ? 's' : ''} · {formatRupees(shopTotal)}
+                  </Text>
+                </View>
+                <Text style={{ fontSize: 18, color: theme.color.textMuted, marginRight: theme.space.sm }}>
+                  {isExpanded ? '▲' : '▼'}
+                </Text>
+                <Pressable onPress={() => bulkCartRemoveShop(shopCart.shopId)} hitSlop={8}>
+                  <Text style={styles.removeShop}>Remove</Text>
+                </Pressable>
               </Pressable>
+              {isExpanded ? shopCart.lines.map((line) => (
+                <View key={line.productId} style={styles.itemRow}>
+                  <View style={styles.itemInfo}>
+                    <Text style={styles.itemName} numberOfLines={2}>{line.name}</Text>
+                    <Text style={styles.itemPrice}>{formatRupees(line.unitPricePaise)}</Text>
+                  </View>
+                  <View style={styles.stepper}>
+                    <Pressable style={styles.stepBtn} onPress={() => bulkCartSetQty(shopCart.shopId, line.productId, line.qty - 1)}>
+                      <Text style={styles.stepText}>−</Text>
+                    </Pressable>
+                    <Text style={styles.qty}>{line.qty}</Text>
+                    <Pressable style={styles.stepBtn} onPress={() => bulkCartSetQty(shopCart.shopId, line.productId, line.qty + 1)}>
+                      <Text style={styles.stepText}>+</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              )) : null}
             </View>
-            {shopCart.lines.map((line) => (
-              <View key={line.productId} style={styles.itemRow}>
-                <View style={styles.itemInfo}>
-                  <Text style={styles.itemName} numberOfLines={2}>{line.name}</Text>
-                  <Text style={styles.itemPrice}>{formatRupees(line.unitPricePaise)}</Text>
-                </View>
-                <View style={styles.stepper}>
-                  <Pressable style={styles.stepBtn} onPress={() => bulkCartSetQty(shopCart.shopId, line.productId, line.qty - 1)}>
-                    <Text style={styles.stepText}>−</Text>
-                  </Pressable>
-                  <Text style={styles.qty}>{line.qty}</Text>
-                  <Pressable style={styles.stepBtn} onPress={() => bulkCartSetQty(shopCart.shopId, line.productId, line.qty + 1)}>
-                    <Text style={styles.stepText}>+</Text>
-                  </Pressable>
-                </View>
-              </View>
-            ))}
-          </View>
-        ))}
+          );
+        })}
 
         {/* Nearby shops to add */}
         {(nearbyNotAdded.length > 0 || nearbyHasMore) && shopCount < 3 ? (

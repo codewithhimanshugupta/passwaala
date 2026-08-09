@@ -32,6 +32,12 @@ import { useBulkCart, bulkCartAddOne, currentBulkCartShops } from '../bulkCart';
  * saved-address selection + add form, payment picker, and place order with a
  * per-attempt idempotency key.
  */
+// Module-level cache — survives CartScreen remounts (e.g. back from BulkCartScreen)
+let _nearbyShopsCache: Array<{ id: string; name: string; city: string; latitude: number; longitude: number; distanceMeters: number }> = [];
+let _nearbyShopIdCache: string | null = null;
+let _shopDataCache: import('../types').ShopView | null = null;
+let _shopDataShopId: string | null = null;
+
 export function CartScreen({
   onBack,
   onBrowse,
@@ -52,7 +58,9 @@ export function CartScreen({
   // The shop's fee/offer/coords config — fetched ONCE from api.shop(). Items and
   // subtotal come from the LOCAL cart; the bill is computed entirely on-device
   // (see computedBill below) with NO server sync until the order is placed.
-  const [shopData, setShopData] = useState<ShopView | null>(null);
+  const [shopData, setShopData] = useState<ShopView | null>(() =>
+    _shopDataShopId === (localCart.shopId ?? null) ? _shopDataCache : null
+  );
   // riderAvailable: false when no rider is online near the shop. Fetched from the
   // lightweight delivery-availability endpoint (not a cart sync).
   const [riderAvailableFromCart, setRiderAvailableFromCart] = useState(true);
@@ -126,40 +134,64 @@ export function CartScreen({
     void loadAddresses();
     const pre = getPrefetchedCheckout();
     if (pre) {
+      // Prefetch warm — use immediately, no network calls needed
       setCoinBalance(pre.coinBalance);
       setPendingCancelFeePaise(pre.pendingCancelFeePaise);
-      if (pre.nearbyShopsForShopId === shopId && pre.nearbyShops.length > 0) {
-        setNearbyShops(pre.nearbyShops);
-      }
     } else {
-      // Fallback: fetch in parallel if prefetch not warm
-      void api.referralMe().then((r) => setCoinBalance(r?.coinBalance ?? 0)).catch(() => undefined);
-      void api.me().then((a: any) => setPendingCancelFeePaise(a?.pendingCancelFeePaise ?? 0)).catch(() => undefined);
+      // Background fetch — non-blocking, UI renders with defaults
+      void Promise.all([
+        api.referralMe().then((r) => setCoinBalance(r?.coinBalance ?? 0)),
+        api.me().then((a: any) => setPendingCancelFeePaise(a?.pendingCancelFeePaise ?? 0)),
+      ]).catch(() => undefined);
     }
-  }, [loadAddresses, shopId]);
+  }, [loadAddresses]);
 
-  // Fetch shop config + rider availability
+  // Fetch shop config — smooth update, never blank between loads
   useEffect(() => {
     if (!shopId) return;
     let alive = true;
-    void api.shop(shopId).then((s) => { if (alive) setShopData(s as ShopView); }).catch(() => undefined);
-    void api.shopDeliveryAvailable(shopId).then((d) => { if (alive) setRiderAvailableFromCart(d.deliveryAvailable !== false); }).catch(() => undefined);
+    // Return cached data instantly if available for this shop
+    if (_shopDataShopId === shopId && _shopDataCache) {
+      setShopData(_shopDataCache);
+      setRiderAvailableFromCart(_shopDataCache.deliveryAvailable !== false);
+    }
+    void api.shop(shopId).then((s) => {
+      if (alive) {
+        const sv = s as ShopView;
+        setShopData(sv);
+        setRiderAvailableFromCart(sv.deliveryAvailable !== false);
+        _shopDataCache = sv;
+        _shopDataShopId = shopId;
+      }
+    }).catch(() => undefined);
     return () => { alive = false; };
   }, [shopId]);
 
-  // Nearby shops — use prefetch if available, else fetch. Keep state across cart clear.
+  // Nearby shops — module-level cache survives remounts (back from BulkCartScreen)
   const bulkCart = useBulkCart();
-  const [nearbyShops, setNearbyShops] = useState<Array<{ id: string; name: string; city: string; latitude: number; longitude: number; distanceMeters: number }>>([]);
-  const [nearbyLoading, setNearbyLoading] = useState(false);
-  const nearbyShopIdRef = useRef<string | null>(null); // last shopId we fetched nearby for
+  const [nearbyShops, setNearbyShops] = useState(() => {
+    const pre = getPrefetchedCheckout();
+    if (pre && pre.nearbyShops.length > 0) return pre.nearbyShops;
+    return _nearbyShopsCache; // show immediately from cache on remount
+  });
+  const [nearbyLoading, setNearbyLoading] = useState(_nearbyShopsCache.length === 0);
+  const nearbyShopIdRef = useRef<string | null>(_nearbyShopIdCache);
   useEffect(() => {
     const sid = shopId ?? nearbyShopIdRef.current;
     if (!sid) return;
-    if (nearbyShopIdRef.current === sid && nearbyShops.length > 0) return; // already fetched
+    // Already have fresh data for this shop
+    if (_nearbyShopIdCache === sid && _nearbyShopsCache.length > 0) {
+      setNearbyShops(_nearbyShopsCache);
+      setNearbyLoading(false);
+      return;
+    }
     const pre = getPrefetchedCheckout();
     if (pre?.nearbyShopsForShopId === sid && pre.nearbyShops.length > 0) {
       setNearbyShops(pre.nearbyShops);
+      _nearbyShopsCache = pre.nearbyShops;
+      _nearbyShopIdCache = sid;
       nearbyShopIdRef.current = sid;
+      setNearbyLoading(false);
       return;
     }
     let alive = true;
@@ -168,6 +200,8 @@ export function CartScreen({
       .then((res) => {
         if (alive) {
           setNearbyShops(res.items);
+          _nearbyShopsCache = res.items;
+          _nearbyShopIdCache = sid;
           nearbyShopIdRef.current = sid;
         }
       })
