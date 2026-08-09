@@ -580,7 +580,6 @@ export function CartScreen({
             • at least one nearby shop was found */}
         {(() => {
           if (!shopId) return null;
-          if (!platformDelivery) return null;
           const bulkShopCount = currentBulkCartShops().length;
           if (bulkShopCount >= 3) return null;
           const shopsToShow = nearbyShops.filter((s) => !currentBulkCartShops().includes(s.id)).slice(0, 2);

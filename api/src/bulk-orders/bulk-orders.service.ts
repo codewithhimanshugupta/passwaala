@@ -123,7 +123,7 @@ export class BulkOrdersService {
     const anchorCity = shops.find(s => s.id === dto.shops[0].shopId)?.city ?? shops[0]?.city;
     const cityRow = anchorCity ? await this.prisma.serviceableCity.findFirst({
       where: { name: anchorCity, deletedAt: null },
-      select: { multiShopSurchargePaise: true, deliveryTiersJson: true, deliveryRadiusMeters: true },
+      select: { multiShopSurchargePaise: true, deliveryTiersJson: true, deliveryRadiusMeters: true, bulkShopRadiusMeters: true },
     }) : null;
 
     // Validate every shop is present, approved, open, platform-delivery enabled
@@ -145,17 +145,18 @@ export class BulkOrdersService {
       throw new BadRequestException('All shops in a bulk order must be in the same city');
     }
 
-    // Anchor shop = first shop; others must be within 1 km of it
+    // Anchor shop = first shop; others must be within the city-configured radius
     const anchorShop = shops.find((s) => s.id === dto.shops[0].shopId)!;
+    const proximityLimit = cityRow?.bulkShopRadiusMeters ?? MAX_BULK_SHOP_PROXIMITY_METERS;
     for (const shop of shops) {
       if (shop.id === anchorShop.id) continue;
       const dist = haversineMeters(
         { latitude: anchorShop.latitude, longitude: anchorShop.longitude },
         { latitude: shop.latitude, longitude: shop.longitude },
       );
-      if (!Number.isFinite(dist) || dist > MAX_BULK_SHOP_PROXIMITY_METERS) {
+      if (!Number.isFinite(dist) || dist > proximityLimit) {
         throw new BadRequestException(
-          `Shop "${shop.name}" is ${Math.round(dist)}m from "${anchorShop.name}" — must be within ${MAX_BULK_SHOP_PROXIMITY_METERS}m`,
+          `Shop "${shop.name}" is ${Math.round(dist)}m from "${anchorShop.name}" — must be within ${proximityLimit}m`,
         );
       }
     }
