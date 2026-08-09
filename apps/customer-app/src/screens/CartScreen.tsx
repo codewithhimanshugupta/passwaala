@@ -507,8 +507,8 @@ export function CartScreen({
           </View>
         </View>
 
-        {/* Nearby shops bulk banner — shown right after items for visibility */}
-        {(nearbyShops.length > 0 || nearbyLoading) ? (() => {
+        {/* Nearby shops bulk banner — always show when cart has a shop */}
+        {(nearbyShops.length > 0 || nearbyLoading || nearbyShopIdRef.current) ? (() => {
           const bulkShopCount = currentBulkCartShops().length;
           if (bulkShopCount >= 3) return null;
           const shopsToShow = nearbyShops.filter((s) => !currentBulkCartShops().includes(s.id)).slice(0, 2);
@@ -518,10 +518,14 @@ export function CartScreen({
               <View style={styles.bulkBannerTop}>
                 <Text style={styles.bulkBannerTitle}>Add from nearby shops</Text>
                 <Text style={styles.bulkBannerSub}>
-                  {nearbyLoading ? 'Finding nearby shops…' : shopsToShow.map((s) => s.name).join(' · ')}
+                  {nearbyLoading
+                    ? 'Finding nearby shops…'
+                    : shopsToShow.length > 0
+                      ? shopsToShow.map((s) => s.name).join(' · ')
+                      : 'Order from multiple shops in one delivery'}
                 </Text>
               </View>
-              {!nearbyLoading && shopsToShow.length > 0 ? (
+              {!nearbyLoading ? (
                 <View style={styles.bulkBannerActions}>
                   {localCart.lines.length > 0 ? (
                     <Pressable

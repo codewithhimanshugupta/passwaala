@@ -734,10 +734,9 @@ export class ShopsService {
         WHERE "deletedAt" IS NULL
           AND "verificationStatus" = 'APPROVED'
           AND "isOpen" = TRUE
-          AND "platformDeliveryEnabled" = TRUE
           AND geog IS NOT NULL
           AND id != $3
-          AND city = $4
+          AND city ILIKE $4
           AND ST_DWithin(geog, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, $5)
         ORDER BY distance_meters ASC
         LIMIT $6 OFFSET $7`,
