@@ -156,12 +156,15 @@ export function BulkCartScreen({
   const multiShopSurchargePaise = (shopCount - 1) * surchargeEach;
   const totalPaise = subtotalPaise + baseDeliveryFeePaise + multiShopSurchargePaise + platformFeePaise;
 
+  const [placingCancelHandle, setPlacingCancelHandle] = useState<{ cancel: () => void } | null>(null);
+
   async function place() {
     if (!selectedAddress) { setError('Please select a delivery address'); return; }
-    // If only 1 shop remains, redirect to single-shop cart instead
     if (bulkCart.length < 2) { onSingleShop(); return; }
+    let wasCancelled = false;
     setPlacing(true);
     setError(null);
+    setPlacingCancelHandle({ cancel: () => { wasCancelled = true; setPlacing(false); } });
     try {
       const idempotencyKey = `pw-bulk-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
       const result = await api.placeBulkOrder({
@@ -173,12 +176,17 @@ export function BulkCartScreen({
         paymentMethod: payment,
         idempotencyKey,
       });
+      if (wasCancelled) {
+        void api.requestCancelOrder(result.bulkOrderId, 'Customer cancelled during placement').catch(() => undefined);
+        return;
+      }
       resetBulkCartStore();
       onPlaced({ bulkOrderId: result.bulkOrderId, shortId: result.shortId, totalPaise: result.totalPaise });
     } catch (e) {
-      setError((e as Error).message);
+      if (!wasCancelled) setError((e as Error).message);
     } finally {
-      setPlacing(false);
+      if (!wasCancelled) setPlacing(false);
+      setPlacingCancelHandle(null);
     }
   }
 
@@ -363,12 +371,12 @@ export function BulkCartScreen({
         </View>
       </View>
 
-      <Modal visible={placing} transparent animationType="fade" onRequestClose={() => setPlacing(false)}>
+      <Modal visible={placing} transparent animationType="fade" onRequestClose={() => placingCancelHandle?.cancel()}>
         <View style={styles.overlay}>
           <View style={styles.placingCard}>
             <Text style={styles.placingText}>Placing your order…</Text>
             <StripedProgressBar color={theme.color.primary} />
-            <Pressable onPress={() => setPlacing(false)} style={styles.placingCancelBtn}>
+            <Pressable onPress={() => placingCancelHandle?.cancel()} style={styles.placingCancelBtn}>
               <Text style={styles.placingCancelText}>Cancel</Text>
             </Pressable>
           </View>

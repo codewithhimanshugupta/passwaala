@@ -352,13 +352,13 @@ export class BulkOrdersService {
         });
         createdOrders.push({ id: order.id, shopId: sub.shopId });
 
-        // Decrement stock
-        for (const item of sub.items) {
-          await tx.product.update({
+        // Decrement stock in parallel (not sequential)
+        await Promise.all(sub.items.map(item =>
+          tx.product.update({
             where: { id: item.productId },
             data: { stock: { decrement: item.qty } },
-          });
-        }
+          })
+        ));
       }
 
       return { bulkOrder, orderIds: createdOrders.map((o) => o.id), createdOrders };
