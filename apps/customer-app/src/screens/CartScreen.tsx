@@ -61,6 +61,7 @@ export function CartScreen({
   const [notes, setNotes] = useState('');
   const [loadingAddrs, setLoadingAddrs] = useState(true);
   const [placing, setPlacing] = useState(false);
+  const [placingCancelHandle, setPlacingCancelHandle] = useState<{ cancel: () => void } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showAddrForm, setShowAddrForm] = useState(false);
   // Modal to switch between saved addresses (the cart shows only one at a time).
@@ -260,36 +261,38 @@ export function CartScreen({
     }
     setPlacing(true);
     setError(null);
+    let wasCancelled = false;
+    const cancelHandle = { cancel: () => { wasCancelled = true; setPlacing(false); } };
+    // Expose cancel handle so the overlay button can dismiss + auto-cancel
+    setPlacingCancelHandle(cancelHandle);
     try {
-      // NO pre-placement server sync — the local cart IS the source of truth. The
-      // server re-validates stock/price/fee/offer from these client items, so we
-      // pass { shopId, items } straight through (client-cart path in place()).
       const idempotencyKey = `pw-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
       const userNote = notes.trim();
-      // Coins redeem against the item subtotal only (1 coin = ₹1). Cap
-      // client-side to min(balance, subtotal); the server re-caps anyway.
       const subtotalRupees = Math.floor(localCart.totalPaise / 100);
       const appliedCoins = useCoins ? Math.min(coinBalance, subtotalRupees) : 0;
       const result = await api.placeOrder({
         deliveryMode: fulfilment,
-        // Address is optional for pickup; only send it for delivery.
         addressId: isPickupMode ? undefined : selectedAddress ?? undefined,
         paymentMethod: payment,
         idempotencyKey,
         notes: userNote || undefined,
         redeemCoins: appliedCoins > 0 ? appliedCoins : 0,
         offerId: selectedOfferId ?? undefined,
-        // Client cart pushed at placement (the ONLY moment items reach the server).
         shopId: localCart.shopId ?? undefined,
         items: localCart.lines.map((l) => ({ productId: l.productId, qty: l.qty })),
       } as Parameters<typeof api.placeOrder>[0]);
-      // Order placed — clear the local cart.
+      if (wasCancelled) {
+        // User tapped Cancel while request was in-flight — silently cancel the just-placed order
+        void api.requestCancelOrder(result.orderId, 'Customer cancelled during placement').catch(() => undefined);
+        return;
+      }
       resetCartStore();
       onPlaced(result);
     } catch (e) {
-      setError((e as Error).message);
+      if (!wasCancelled) setError((e as Error).message);
     } finally {
-      setPlacing(false);
+      if (!wasCancelled) setPlacing(false);
+      setPlacingCancelHandle(null);
     }
   }
 
@@ -871,12 +874,12 @@ export function CartScreen({
       {/* Full-screen "placing your order" overlay — order placement can take a
           few seconds on the current server, so block interaction + show clear
           progress instead of just a button spinner. */}
-      <Modal visible={placing} transparent animationType="fade" onRequestClose={() => setPlacing(false)}>
+      <Modal visible={placing} transparent animationType="fade" onRequestClose={() => placingCancelHandle?.cancel()}>
         <View style={styles.placingOverlay}>
           <View style={styles.placingCard}>
             <Text style={styles.placingText}>{t.cart.placing}</Text>
             <StripedProgressBar color={theme.color.primary} />
-            <Pressable onPress={() => setPlacing(false)} style={styles.placingCancelBtn}>
+            <Pressable onPress={() => placingCancelHandle?.cancel()} style={styles.placingCancelBtn}>
               <Text style={styles.placingCancelText}>Cancel</Text>
             </Pressable>
           </View>

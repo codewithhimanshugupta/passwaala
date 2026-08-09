@@ -171,7 +171,7 @@ function persistLoc(next: LocState): void {
 
 type Stack =
   | { name: 'tabs' }
-  | { name: 'shop'; shopId: string }
+  | { name: 'shop'; shopId: string; fromBulk?: boolean }
   | { name: 'confirmed'; orderId: string; result: PlaceOrderResult }
   | { name: 'track'; orderId: string; result?: PlaceOrderResult }
   | { name: 'bulkCart' }
@@ -382,13 +382,12 @@ function AppRoot() {
       <Shell showTabs={false} tab={tab} onTab={goTab}>
         <StorefrontScreen
           shopId={stack.shopId}
+          fromBulk={stack.fromBulk}
           onBack={() => {
-            // If this shop was opened from the map, keep the map view; clear popup.
-            // If from list, stay in list.
             if (discoveryViewMode === 'map') setDiscoverySelectedShopId(null);
             setStack({ name: 'tabs' });
           }}
-          onOpenCart={() => goTab('cart')}
+          onOpenCart={() => stack.fromBulk ? setStack({ name: 'bulkCart' }) : goTab('cart')}
         />
       </Shell>
     );
@@ -428,7 +427,7 @@ function AppRoot() {
           onPlaced={(result) =>
             setStack({ name: 'bulkConfirmed', bulkOrderId: result.bulkOrderId, shortId: result.shortId, totalPaise: result.totalPaise })
           }
-          onOpenShop={(shopId) => setStack({ name: 'shop', shopId })}
+          onOpenShop={(shopId) => setStack({ name: 'shop', shopId, fromBulk: true })}
           onSingleShop={() => { setStack({ name: 'tabs' }); goTab('cart'); }}
         />
       </Shell>

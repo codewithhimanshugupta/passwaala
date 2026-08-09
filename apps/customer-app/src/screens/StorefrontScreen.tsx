@@ -36,6 +36,7 @@ import {
 import { Badge, Button, ErrorState, Loading, StorefrontSkeleton, Stars } from '../ui';
 import { ImageOrInitial } from '../ImageOrInitial';
 import { prefetchCheckout } from '../checkoutPrefetch';
+import { bulkCartAddOne, bulkCartSetQty, useBulkCart } from '../bulkCart';
 import { useLang } from '../i18n/LanguageContext';
 
 /** Products rendered per page (client-side pagination; grows on scroll). */
@@ -52,12 +53,18 @@ export function StorefrontScreen({
   shopId,
   onBack,
   onOpenCart,
+  fromBulk = false,
 }: {
   shopId: string;
   onBack: () => void;
   onOpenCart: () => void;
+  fromBulk?: boolean;
 }) {
   const { t } = useLang();
+  const bulkCart = useBulkCart();
+  const bulkQtyByProduct = fromBulk
+    ? Object.fromEntries((bulkCart.find(s => s.shopId === shopId)?.lines ?? []).map(l => [l.productId, l.qty]))
+    : {};
   const [shop, setShop] = useState<ShopView | null>(null);
   const [products, setProducts] = useState<ProductPublic[]>([]);
   // Client-side pagination: render PRODUCT_PAGE rows at a time, grow on scroll.
@@ -181,15 +188,20 @@ export function StorefrontScreen({
 
   const onAdd = (productId: string) => {
     const p = products.find((x) => x.id === productId);
-    // Guard: never add a product that's gone/unavailable (deleted or out of
-    // stock). The server also re-validates at placement, but block it up front
-    // so the customer isn't allowed to build a cart around a dead product.
     if (!p || !p.available || !p.inStock) {
       setNotice(t.storefront.outOfStock);
       return Promise.resolve();
     }
-    // Warm the checkout data (addresses + coins) in the background the moment
-    // the customer starts a cart, so the cart/checkout screen opens instantly.
+    if (fromBulk) {
+      bulkCartAddOne(productId, {
+        shopId,
+        shopName: shop?.name ?? '',
+        name: p.name,
+        unitPricePaise: p.pricePaise,
+        imageUrl: p.imageUrl ?? null,
+      });
+      return Promise.resolve();
+    }
     void prefetchCheckout();
     return runMutation(productId, () =>
       addOne(productId, shop ? {
@@ -201,8 +213,14 @@ export function StorefrontScreen({
       } : undefined),
     );
   };
-  const onSub = (productId: string) =>
-    runMutation(productId, () => decOne(productId));
+  const onSub = (productId: string) => {
+    if (fromBulk) {
+      const current = bulkQtyByProduct[productId] ?? 0;
+      bulkCartSetQty(shopId, productId, Math.max(0, current - 1));
+      return Promise.resolve();
+    }
+    return runMutation(productId, () => decOne(productId));
+  };
 
   // Toggle a product open/closed; on first open, lazily fetch its detail.
   const onToggleDetail = useCallback(async (productId: string) => {
@@ -280,7 +298,7 @@ export function StorefrontScreen({
         renderItem={({ item }) => (
           <ProductRow
             product={item}
-            qty={qtyByProduct[item.id] ?? 0}
+            qty={fromBulk ? (bulkQtyByProduct[item.id] ?? 0) : (qtyByProduct[item.id] ?? 0)}
             onAdd={() => onAdd(item.id)}
             onSub={() => onSub(item.id)}
             expanded={expandedId === item.id}
