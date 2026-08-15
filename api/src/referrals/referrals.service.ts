@@ -3,7 +3,7 @@ import { ReferralStatus, ReferralType } from '@passwaala/shared';
 import { PrismaService } from '../prisma/prisma.service';
 
 /**
- * ReferralsService — PassWaala Coins referral program (plan → Fast-Follows:
+ * ReferralsService — NearBaz Coins referral program (plan → Fast-Follows:
  * Referral program). Coins are a discount VOUCHER, not cash.
  *
  * MVP scope: a user has a stable referralCode; another user applies it once

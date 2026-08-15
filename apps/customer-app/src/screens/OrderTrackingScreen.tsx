@@ -107,7 +107,7 @@ function cancelledByLabel(by: string | null | undefined, shopName: string): stri
     case 'SHOP': return shopName;
     case 'CUSTOMER': return 'you';
     case 'RIDER': return 'the delivery partner';
-    case 'SYSTEM': return 'PassWaala (auto-cancelled)';
+    case 'SYSTEM': return 'NearBaz (auto-cancelled)';
     default: return shopName;
   }
 }

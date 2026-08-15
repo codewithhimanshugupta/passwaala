@@ -51,7 +51,7 @@ export function useSystemAlerts(enabled: boolean): SystemAlerts {
       vibrate();
       const first = fresh[0];
       notifyAlert(
-        first.isWarning ? 'PassWaala Alert' : 'PassWaala Update',
+        first.isWarning ? 'NearBaz Alert' : 'NearBaz Update',
         fresh.length > 1 ? `${fresh.length} new alerts` : first.message,
       );
     }

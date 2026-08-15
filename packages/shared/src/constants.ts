@@ -1,5 +1,5 @@
 /**
- * PassWaala platform constants (Phase 0 defaults).
+ * NearBaz platform constants (Phase 0 defaults).
  *
  * All money values are integer paise (schema rule #4). Rates are unitless
  * decimals. These are the plan's defaults; per-shop overrides (commissionRate,
@@ -29,10 +29,10 @@ export const PLATFORM_FEE_PAISE = rupeesToPaise(10);
  */
 export const DEFAULT_CREDIT_LIMIT_PAISE = rupeesToPaise(500);
 
-/** PassWaala Coins granted for referring a new shop that completes its 1st order (₹100-off voucher). */
+/** NearBaz Coins granted for referring a new shop that completes its 1st order (₹100-off voucher). */
 export const REFERRAL_SHOP_COINS = 100;
 
-/** PassWaala Coins granted to referrer AND referee after the referee's 1st order (₹25-off voucher each). */
+/** NearBaz Coins granted to referrer AND referee after the referee's 1st order (₹25-off voucher each). */
 export const REFERRAL_CUSTOMER_COINS = 25;
 
 /**

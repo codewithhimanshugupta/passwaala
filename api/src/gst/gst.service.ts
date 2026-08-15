@@ -13,7 +13,7 @@ const BILLABLE_TYPES: LedgerEntryType[] = [
 ];
 
 /**
- * GstService — PassWaala's GST compliance: config, monthly tax-invoice
+ * GstService — NearBaz's GST compliance: config, monthly tax-invoice
  * generation from the commission/platform-fee ledger, GSTR-1 (B2B) export, and
  * a CA-friendly summary.
  *
@@ -30,7 +30,7 @@ export class GstService {
 
   /**
    * Split the 18% GST on a base into CGST/SGST (intra-state) or IGST
-   * (inter-state), keyed off PassWaala's home state (PlatformGstConfig.stateCode)
+   * (inter-state), keyed off NearBaz's home state (PlatformGstConfig.stateCode)
    * vs the shop's state. A null shopStateCode is assumed intra-state.
    *
    * The total GST is taken from computeGst(base).gstPaise first, then split so

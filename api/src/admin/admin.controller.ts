@@ -150,7 +150,7 @@ export class AdminController {
     return this.riders.payEarnings(userId, amountPaise, user.sub);
   }
 
-  /** Pay a shop its negative balance (money PassWaala owes it, e.g. COD remittance). */
+  /** Pay a shop its negative balance (money NearBaz owes it, e.g. COD remittance). */
   @Post('shops/:shopId/pay-payable')
   payShopPayable(@Param('shopId') shopId: string, @Body('amountPaise') amountPaise: number) {
     return this.ledger.payShopPayable(shopId, amountPaise);

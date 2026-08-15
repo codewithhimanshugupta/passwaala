@@ -1,6 +1,6 @@
 /**
  * UPI direct-payment helpers (plan → Payments: direct customer→shop, no
- * gateway). PassWaala only builds the deep-link; money flows straight to the
+ * gateway). NearBaz only builds the deep-link; money flows straight to the
  * shop's VPA. Amount is passed in integer paise and rendered as rupees.
  */
 

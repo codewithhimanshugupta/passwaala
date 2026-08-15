@@ -47,7 +47,7 @@ export class PlaceOrderDto {
   notes?: string;
 
   /**
-   * PassWaala Coins to redeem as a discount (1 coin = ₹1). Applied to the item
+   * NearBaz Coins to redeem as a discount (1 coin = ₹1). Applied to the item
    * subtotal only; capped server-side by the customer's balance AND the
    * subtotal. Omit or 0 for no redemption.
    */

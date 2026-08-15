@@ -232,7 +232,7 @@ export function CitiesScreen() {
       <View style={styles.center}>
         <View style={styles.notice}>
           <Text style={styles.noticeTitle}>Owner only</Text>
-          <Text style={styles.noticeBody}>This section is only accessible to the PassWaala owner account.</Text>
+          <Text style={styles.noticeBody}>This section is only accessible to the NearBaz owner account.</Text>
         </View>
       </View>
     );
@@ -325,7 +325,7 @@ export function CitiesScreen() {
               </View>
               <View style={styles.field}>
                 <Text style={styles.label}>Email (optional)</Text>
-                <TextInput style={styles.input} placeholder="name@passwala.in" placeholderTextColor={theme.color.textFaint} autoCapitalize="none" value={inviteEmail} onChangeText={setInviteEmail} />
+                <TextInput style={styles.input} placeholder="name@nearbaz.in" placeholderTextColor={theme.color.textFaint} autoCapitalize="none" value={inviteEmail} onChangeText={setInviteEmail} />
               </View>
               <View style={styles.field}>
                 <Text style={styles.label}>Assign city</Text>
@@ -427,12 +427,12 @@ export function CitiesScreen() {
                     <TextInput style={styles.input} placeholder="e.g. Wardha" placeholderTextColor={theme.color.textFaint} value={newCityName} onChangeText={setNewCityName} />
                   </View>
                   <View style={styles.field}>
-                    <Text style={styles.label}>PassWaala UPI (VPA)</Text>
-                    <TextInput style={styles.input} placeholder="e.g. passwala.wardha@upi" placeholderTextColor={theme.color.textFaint} autoCapitalize="none" autoCorrect={false} value={newCityUpiVpa} onChangeText={setNewCityUpiVpa} />
+                    <Text style={styles.label}>NearBaz UPI (VPA)</Text>
+                    <TextInput style={styles.input} placeholder="e.g. nearbaz.wardha@upi" placeholderTextColor={theme.color.textFaint} autoCapitalize="none" autoCorrect={false} value={newCityUpiVpa} onChangeText={setNewCityUpiVpa} />
                   </View>
                   <View style={styles.field}>
                     <Text style={styles.label}>Payee name (optional)</Text>
-                    <TextInput style={styles.input} placeholder="PassWaala Wardha" placeholderTextColor={theme.color.textFaint} value={newCityUpiName} onChangeText={setNewCityUpiName} />
+                    <TextInput style={styles.input} placeholder="NearBaz Wardha" placeholderTextColor={theme.color.textFaint} value={newCityUpiName} onChangeText={setNewCityUpiName} />
                   </View>
                 </View>
                 <View style={styles.modalActions}>
@@ -455,7 +455,7 @@ export function CitiesScreen() {
                   </View>
                   <View style={styles.field}>
                     <Text style={styles.label}>Admin email (optional)</Text>
-                    <TextInput style={styles.input} placeholder="admin@passwala.in" placeholderTextColor={theme.color.textFaint} autoCapitalize="none" value={wizardAdminEmail} onChangeText={setWizardAdminEmail} />
+                    <TextInput style={styles.input} placeholder="admin@nearbaz.in" placeholderTextColor={theme.color.textFaint} autoCapitalize="none" value={wizardAdminEmail} onChangeText={setWizardAdminEmail} />
                   </View>
                 </View>
                 <View style={[styles.card, { backgroundColor: theme.color.infoBg, borderColor: theme.color.info, gap: theme.space.xs }]}>
@@ -704,7 +704,7 @@ function CityRow({ city, admins, busy, onToggle, onAddAdmin, onUpdate }: {
                 style={[styles.input, { flex: 1, marginBottom: 0 }]}
                 value={upiDraft}
                 onChangeText={setUpiDraft}
-                placeholder="e.g. passwala@upi"
+                placeholder="e.g. nearbaz@upi"
                 placeholderTextColor={theme.color.textFaint}
                 autoCapitalize="none"
                 autoCorrect={false}

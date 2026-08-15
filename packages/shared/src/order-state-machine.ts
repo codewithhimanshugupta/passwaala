@@ -1,7 +1,7 @@
 import { OrderStatus } from './enums';
 
 /**
- * PassWaala order state machine — the single source of truth for which order
+ * NearBaz order state machine — the single source of truth for which order
  * status transitions are allowed.
  *
  * Happy-path lifecycle (accept-before-pay ordering — see plan):
@@ -12,7 +12,7 @@ import { OrderStatus } from './enums';
  * order and must verify the shop's pickup OTP before going out). Self-delivery /
  * self-pickup shops go READY -> OUT_FOR_DELIVERY directly.
  *
- * Because PassWaala is NOT in the money flow, the shop accepts (and can adjust
+ * Because NearBaz is NOT in the money flow, the shop accepts (and can adjust
  * for stock) BEFORE the customer pays. Rejections / out-of-stock adjustments
  * therefore happen before any money changes hands.
  *

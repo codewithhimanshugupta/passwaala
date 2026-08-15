@@ -1,17 +1,18 @@
 import { useState } from 'react';
-import { ActivityIndicator, Image, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import * as ImagePickerExpo from 'expo-image-picker';
 import { api } from '../api';
 import { theme } from '../theme';
 
 /**
- * ImagePicker — a styled uploader that (on web) opens a hidden file input,
- * uploads the chosen image via api.uploadImage(), and reports the resulting URL
- * back through onUploaded(url). Shows a thumbnail preview + an uploading
- * spinner, and surfaces upload failures inline (with a graceful fallback so the
- * caller can still proceed). Native is out of scope (web-only) — there it shows
- * a note instead of a picker.
+ * ImagePicker — a styled uploader that uploads a chosen image via
+ * api.uploadImage() and reports the resulting URL back through onUploaded(url).
+ * Shows a thumbnail preview + an uploading spinner, and surfaces upload failures
+ * inline (with a graceful fallback so the caller can still proceed).
  *
- * The `capture` attribute hints the camera on mobile web.
+ * On web it opens a hidden file input (the `capture` attribute hints the camera
+ * on mobile web). On native (iOS/Android) it uses expo-image-picker to let the
+ * user pick from their library or take a photo with the camera.
  */
 export function ImagePicker({
   label,
@@ -51,9 +52,57 @@ export function ImagePicker({
     }
   }
 
+  /** Upload a React-Native asset (from expo-image-picker) as {uri,name,type}. */
+  async function handleAsset(asset: ImagePickerExpo.ImagePickerAsset) {
+    const uriName = asset.uri.split('/').pop()?.split('?')[0];
+    const name = asset.fileName || uriName || 'photo.jpg';
+    const type = asset.mimeType || 'image/jpeg';
+    const fileLike = { uri: asset.uri, name, type };
+    // api.uploadImage accepts a React-Native {uri,name,type} object; the Blob
+    // param type is satisfied via a cast.
+    await handleFile(fileLike as unknown as Blob);
+  }
+
+  async function pickFromLibrary() {
+    const perm = await ImagePickerExpo.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
+      setError('Photo library permission is required.');
+      return;
+    }
+    const result = await ImagePickerExpo.launchImageLibraryAsync({
+      mediaTypes: ImagePickerExpo.MediaTypeOptions.Images,
+      quality: 0.7,
+    });
+    if (!result.canceled && result.assets?.[0]) void handleAsset(result.assets[0]);
+  }
+
+  async function takePhoto() {
+    const perm = await ImagePickerExpo.requestCameraPermissionsAsync();
+    if (!perm.granted) {
+      setError('Camera permission is required.');
+      return;
+    }
+    const result = await ImagePickerExpo.launchCameraAsync({ quality: 0.7 });
+    if (!result.canceled && result.assets?.[0]) void handleAsset(result.assets[0]);
+  }
+
+  /** Native: let the user choose between the library and the camera. */
+  function pickNative() {
+    Alert.alert(
+      'Add photo',
+      undefined,
+      [
+        { text: 'Take photo', onPress: () => void takePhoto() },
+        { text: 'Choose from library', onPress: () => void pickFromLibrary() },
+        { text: 'Cancel', style: 'cancel' },
+      ],
+      { cancelable: true },
+    );
+  }
+
   /** Web: build a hidden <input type="file"> imperatively and click it. */
-  function pick() {
-    if (Platform.OS !== 'web' || typeof document === 'undefined') return;
+  function pickWeb() {
+    if (typeof document === 'undefined') return;
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = 'image/*';
@@ -69,7 +118,10 @@ export function ImagePicker({
     input.click();
   }
 
-  const isWeb = Platform.OS === 'web';
+  function pick() {
+    if (Platform.OS === 'web') pickWeb();
+    else pickNative();
+  }
 
   return (
     <View style={styles.field}>
@@ -87,10 +139,10 @@ export function ImagePicker({
         <View style={styles.controls}>
           <Pressable
             onPress={pick}
-            disabled={busy || !isWeb}
+            disabled={busy}
             style={({ pressed }) => [
               styles.pickBtn,
-              (pressed || busy || !isWeb) && styles.pickBtnDim,
+              (pressed || busy) && styles.pickBtnDim,
             ]}
           >
             {busy ? (
@@ -102,11 +154,7 @@ export function ImagePicker({
               <Text style={styles.pickText}>{value ? 'Replace photo' : 'Upload photo'}</Text>
             )}
           </Pressable>
-          {!isWeb ? (
-            <Text style={styles.hint}>Photo upload is available on the web app.</Text>
-          ) : hint ? (
-            <Text style={styles.hint}>{hint}</Text>
-          ) : null}
+          {hint ? <Text style={styles.hint}>{hint}</Text> : null}
         </View>
       </View>
 

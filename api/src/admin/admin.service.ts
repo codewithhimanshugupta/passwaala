@@ -356,7 +356,7 @@ export class AdminService {
 
   /**
    * Owner/platform dashboard: cross-shop aggregate stats (plan → Admin Panel).
-   * GMV = sum of delivered order totals; revenue = sum of PassWaala's
+   * GMV = sum of delivered order totals; revenue = sum of NearBaz's
    * GST-inclusive ledger dues.
    *
    * The Summary block stays global + all-time. The Order Status widget's

@@ -15,7 +15,7 @@ export const hi: Strings = {
   app: {
     loadingProfile: 'आपकी प्रोफ़ाइल लोड हो रही है…',
     becomePartner: 'पार्टनर बनें',
-    brand: 'PassWaala राइडर',
+    brand: 'NearBaz राइडर',
     logout: 'लॉग आउट',
     newJobTitle: (shop: string, fee: string) => `नया काम! ${shop} · ${fee} फ़ीस`,
     pickup: 'पिकअप',
@@ -43,7 +43,7 @@ export const hi: Strings = {
     otpHint: (phone: string) => `${phone} पर भेजा गया। डेव में, कोई भी 6 अंक चलेंगे।`,
     verifyContinue: 'सत्यापित करें और आगे बढ़ें',
     changeNumber: 'नंबर बदलें',
-    footer: 'आगे बढ़कर आप PassWaala पर ऑर्डर डिलीवर करने के लिए सहमत होते हैं।',
+    footer: 'आगे बढ़कर आप NearBaz पर ऑर्डर डिलीवर करने के लिए सहमत होते हैं।',
     invalidPhone: 'एक मान्य 10-अंकों का फ़ोन नंबर दर्ज करें',
     enterCode: '6-अंकों का कोड दर्ज करें',
     enterMobile: 'अपना मोबाइल नंबर दर्ज करें',
@@ -118,6 +118,15 @@ export const hi: Strings = {
     enterCity: 'अपना सेवा शहर दर्ज करें',
     enterAadhaar: 'एक मान्य 12-अंकों का आधार नंबर दर्ज करें',
     enterDl: 'अपना ड्राइविंग लाइसेंस नंबर दर्ज करें',
+    kycDocsLabel: 'दस्तावेज़ फ़ोटो (वैकल्पिक)',
+    kycDocsHint: 'अपने आधार, ड्राइविंग लाइसेंस या अन्य ID की साफ़ फ़ोटो जोड़ें।',
+    kycAddPhoto: 'फ़ोटो जोड़ें',
+    kycTakePhoto: 'फ़ोटो लें',
+    kycChooseLibrary: 'गैलरी से चुनें',
+    kycUploading: 'अपलोड हो रहा है…',
+    kycUploadFailed: 'अपलोड विफल। कृपया फिर से प्रयास करें।',
+    kycPermissionDenied: 'अनुमति अस्वीकृत। फ़ोटो जोड़ने के लिए सेटिंग्स में इसे सक्षम करें।',
+    kycCancel: 'रद्द करें',
   },
   home: {
     online: 'आप ऑनलाइन हैं',
@@ -126,10 +135,10 @@ export const hi: Strings = {
     tapOnline: 'ऑनलाइन जाने के लिए टैप करें',
     totalEarnings: 'कुल कमाई',
     codToDeposit: (dues: string, limit: string) => `जमा करने के लिए COD नकद: ${dues} / ${limit}`,
-    codAtCap: 'आपने अपनी COD सीमा पूरी कर ली है। अधिक ऑर्डर स्वीकार करने के लिए जमा की गई नकदी PassWaala के पास जमा करें।',
+    codAtCap: 'आपने अपनी COD सीमा पूरी कर ली है। अधिक ऑर्डर स्वीकार करने के लिए जमा की गई नकदी NearBaz के पास जमा करें।',
     codBelowCap:
-      'यह वह नकदी है जो आपने COD ऑर्डर के लिए एकत्र की है। इसे PassWaala के पास जमा करें; एक एडमिन इसे क्लियर करता है। सीमा पूरी होने पर नए ऑर्डर रुक जाते हैं।',
-    payDuesTitle: 'PassWaala को अपना बकाया चुकाएं',
+      'यह वह नकदी है जो आपने COD ऑर्डर के लिए एकत्र की है। इसे NearBaz के पास जमा करें; एक एडमिन इसे क्लियर करता है। सीमा पूरी होने पर नए ऑर्डर रुक जाते हैं।',
+    payDuesTitle: 'NearBaz को अपना बकाया चुकाएं',
     payDuesSub: (dues: string, name: string) =>
       `${name} को ${dues} जमा करें — फिर एक एडमिन आपका बैलेंस क्लियर करता है।`,
     payNow: (dues: string) => `अभी ${dues} चुकाएं`,
@@ -138,7 +147,7 @@ export const hi: Strings = {
     liveMessage: 'अपने पास उपलब्ध डिलीवरी देखने के लिए Jobs टैब पर जाएं।',
     goOnlineTitle: 'डिलीवरी काम देखने के लिए ऑनलाइन जाएं',
     goOnlineMessage: 'आप उपलब्ध काम केवल तभी देखेंगे जब आप ऑनलाइन होंगे।',
-    passwala: 'PassWaala',
+    passwala: 'NearBaz',
   },
   dues: {
     clearTitle: 'कोई बकाया नहीं',
@@ -219,5 +228,13 @@ export const hi: Strings = {
     dropUnavailable: 'ड्रॉप पता उपलब्ध नहीं',
     pickupLabel: 'पिकअप',
     dropLabel: 'ड्रॉप',
+  },
+  account: {
+    title: 'खाता',
+    deleteAccount: 'खाता हटाएं',
+    deleteTitle: 'क्या आप अपना खाता हटाना चाहते हैं?',
+    deleteBody:
+      'इससे आपका राइडर खाता और व्यक्तिगत जानकारी (KYC सहित) स्थायी रूप से हट जाती है। कानून के अनुसार आपकी पिछली डिलीवरी और कमाई के रिकॉर्ड रखे जाते हैं। इसे पूर्ववत नहीं किया जा सकता।',
+    deleteConfirm: 'खाता हटाएं',
   },
 };

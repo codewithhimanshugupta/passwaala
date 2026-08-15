@@ -61,7 +61,7 @@ export function SignupScreen({ onSignedUp, onBackToLogin }: { onSignedUp: () => 
         <View style={styles.logoWrap}>
           <Text style={styles.logoMark}>प</Text>
         </View>
-        <Text style={styles.brand}>PassWaala</Text>
+        <Text style={styles.brand}>NearBaz</Text>
         <Text style={styles.tagline}>{t.login.tagline}</Text>
       </View>
 

@@ -24,6 +24,7 @@ import { getPrefetchedCheckout, clearCheckoutPrefetch } from '../checkoutPrefetc
 import { StripedProgressBar } from '../StripedProgressBar';
 import { useLang } from '../i18n/LanguageContext';
 import { useBulkCart, bulkCartAddOne, currentBulkCartShops } from '../bulkCart';
+import { getCurrentCoords } from '../geo';
 
 /**
  * CartScreen — cart review + checkout (plan → Cart & Checkout). Line items with
@@ -101,7 +102,7 @@ export function CartScreen({
     const lng = shopData.longitude != null ? Number(shopData.longitude) : NaN;
     return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null;
   })();
-  // Whether this shop delivers via PassWaala riders (distance-tiered fee) vs
+  // Whether this shop delivers via NearBaz riders (distance-tiered fee) vs
   // self-delivery (flat shop fee).
   const platformDelivery = shopData?.platformDeliveryEnabled === true;
 
@@ -213,15 +214,10 @@ export function CartScreen({
   // Best-effort: capture the customer's current GPS position once, for the soft
   // "this address is X km from your current location" warning. Silent on failure.
   useEffect(() => {
-    const geo =
-      typeof navigator !== 'undefined' && navigator.geolocation ? navigator.geolocation : null;
-    if (!geo) return;
     let alive = true;
-    geo.getCurrentPosition(
-      (pos) => { if (alive) setCurrentGeo({ lat: pos.coords.latitude, lng: pos.coords.longitude }); },
-      () => { /* denied / unavailable — no warning shown */ },
-      { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 },
-    );
+    void getCurrentCoords({ timeoutMs: 10000 }).then((coords) => {
+      if (alive && coords) setCurrentGeo(coords);
+    });
     return () => { alive = false; };
   }, []);
 
@@ -700,7 +696,7 @@ export function CartScreen({
                   {isPickup
                     ? 'Self-pickup from the shop'
                     : platformDelivery
-                      ? 'Delivered by a PassWaala rider'
+                      ? 'Delivered by a NearBaz rider'
                       : 'Delivered by the shop'}
                 </Text>
               </View>

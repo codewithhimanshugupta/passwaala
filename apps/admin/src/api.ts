@@ -1,7 +1,7 @@
 import { ApiError, AuthExpiredError, PasswaalaApiClient } from '@passwaala/api-client';
 
 /**
- * Shared API client for the PassWaala admin app, with token persistence so a
+ * Shared API client for the NearBaz admin app, with token persistence so a
  * refresh (web) or restart (native) keeps the admin logged in until they log
  * out. Mirrors the customer/shopkeeper apps but uses an admin-scoped storage key.
  */
@@ -89,7 +89,7 @@ export function me(): Promise<Me> {
 
 /**
  * Admin settlement: clear a shop's outstanding dues and reactivate it after
- * PassWaala has collected payment offline (UPI/bank). Backend route is
+ * NearBaz has collected payment offline (UPI/bank). Backend route is
  * POST /ledger/record-payment/:shopId (admin/owner only). The shared client
  * doesn't expose this yet, so we call it directly here — mirroring the client's
  * auth + 401 handling so an expired session still routes to login.

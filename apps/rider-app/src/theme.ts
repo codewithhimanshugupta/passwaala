@@ -1,5 +1,5 @@
 /**
- * PassWaala rider design tokens. Mirrors the shopkeeper design system so the
+ * NearBaz rider design tokens. Mirrors the shopkeeper design system so the
  * whole partner family reads consistently, but swaps in a distinct rider accent
  * (a confident orange) for the app chrome, nav, and primary rider actions so the
  * rider app is instantly recognisable. Kept framework-free (plain objects) so
@@ -7,7 +7,7 @@
  */
 export const theme = {
   color: {
-    // PassWaala brand green (kept for continuity with the customer app).
+    // NearBaz brand green (kept for continuity with the customer app).
     primary: '#0B7A4B',
     primaryDark: '#075C39',
     primarySoft: '#E6F4EC',

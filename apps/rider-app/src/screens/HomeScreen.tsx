@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { api } from '../api';
+import { getCurrentCoords } from '../geo';
 import { theme } from '../theme';
 import { Banner, ErrorText, Screen } from '../ui';
 import { LanguagePicker } from '../components/LanguagePicker';
@@ -44,19 +45,9 @@ export function HomeScreen({
   }, [load]);
 
   /** Read the current GPS coords (best-effort) so the backend can match jobs. */
-  function getCoords(): Promise<{ latitude?: number; longitude?: number }> {
-    return new Promise((resolve) => {
-      const geo = typeof navigator !== 'undefined' ? navigator.geolocation : undefined;
-      if (!geo) {
-        resolve({});
-        return;
-      }
-      geo.getCurrentPosition(
-        (pos) => resolve({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }),
-        () => resolve({}),
-        { enableHighAccuracy: true, timeout: 8000 },
-      );
-    });
+  async function getCoords(): Promise<{ latitude?: number; longitude?: number }> {
+    const c = await getCurrentCoords();
+    return c ? { latitude: c.lat, longitude: c.lng } : {};
   }
 
   async function toggle() {

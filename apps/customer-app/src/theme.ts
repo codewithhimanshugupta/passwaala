@@ -1,5 +1,5 @@
 /**
- * PassWaala design tokens + image helpers (customer app).
+ * NearBaz design tokens + image helpers (customer app).
  *
  * A single, framework-free token set (plain objects) so RN and RN Web consume
  * them identically. Extends the shared base with a fuller palette, spacing,
@@ -10,7 +10,7 @@ import { Platform, type ViewStyle } from 'react-native';
 export const theme = {
   color: {
     // Brand
-    primary: '#0B7A4B', // PassWaala green
+    primary: '#0B7A4B', // NearBaz green
     primaryDark: '#075C39',
     primaryLight: '#E6F4EC',
     accent: '#F59E0B', // warm saffron accent for badges/prices

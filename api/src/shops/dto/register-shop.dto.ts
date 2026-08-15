@@ -89,7 +89,7 @@ export class RegisterShopDto {
   @Min(0)
   minOrderValuePaise?: number;
 
-  /** Whether the shop uses the PassWaala rider network. */
+  /** Whether the shop uses the NearBaz rider network. */
   @IsOptional()
   @IsBoolean()
   platformDeliveryEnabled?: boolean;

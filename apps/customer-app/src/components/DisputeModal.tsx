@@ -272,7 +272,7 @@ export const DisputeModal = forwardRef<DisputeModalHandle, {
                         ]}>
                           {!isMe && (
                             <Text style={[styles.bubbleSender, isAdmin && styles.bubbleSenderAdmin]}>
-                              {isSystem ? 'PassWaala Bot' : 'PassWaala Admin'}
+                              {isSystem ? 'NearBaz Bot' : 'NearBaz Admin'}
                             </Text>
                           )}
                           <Text style={[styles.bubbleBody, isMe && styles.bubbleBodyMe]}>{msg.body}</Text>

@@ -404,7 +404,7 @@ export class OrdersService {
       platformFeeOverridePaise: cityCfg?.platformFeePaise ?? null,
     });
 
-    // PassWaala Coins redemption (1 coin = ₹1 = 100 paise). Discounts the item
+    // NearBaz Coins redemption (1 coin = ₹1 = 100 paise). Discounts the item
     // SUBTOTAL only; capped by the customer's balance AND the subtotal. Fees are
     // always paid in full. The discounted amount is deducted from the balance.
     let coinsRedeemedPaise = 0;
@@ -746,7 +746,7 @@ export class OrdersService {
   }
 
   /**
-   * Customer: claim they've paid a UPI order ("I've paid"). PassWaala is NOT in
+   * Customer: claim they've paid a UPI order ("I've paid"). NearBaz is NOT in
    * the money flow, so this is a CLAIM — it does NOT confirm payment or advance
    * the order. It stamps paymentClaimedAt (+ bumps the attempt count) and keeps
    * the order in AWAITING_PAYMENT; the SHOP verifies receipt (verifyPayment) to
@@ -1013,7 +1013,7 @@ export class OrdersService {
 
   /**
    * Shopkeeper: move a paid-but-unfulfillable order to REFUND_PENDING (the rare
-   * money-already-paid case). PassWaala records the dispute; the shop refunds the
+   * money-already-paid case). NearBaz records the dispute; the shop refunds the
    * customer directly (no money moves here). Scoped to the OWN shop.
    */
   async markRefundPending(shopId: string | undefined, orderId: string) {

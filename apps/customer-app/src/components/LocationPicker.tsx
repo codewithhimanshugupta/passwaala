@@ -3,6 +3,7 @@ import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from '
 import { theme } from '../theme';
 import { useLang } from '../i18n/LanguageContext';
 import type { Strings } from '../i18n/strings';
+import { getCurrentCoords } from '../geo';
 
 export interface PickedLocation {
   lat: number;
@@ -322,25 +323,17 @@ function NativePicker({
   const [picked, setPicked] = useState<PickedLocation | null>(initial ?? null);
   const [error, setError] = useState<string | null>(null);
 
-  function useGps() {
-    const geo =
-      typeof navigator !== 'undefined' && navigator.geolocation ? navigator.geolocation : null;
-    if (!geo) { setError(t.locationPicker.notAvailable); return; }
+  async function useGps() {
     setLocating(true);
     setError(null);
-    geo.getCurrentPosition(
-      (pos) => {
-        const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-        setPicked(loc);
-        onChange(loc);
-        setLocating(false);
-      },
-      () => {
-        setError(t.locationPicker.couldNotGet);
-        setLocating(false);
-      },
-      { enableHighAccuracy: true, timeout: 12000 },
-    );
+    const coords = await getCurrentCoords({ timeoutMs: 12000 });
+    if (coords) {
+      setPicked(coords);
+      onChange(coords);
+    } else {
+      setError(t.locationPicker.couldNotGet);
+    }
+    setLocating(false);
   }
 
   return (

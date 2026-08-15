@@ -31,7 +31,7 @@ export function AddressForm({
   shopGeo?: { lat: number; lng: number } | null;
   /** Shop's serviceable radius (metres). Defaults to the shared max when omitted. */
   deliveryRadiusMeters?: number;
-  /** Whether the shop uses PassWaala-rider (distance-tiered) delivery — drives the fee preview. */
+  /** Whether the shop uses NearBaz-rider (distance-tiered) delivery — drives the fee preview. */
   platformDelivery?: boolean;
 }) {
   const { t } = useLang();
@@ -71,7 +71,7 @@ export function AddressForm({
   const dropDistanceMeters = shopGeo
     ? haversineMeters({ latitude: shopGeo.lat, longitude: shopGeo.lng }, { latitude: coords.lat, longitude: coords.lng })
     : null;
-  // Distance-tiered fee only meaningful for platform (PassWaala-rider) delivery.
+  // Distance-tiered fee only meaningful for platform (NearBaz-rider) delivery.
   const previewFeePaise =
     shopGeo && platformDelivery && dropDistanceMeters != null && dropInRange
       ? platformDeliveryFeePaise(dropDistanceMeters)

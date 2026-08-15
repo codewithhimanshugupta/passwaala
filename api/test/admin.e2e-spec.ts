@@ -68,7 +68,7 @@ describe('Admin (e2e)', () => {
     expect(res.body.verificationStatus).toBe(VerificationStatus.APPROVED);
 
     // Commission holiday set. Onboarding fee is recorded as PAID upfront and
-    // does NOT add to outstanding dues (paid directly to PassWaala at approval).
+    // does NOT add to outstanding dues (paid directly to NearBaz at approval).
     const shop = await prisma.shop.findUnique({ where: { id: shopId } });
     expect(shop?.commissionFreeUntil).not.toBeNull();
     expect(shop?.outstandingDuesPaise).toBe(0);

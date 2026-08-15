@@ -1,5 +1,5 @@
 /**
- * Reusable UI primitives for the PassWaala customer app. Small, composable, and
+ * Reusable UI primitives for the NearBaz customer app. Small, composable, and
  * styled from the shared theme tokens so every screen reads as one system.
  */
 import type { ReactNode } from 'react';
@@ -154,7 +154,7 @@ export function Card({
 /* -------------------------------------------------------------- Coin chip */
 
 /**
- * CoinChip — the PassWaala Coins rewards pill. Golden background with a coin
+ * CoinChip — the NearBaz Coins rewards pill. Golden background with a coin
  * glyph so it reads as a reward, not plain text. `size` picks label scale;
  * `onLight` uses a solid gold fill for light surfaces, otherwise a translucent
  * gold suited to dark/brand backgrounds.
@@ -172,7 +172,7 @@ export function CoinChip({
   onLight?: boolean;
   style?: StyleProp<ViewStyle>;
 }) {
-  const label = showUnit ? `${balance} PassWaala Coins` : `${balance}`;
+  const label = showUnit ? `${balance} NearBaz Coins` : `${balance}`;
   return (
     <View
       style={[

@@ -77,7 +77,7 @@ export class AuthExpiredError extends ApiError {
 }
 
 /**
- * PasswaalaApiClient — a single typed client for the PassWaala API, shared by the
+ * PasswaalaApiClient — a single typed client for the NearBaz API, shared by the
  * customer + shopkeeper Expo apps (and any web/admin surface). Pure fetch, no
  * framework deps, so it runs on React Native, RN Web, and Node alike.
  *
@@ -205,7 +205,7 @@ export class PasswaalaApiClient {
     return this.get(`/categories?shopId=${shopId}`);
   }
 
-  // ---- Referrals / PassWaala Coins ----
+  // ---- Referrals / NearBaz Coins ----
   referralMe(): Promise<{
     referralCode: string | null;
     coinBalance: number;

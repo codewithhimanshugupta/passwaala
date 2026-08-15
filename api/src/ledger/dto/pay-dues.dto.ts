@@ -1,6 +1,6 @@
 import { IsInt, Min } from 'class-validator';
 
-/** PayDuesDto — shopkeeper self-settles their PassWaala dues (amount in paise). */
+/** PayDuesDto — shopkeeper self-settles their NearBaz dues (amount in paise). */
 export class PayDuesDto {
   @IsInt()
   @Min(1)

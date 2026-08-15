@@ -146,7 +146,7 @@ export class PaymentClaimsService {
           riderUserId: claim.riderUserId,
           type: RiderLedgerType.COD_DEPOSIT,
           amountPaise: -claim.amountPaise,
-          note: 'COD cash deposited to PassWaala',
+          note: 'COD cash deposited to NearBaz',
         },
       }),
     ]);

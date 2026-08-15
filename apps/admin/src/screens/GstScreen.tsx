@@ -14,8 +14,8 @@ import { api } from '../api';
 import { formatRupees, theme } from '../theme';
 
 /**
- * GstScreen — PassWaala's GST back office. Four sections:
- *  1. Config card — PassWaala's GST identity (home state drives CGST/SGST vs IGST).
+ * GstScreen — NearBaz's GST back office. Four sections:
+ *  1. Config card — NearBaz's GST identity (home state drives CGST/SGST vs IGST).
  *  2. Generate invoices — create monthly tax invoices for a period.
  *  3. Invoices list — issued/draft tax invoices with the tax split.
  *  4. Reports — GST summary totals + the GSTR-1 B2B export as copyable JSON.
@@ -293,13 +293,13 @@ export function GstScreen() {
 
         {/* 1. Config card */}
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>PassWaala GST identity</Text>
+          <Text style={styles.cardTitle}>NearBaz GST identity</Text>
           <Text style={styles.cardHint}>
             Home state used to split CGST/SGST (intra-state) vs IGST (inter-state).
             {config ? '' : ' Not configured yet — fill this in first.'}
           </Text>
 
-          <Field label="Legal name" value={legalName} onChangeText={setLegalName} placeholder="PassWaala Pvt Ltd" />
+          <Field label="Legal name" value={legalName} onChangeText={setLegalName} placeholder="NearBaz Pvt Ltd" />
           <Field
             label="GSTIN"
             value={gstin}

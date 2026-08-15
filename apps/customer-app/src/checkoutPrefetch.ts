@@ -5,7 +5,7 @@ import type { Address } from './types';
  * Checkout data prefetch — warms ALL data the cart/checkout screen needs
  * while the customer is still browsing. Includes:
  *  - saved addresses
- *  - PassWaala Coin balance
+ *  - NearBaz Coin balance
  *  - pending cancel fee (blocks COD)
  *  - nearby shops for bulk order banner (keyed by shopId)
  *

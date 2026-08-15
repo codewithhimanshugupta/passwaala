@@ -37,7 +37,7 @@ export interface MyShop {
   freeDeliveryAbovePaise?: number;
   minOrderValuePaise?: number;
   workingHours?: WorkingHours;
-  /** When true, PassWaala riders deliver orders; when false, the shop self-delivers. */
+  /** When true, NearBaz riders deliver orders; when false, the shop self-delivers. */
   platformDeliveryEnabled?: boolean;
   selfPickupEnabled?: boolean;
   /** Optional short promo shown on the customer home card (display-only). */
@@ -141,7 +141,7 @@ export interface Ledger {
   outstandingDuesPaise: number;
   creditLimitPaise: number;
   isOpen: boolean;
-  /** PassWaala's collection UPI for this shop's city (null if not configured). */
+  /** NearBaz's collection UPI for this shop's city (null if not configured). */
   collectionUpi?: { vpa: string; name: string } | null;
   entries: LedgerEntry[];
   /** Keyset cursor for the next page of entries (null when exhausted). */

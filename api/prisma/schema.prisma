@@ -124,18 +124,18 @@ enum LedgerEntryType {
   REFERRAL_CREDIT
   REFUND_REVERSAL
   PAYMENT
-  COD_REMITTANCE     // credit (neg): PassWala holds COD cash owed to the shop
+  COD_REMITTANCE // credit (neg): PassWala holds COD cash owed to the shop
   RIDER_DELIVERY_FEE // debit (pos): shop owes the delivery fee it collected (passed to rider)
-  DISCOUNT_GIVEN     // informational (total 0): "you gave ₹X discount"
-  SHOP_PAYOUT        // debit (pos): PassWala pays a shop its negative balance toward 0
+  DISCOUNT_GIVEN // informational (total 0): "you gave ₹X discount"
+  SHOP_PAYOUT // debit (pos): PassWala pays a shop its negative balance toward 0
 }
 
 /// Rider ledger entry type — mirrors LedgerEntryType for the rider side.
 enum RiderLedgerType {
   DELIVERY_EARNING // +earnings: rider earned the delivery fee
-  EARNING_PAYOUT   // -earnings: PassWala paid the rider
-  COD_COLLECTED    // +dues: rider collected COD cash owed onward
-  COD_DEPOSIT      // -dues: rider deposited COD cash to PassWala
+  EARNING_PAYOUT // -earnings: PassWala paid the rider
+  COD_COLLECTED // +dues: rider collected COD cash owed onward
+  COD_DEPOSIT // -dues: rider deposited COD cash to PassWala
 }
 
 /// Tax invoice lifecycle.
@@ -143,7 +143,6 @@ enum TaxInvoiceStatus {
   DRAFT
   ISSUED
 }
-
 
 /// Ledger entry lifecycle. Credit-limit check sums ACCRUED entries.
 enum LedgerEntryStatus {
@@ -183,8 +182,8 @@ enum AdminInviteStatus {
 
 /// Offer discount type for city-level offer templates.
 enum OfferType {
-  PERCENT_OFF   // value = percent (e.g. 10 = 10% off subtotal)
-  FLAT_OFF      // value = paise (e.g. 2000 = ₹20 off subtotal)
+  PERCENT_OFF // value = percent (e.g. 10 = 10% off subtotal)
+  FLAT_OFF // value = paise (e.g. 2000 = ₹20 off subtotal)
   FREE_DELIVERY // value = 0; waives delivery fee entirely
 }
 
@@ -211,36 +210,36 @@ enum BulkOrderStatus {
 /// register in an `enabled` serviceable city; customers outside one see a
 /// "not available in your city yet" state. Managed by the OWNER.
 model ServiceableCity {
-  id        String   @id @default(uuid())
-  name      String   @unique // canonical city name (matches Shop.city)
-  enabled   Boolean  @default(true)
+  id                      String  @id @default(uuid())
+  name                    String  @unique // canonical city name (matches Shop.city)
+  enabled                 Boolean @default(true)
   /// PassWala's own UPI VPA for collecting shopkeeper dues in this city
   /// (owner-configured in the admin panel). Shopkeepers in this city pay their
   /// dues to this VPA. Null until the owner sets it; never exposed on the public
   /// serviceable-city list (only surfaced to a scoped shopkeeper's ledger).
-  collectionUpiVpa  String?
+  collectionUpiVpa        String?
   /// Payee display name shown in the UPI app (e.g. "PassWala"). Optional.
-  collectionUpiName String?
+  collectionUpiName       String?
   /// Maximum delivery radius for orders in this city (metres). Default 15 km.
-  deliveryRadiusMeters Int @default(15000)
+  deliveryRadiusMeters    Int     @default(15000)
   /// Radius within which a rider must be online for platform delivery to be available.
-  riderCheckRadiusMeters Int @default(5000)
+  riderCheckRadiusMeters  Int     @default(5000)
   /// Per-km delivery fee tiers (JSON). Array of {maxKm, feePaise}. Must be set before riders can go online.
-  deliveryTiersJson      String?
+  deliveryTiersJson       String?
   /// If true, platform delivery orders can only be placed when a rider is online nearby.
   requireRiderForDelivery Boolean @default(true)
   /// Extra surcharge per additional shop in a BulkOrder (+₹10 default). Admin-configurable per city.
-  multiShopSurchargePaise Int @default(1000)
+  multiShopSurchargePaise Int     @default(1000)
   /// Radius (metres) within which nearby shops appear in the bulk-order "Add from nearby shops" panel. Default 1 km.
-  bulkShopRadiusMeters    Int @default(1000)
+  bulkShopRadiusMeters    Int     @default(1000)
   /// Minimum order total (paise) for COD. 0 = no minimum (default).
-  codMinOrderPaise        Int @default(0)
+  codMinOrderPaise        Int     @default(0)
   /// Max COD orders a customer can place per 24h. 0 = unlimited.
-  codMaxPerDay            Int @default(2)
+  codMaxPerDay            Int     @default(2)
   /// Block COD after this many customer-cancelled COD orders within codCancelWindowDays. 0 = disabled.
-  codCancelBlockAfter     Int @default(2)
+  codCancelBlockAfter     Int     @default(2)
   /// Rolling window (days) for COD cancel block check.
-  codCancelWindowDays     Int @default(30)
+  codCancelWindowDays     Int     @default(30)
   // Note: no first-order UPI restriction — all customers can use COD from order 1.
 
   // ── Operational config (all admin-configurable per city) ─────────────────
@@ -259,27 +258,27 @@ model ServiceableCity {
 
   // ── Fee / commission config ───────────────────────────────────────────────
   /// Flat platform fee added to every order (paise). Default ₹10.
-  platformFeePaise        Int @default(1000)
+  platformFeePaise        Int   @default(1000)
   /// Default commission rate for PRODUCT shops (decimal). Default 0.02 = 2%.
   defaultCommissionRate   Float @default(0.02)
   /// Default credit limit for new shops (paise). Default ₹500.
-  defaultCreditLimitPaise Int @default(50000)
+  defaultCreditLimitPaise Int   @default(50000)
   /// Commission-free days granted when a shop is approved. Default 30.
-  commissionHolidayDays   Int @default(30)
+  commissionHolidayDays   Int   @default(30)
   /// One-time onboarding fee for a PRODUCT shop (paise). Default ₹499.
-  onboardingFeePaise      Int @default(49900)
+  onboardingFeePaise      Int   @default(49900)
 
   // ── Referral / coin config ────────────────────────────────────────────────
   /// Coins awarded to a customer referrer when the referee's first order delivers. Default 25.
-  referralCustomerCoins   Int @default(25)
+  referralCustomerCoins Int @default(25)
   /// Coins awarded to a shop referrer when the referred shop completes its first order. Default 100.
-  referralShopCoins       Int @default(100)
+  referralShopCoins     Int @default(100)
 
   /// Max COD orders per customer per rolling window (hours). Default 24.
-  codWindowHours          Int @default(24)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  deletedAt DateTime?
+  codWindowHours Int       @default(24)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
 
   adminInvites   AdminInvite[]
   offerTemplates OfferTemplate[]
@@ -290,15 +289,15 @@ model ServiceableCity {
 /// A platform account. role is server-assigned only (never trusted from client
 /// input); ADMIN/OWNER are never created via public signup.
 model User {
-  id   String   @id @default(uuid())
+  id      String   @id @default(uuid())
   /// Human-readable support ID shown to the user (C + 8 hex). Unique, set once.
-  shortId String? @unique
-  role UserRole @default(CUSTOMER)
-  phone   String   // verified via OTP; unique per appType
+  shortId String?  @unique
+  role    UserRole @default(CUSTOMER)
+  phone   String // verified via OTP; unique per appType
   /// Identity namespace — CUSTOMER | SHOPKEEPER | RIDER | ADMIN | OWNER.
   /// Same phone can exist independently in each app.
   appType String   @default("CUSTOMER")
-  name  String?
+  name    String?
 
   /// scrypt password hash ("<saltHex>:<hashHex>"), one-way. Null until the user
   /// sets a password (phone+password login; no SMS OTP gateway for the pilot).
@@ -306,43 +305,44 @@ model User {
   /// scrypt hash of the user-chosen 4-digit login PIN ("<saltHex>:<hashHex>"),
   /// one-way. A real user credential (set + confirmed at signup), distinct from
   /// a one-time SMS OTP. Null until the user sets a PIN.
-  pinHash String?
+  pinHash      String?
   /// The 4-digit login PIN, AES-256-GCM encrypted at rest ("iv:tag:cipher") so
   /// admin can reveal it to help a locked-out user (support convenience). Kept
   /// alongside pinHash (which is what login actually verifies). Null until set.
-  loginPinEnc String?
+  loginPinEnc  String?
   /// The fixed backup login OTP, AES-256-GCM encrypted at rest ("iv:tag:cipher").
   /// Admin can reveal it (server decrypts) so a locked-out user can be helped.
-  loginOtpEnc String?
+  loginOtpEnc  String?
 
   /// PassWala Coins voucher balance (a discount voucher, NOT real money / not a
   /// wallet — keeps PassWala clear of RBI PPI regulation). Integer coin count.
-  coinBalance Int @default(0)
+  coinBalance            Int     @default(0)
   /// Pending cancel fee from a COD order cancellation — added to next order's total.
   /// Customer cannot place another COD order until this is cleared.
-  pendingCancelFeePaise    Int     @default(0)
+  pendingCancelFeePaise  Int     @default(0)
   /// Which shop gets 50% of the pending cancel fee on delivery of the next order.
-  pendingCancelFeeShopId   String?
+  pendingCancelFeeShopId String?
 
   /// Stable public referral code (derived from id at creation) so this user can
   /// refer others (plan → Referral program). Unique; nullable for legacy rows.
   referralCode String? @unique
 
   // Relations
-  ownedShops    Shop[]        @relation("ShopOwner")
-  carts         Cart[]
-  orders        Order[]       @relation("OrderCustomer") // as customer
-  addresses     Address[]
-  reviews       Review[] // reviews written by this customer
-  ridDeliveries Order[]       @relation("OrderRider") // future: orders assigned to this rider
-  bulkOrders    BulkOrder[]   @relation("BulkOrderCustomer")
-  bulkDeliveries BulkOrder[]  @relation("BulkOrderRider")
-  referralsMade Referral[]    @relation("Referrer")
-  referredAs    Referral[]    @relation("RefereeUser")
-  adminInvites  AdminInvite[] @relation("InvitedByOwner")
-  riderProfile  RiderProfile?
-  riderKyc      RiderKyc?
+  ownedShops        Shop[]             @relation("ShopOwner")
+  carts             Cart[]
+  orders            Order[]            @relation("OrderCustomer") // as customer
+  addresses         Address[]
+  reviews           Review[] // reviews written by this customer
+  ridDeliveries     Order[]            @relation("OrderRider") // future: orders assigned to this rider
+  bulkOrders        BulkOrder[]        @relation("BulkOrderCustomer")
+  bulkDeliveries    BulkOrder[]        @relation("BulkOrderRider")
+  referralsMade     Referral[]         @relation("Referrer")
+  referredAs        Referral[]         @relation("RefereeUser")
+  adminInvites      AdminInvite[]      @relation("InvitedByOwner")
+  riderProfile      RiderProfile?
+  riderKyc          RiderKyc?
   pushSubscriptions PushSubscription[]
+  expoPushTokens    ExpoPushToken[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -356,13 +356,31 @@ model User {
 /// notifications when the app is backgrounded / phone locked. One row per
 /// device+browser; endpoint is unique. Cleaned up on 410 Gone from the push service.
 model PushSubscription {
-  id       String @id @default(uuid())
-  userId   String
-  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  endpoint String @unique
-  p256dh   String // client public key (from the browser subscription)
-  auth     String // client auth secret (from the browser subscription)
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint  String   @unique
+  p256dh    String // client public key (from the browser subscription)
+  auth      String // client auth secret (from the browser subscription)
   createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+/// An Expo push token for a user's native app install (iOS/Android). Lets us
+/// deliver OS push notifications to the native Customer/Shopkeeper/Rider apps
+/// (the web PWAs use PushSubscription/VAPID). One row per device install;
+/// token is unique. Pruned on a DeviceNotRegistered receipt from Expo.
+model ExpoPushToken {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique // ExponentPushToken[...]
+  platform  String? // 'ios' | 'android'
+  appType   String? // CUSTOMER | SHOPKEEPER | RIDER
+  deviceId  String? // optional client-provided device identifier
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([userId])
 }
@@ -370,12 +388,12 @@ model PushSubscription {
 /// A shop (product business for the MVP). Cannot be discovered/receive orders
 /// until verificationStatus = APPROVED.
 model Shop {
-  id String @id @default(uuid())
+  id      String  @id @default(uuid())
   /// Human-readable support ID (S + 8 hex). Unique, set once at registration.
   shortId String? @unique
   // Owner
   ownerId String
-  owner   User   @relation("ShopOwner", fields: [ownerId], references: [id])
+  owner   User    @relation("ShopOwner", fields: [ownerId], references: [id])
 
   name               String // shop display name (shown in discovery + storefront)
   businessType       BusinessType       @default(PRODUCT)
@@ -402,12 +420,12 @@ model Shop {
   legalName String? // registered legal/business name for the invoice
 
   // Location — Decimal lat/lng now; PostGIS geog(Point)+GIST added by raw migration (see NOTE)
-  latitude  Decimal @db.Decimal(9, 6)
-  longitude Decimal @db.Decimal(9, 6)
+  latitude  Decimal                                @db.Decimal(9, 6)
+  longitude Decimal                                @db.Decimal(9, 6)
   /// PostGIS geography(Point,4326), derived from longitude/latitude by the
   /// postgis_geog_columns migration. Declared Unsupported so Prisma STOPS trying
   /// to drop it on every diff; it stays out-of-band (raw SQL + GIST index).
-  geog Unsupported("geography(Point, 4326)")?
+  geog      Unsupported("geography(Point, 4326)")?
 
   // Revenue / commission config (rule #6: rate is snapshotted onto each Order)
   commissionRate      Float     @default(0.02) // default 2%; per-shop editable by admin
@@ -418,22 +436,22 @@ model Shop {
   outstandingDuesPaise Int @default(0) // GST-inclusive dues owed to PassWala
 
   // Per-shop cart/checkout economics (paise)
-  minOrderValuePaise     Int  @default(0) // enforced on item subtotal, before ₹10 fee
-  deliveryFeePaise       Int  @default(0)
-  freeDeliveryAbovePaise Int? // nullable threshold; delivery auto-waived at/above
+  minOrderValuePaise      Int       @default(0) // enforced on item subtotal, before ₹10 fee
+  deliveryFeePaise        Int       @default(0)
+  freeDeliveryAbovePaise  Int? // nullable threshold; delivery auto-waived at/above
   // Cancellation fee rate (0.0–0.10 = 0–10%) charged when customer cancels a
   // PREPARING order. 0 means no fee. Capped at 10% platform-wide.
-  cancelFeeRatePct       Float @default(0)
+  cancelFeeRatePct        Float     @default(0)
   /// Whether this shop accepts Cash on Delivery. Admin-configurable. Default true.
-  codEnabled             Boolean @default(true)
+  codEnabled              Boolean   @default(true)
   /// Shopkeeper's appeal message after rejection/suspension. Cleared on re-approval.
-  appealMessage          String?
-  appealSubmittedAt      DateTime?
+  appealMessage           String?
+  appealSubmittedAt       DateTime?
   /// Whether this shop uses the PassWala rider network. When true, customers may
   /// choose PLATFORM_RIDER and READY orders auto-post to the rider job board.
-  platformDeliveryEnabled Boolean @default(false)
+  platformDeliveryEnabled Boolean   @default(false)
   /// Whether the shop allows customers to pick up their order in person (no delivery fee).
-  selfPickupEnabled       Boolean @default(true)
+  selfPickupEnabled       Boolean   @default(true)
 
   /// Optional short promo shown on the customer home card (e.g. "20% OFF on
   /// select items"). Display-only; PassWala doesn't apply it to the bill.
@@ -452,15 +470,15 @@ model Shop {
   ratingCount Int   @default(0)
 
   // Relations
-  kyc        ShopKyc?
-  categories Category[]
-  products   Product[]
-  carts      Cart[]
-  orders     Order[]
-  reviews    Review[]
-  ledger     LedgerEntry[]
+  kyc         ShopKyc?
+  categories  Category[]
+  products    Product[]
+  carts       Cart[]
+  orders      Order[]
+  reviews     Review[]
+  ledger      LedgerEntry[]
   taxInvoices TaxInvoice[]
-  referredBy Referral[]    @relation("RefereeShop")
+  referredBy  Referral[]    @relation("RefereeShop")
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -521,13 +539,13 @@ model Product {
   categoryId String?
   category   Category? @relation(fields: [categoryId], references: [id])
 
-  name       String
-  pricePaise Int // selling price (paise, rule #4)
-  mrpPaise   Int // MRP for strike-through display
-  stock      Int     @default(0)
-  imageUrl   String?
+  name        String
+  pricePaise  Int // selling price (paise, rule #4)
+  mrpPaise    Int // MRP for strike-through display
+  stock       Int     @default(0)
+  imageUrl    String?
   description String? // longer product detail, loaded lazily on the product-detail view
-  available  Boolean @default(true) // catalog availability toggle (hide without deleting)
+  available   Boolean @default(true) // catalog availability toggle (hide without deleting)
   weightGrams Int? // weight in grams — mandatory for new products, used for multi-rider dispatch
 
   // Denormalized popularity (per-shop) — incremented on each DELIVERED order.
@@ -592,7 +610,7 @@ model CartItem {
 /// picks up from each shop sequentially (nearest-first, sorted at acceptance)
 /// and delivers to the customer in a single run.
 model BulkOrder {
-  id      String @id @default(uuid())
+  id      String  @id @default(uuid())
   /// Human-readable ID: BLK + 8 hex, e.g. BLK-4F2A9C1B
   shortId String? @unique
 
@@ -606,19 +624,19 @@ model BulkOrder {
   paymentMethod PaymentMethod
 
   // Financials (paise, rule #4)
-  baseDeliveryFeePaise      Int // distance-tiered fee for anchor shop → customer
-  multiShopSurchargePaise   Int // (shopCount-1) × city surcharge, snapshotted at placement
-  platformFeePaise          Int // sum of per-sub-order platform fees
-  totalPaise                Int // grand total across all sub-orders
+  baseDeliveryFeePaise    Int // distance-tiered fee for anchor shop → customer
+  multiShopSurchargePaise Int // (shopCount-1) × city surcharge, snapshotted at placement
+  platformFeePaise        Int // sum of per-sub-order platform fees
+  totalPaise              Int // grand total across all sub-orders
 
   // Rider assignment
-  riderId              String?
-  rider                User?    @relation("BulkOrderRider", fields: [riderId], references: [id])
+  riderId            String?
+  rider              User?   @relation("BulkOrderRider", fields: [riderId], references: [id])
   /// Ordered list of sub-order IDs the rider should visit, nearest-first.
   /// Null until a rider accepts; written at acceptance using rider's live location.
-  pickupSequenceJson   String?  // JSON: string[] of orderId
+  pickupSequenceJson String? // JSON: string[] of orderId
   /// Customer handoff OTP — single OTP shown in customer app, entered by rider at final delivery.
-  pickupOtp            String?
+  pickupOtp          String?
 
   // Dispatch fields (mirrors Order dispatch for the open-board flow)
   offeredRiderId        String?
@@ -630,7 +648,7 @@ model BulkOrder {
   // Idempotency — client-generated key prevents double-placement.
   idempotencyKey String @unique
 
-  orders    Order[]
+  orders Order[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -644,7 +662,7 @@ model BulkOrder {
 /// An order. Durable source of truth; idempotencyKey guarantees exactly-once
 /// placement. Snapshots commissionRate at order time (rule #6).
 model Order {
-  id String @id @default(uuid())
+  id      String  @id @default(uuid())
   /// Human-readable support ID (OR + 8 hex). Unique, set once at placement.
   shortId String? @unique
 
@@ -657,55 +675,55 @@ model Order {
   status OrderStatus @default(PLACED)
 
   // Payment (direct customer -> shop; PassWala records only)
-  paymentMethod    PaymentMethod
-  paymentConfirmed Boolean       @default(false) // set by the SHOP when it verifies receipt
+  paymentMethod     PaymentMethod
+  paymentConfirmed  Boolean       @default(false) // set by the SHOP when it verifies receipt
   // UPI payment claim handshake: the customer taps "I've paid" (a claim), the
   // shop verifies. paymentClaimedAt is set on each claim and cleared when the
   // shop says "not received" (re-prompting the customer). paymentClaimCount
   // tracks repeat attempts so the shop sees a nagging/failed payment.
   paymentClaimedAt  DateTime?
-  paymentClaimCount Int       @default(0)
+  paymentClaimCount Int           @default(0)
   // COD-by-QR handshake at the door: for a COD platform-rider order, the rider
   // records that the customer paid the shop's UPI (codUpiClaimedAt); the SHOP
   // then confirms receipt (paymentConfirmed) before the rider can mark it
   // DELIVERED. Cleared if the shop says "not received". Null otherwise.
-  codUpiClaimedAt DateTime?
+  codUpiClaimedAt   DateTime?
 
   // Exception handling
-  rejectionReason    String? // shop reject reason (out of stock / closing / too busy / NO_RESPONSE)
-  cancelledBy        CancelledBy?
-  cancellationReason String?
-  cancelledAt        DateTime?
+  rejectionReason         String? // shop reject reason (out of stock / closing / too busy / NO_RESPONSE)
+  cancelledBy             CancelledBy?
+  cancellationReason      String?
+  cancelledAt             DateTime?
   /// When the customer confirmed they received their off-platform refund (→ REFUNDED).
-  refundConfirmedAt  DateTime?
+  refundConfirmedAt       DateTime?
   // Customer cancellation request (PREPARING orders only — shop must approve/deny)
-  cancelRequestedAt     DateTime? // set when customer requests cancel on a PREPARING order
-  cancelRequestReason   String?   // customer's reason
-  cancelFeePaise        Int?      // fee the shop may charge (0–10% of total); null until shop responds
+  cancelRequestedAt       DateTime? // set when customer requests cancel on a PREPARING order
+  cancelRequestReason     String? // customer's reason
+  cancelFeePaise          Int? // fee the shop may charge (0–10% of total); null until shop responds
   /// One-time nudge text the customer can send to the shop while order is active.
-  customerNudge      String?
-  customerNudgedAt   DateTime?
+  customerNudge           String?
+  customerNudgedAt        DateTime?
   /// Customer confirmed modified order (items removed by shop). Unblocks ACCEPTED → next steps.
-  customerAcceptedChanges Boolean @default(false)
+  customerAcceptedChanges Boolean      @default(false)
   /// Set when shop marks items unavailable. Used to compute auto-accept countdown for the customer.
-  itemsChangedAt     DateTime?
+  itemsChangedAt          DateTime?
 
   // Totals (paise, rule #4). adjusted* set when items are marked unavailable.
-  originalTotalPaise Int
-  adjustedTotalPaise Int? // customer-approved reduced total after substitution
-  platformFeePaise   Int // flat ₹10 platform fee line = 1000 paise
-  deliveryFeePaise          Int  @default(0)
+  originalTotalPaise    Int
+  adjustedTotalPaise    Int? // customer-approved reduced total after substitution
+  platformFeePaise      Int // flat ₹10 platform fee line = 1000 paise
+  deliveryFeePaise      Int     @default(0)
   // Admin-edited extra delivery due: set when admin raises delivery fee on a prepaid
   // (UPI_DIRECT + paymentConfirmed) order so the rider can collect the delta on delivery.
-  extraDeliveryDuePaise     Int  @default(0)
+  extraDeliveryDuePaise Int     @default(0)
   // Items added post-placement on a prepaid order: customer already paid the original
   // total, so the delta is collected at the door by the rider/shop.
-  addedItemsDuePaise        Int  @default(0)
+  addedItemsDuePaise    Int     @default(0)
   // Cancel fee carried over from a previous COD cancellation. Collected via UPI
   // on this order; split 50% shop / 50% PassWala on DELIVERED.
-  cancelFeeLinePaise        Int  @default(0)
+  cancelFeeLinePaise    Int     @default(0)
   // Which shop gets 50% of cancelFeeLinePaise (the original cancelled order's shop).
-  cancelFeeShopId           String?
+  cancelFeeShopId       String?
 
   // Commission snapshot (rule #6) — future commission edits never rewrite history.
   commissionRateSnapshot Float @default(0.02)
@@ -792,11 +810,11 @@ model OrderItem {
   productId String
   product   Product @relation(fields: [productId], references: [id])
 
-  nameSnapshot       String // product name at order time (rule #6)
-  pricePaiseSnapshot Int // unit price at order time, paise (rule #6)
+  nameSnapshot        String // product name at order time (rule #6)
+  pricePaiseSnapshot  Int // unit price at order time, paise (rule #6)
   weightGramsSnapshot Int? // weight at order time (rule #6) — null for legacy orders
-  qty                Int             @default(1)
-  status             OrderItemStatus @default(FULFILLED)
+  qty                 Int             @default(1)
+  status              OrderItemStatus @default(FULFILLED)
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -816,12 +834,12 @@ model Address {
 
   line      String // house/flat + street (structured address)
   landmark  String? // often more reliable than coords in India
-  latitude  Decimal @db.Decimal(9, 6)
-  longitude Decimal @db.Decimal(9, 6)
+  latitude  Decimal                                @db.Decimal(9, 6)
+  longitude Decimal                                @db.Decimal(9, 6)
   label     String // Home / Work / Other
   /// PostGIS geography(Point,4326), derived from longitude/latitude (see the
   /// postgis_geog_columns migration). Unsupported so Prisma won't drop it.
-  geog Unsupported("geography(Point, 4326)")?
+  geog      Unsupported("geography(Point, 4326)")?
 
   orders     Order[]
   bulkOrders BulkOrder[]
@@ -936,10 +954,10 @@ model TaxInvoice {
   id            String @id @default(uuid())
   invoiceNumber String @unique // e.g. PW-2026-000123
 
-  shopId         String
-  shop           Shop    @relation(fields: [shopId], references: [id])
-  shopGstin      String?
-  shopStateCode  String?
+  shopId        String
+  shop          Shop    @relation(fields: [shopId], references: [id])
+  shopGstin     String?
+  shopStateCode String?
 
   periodStart DateTime
   periodEnd   DateTime
@@ -973,10 +991,10 @@ model TaxInvoiceLine {
   description       String
   hsnSac            String // SAC code for the service (e.g. 9985 support services)
   taxableValuePaise Int
-  gstRate           Float  @default(0.18)
-  cgstPaise         Int    @default(0)
-  sgstPaise         Int    @default(0)
-  igstPaise         Int    @default(0)
+  gstRate           Float   @default(0.18)
+  cgstPaise         Int     @default(0)
+  sgstPaise         Int     @default(0)
+  igstPaise         Int     @default(0)
 
   createdAt DateTime @default(now())
 
@@ -1054,23 +1072,23 @@ model RiderProfile {
   userId String @unique
   user   User   @relation(fields: [userId], references: [id])
 
-  vehicle       String?
+  vehicle          String?
   /// The city this rider serves. Dispatch only offers a rider jobs from shops in
   /// the SAME city (pilot = Jhansi). Owner/admin-decided, like a shop's city.
-  serviceCity   String  @default("Jhansi")
-  online        Boolean @default(false)
-  latitude      Decimal? @db.Decimal(9, 6)
-  longitude     Decimal? @db.Decimal(9, 6)
+  serviceCity      String                                 @default("Jhansi")
+  online           Boolean                                @default(false)
+  latitude         Decimal?                               @db.Decimal(9, 6)
+  longitude        Decimal?                               @db.Decimal(9, 6)
   /// PostGIS geography(Point,4326), derived from longitude/latitude by the app on
   /// write (syncRiderGeog). GIST-indexed so rider-proximity checks (cart
   /// availability, go-online, order placement) never seq-scan. Declared
   /// Unsupported so Prisma leaves the out-of-band column + index alone.
-  geog          Unsupported("geography(Point, 4326)")?
-  earningsPaise Int      @default(0) // accrued delivery earnings (paise)
+  geog             Unsupported("geography(Point, 4326)")?
+  earningsPaise    Int                                    @default(0) // accrued delivery earnings (paise)
   // Uncleared COD cash the rider has collected and owes onward. Blocks taking
   // new orders / going online once it hits the credit limit (admin clears it).
-  duesPaise        Int @default(0)
-  creditLimitPaise Int @default(50000) // ₹500 COD cap
+  duesPaise        Int                                    @default(0)
+  creditLimitPaise Int                                    @default(50000) // ₹500 COD cap
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -1091,15 +1109,15 @@ model RiderKyc {
   userId String @unique // 1:1 with the rider User
   user   User   @relation(fields: [userId], references: [id])
 
-  fullName       String  // legal name as on the ID
-  aadhaar        String  // Aadhaar number (field-encrypt in prod)
+  fullName       String // legal name as on the ID
+  aadhaar        String // Aadhaar number (field-encrypt in prod)
   pan            String? // PAN (optional for riders)
-  dlNumber       String  // driving licence number
+  dlNumber       String // driving licence number
   vehicleNumber  String? // vehicle registration plate
   emergencyName  String? // emergency contact name
   emergencyPhone String? // emergency contact phone
   photoUrl       String? // rider profile / face photo (private)
-  docUrls        Json    // ADMIN-ONLY: array of stored document image URLs (private bucket)
+  docUrls        Json // ADMIN-ONLY: array of stored document image URLs (private bucket)
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -1135,23 +1153,23 @@ model PaymentClaim {
 /// Admin-created discount coupon with a unique code. Customers enter the code
 /// at checkout; the server validates expiry, usage limits, and shop applicability.
 model Coupon {
-  id             String    @id @default(uuid())
-  code           String    @unique
-  type           String    // PERCENT_OFF | FLAT_OFF | FREE_DELIVERY
-  value          Int       @default(0)   // percent points or paise
+  id             String        @id @default(uuid())
+  code           String        @unique
+  type           String // PERCENT_OFF | FLAT_OFF | FREE_DELIVERY
+  value          Int           @default(0) // percent points or paise
   description    String?
-  minOrderPaise  Int       @default(0)
-  maxUses        Int?      // null = unlimited
-  maxUsesPerUser Int?      // null = unlimited
-  usedCount      Int       @default(0)
+  minOrderPaise  Int           @default(0)
+  maxUses        Int? // null = unlimited
+  maxUsesPerUser Int? // null = unlimited
+  usedCount      Int           @default(0)
   validFrom      DateTime?
   expiresAt      DateTime?
-  active         Boolean   @default(true)
-  shopIds        String[]  // empty = applicable to all shops
-  cityIds        String[]  // empty = all cities; non-empty = only these cities
+  active         Boolean       @default(true)
+  shopIds        String[] // empty = applicable to all shops
+  cityIds        String[] // empty = all cities; non-empty = only these cities
   createdById    String
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
   deletedAt      DateTime?
   usages         CouponUsage[]
 
@@ -1161,12 +1179,12 @@ model Coupon {
 
 /// Tracks each time a coupon code was redeemed — for usage-limit enforcement.
 model CouponUsage {
-  id        String   @id @default(uuid())
-  couponId  String
-  userId    String
-  orderId   String
-  usedAt    DateTime @default(now())
-  coupon    Coupon   @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  id       String   @id @default(uuid())
+  couponId String
+  userId   String
+  orderId  String
+  usedAt   DateTime @default(now())
+  coupon   Coupon   @relation(fields: [couponId], references: [id], onDelete: Cascade)
 
   @@index([couponId])
   @@index([userId, couponId])
@@ -1176,23 +1194,23 @@ model CouponUsage {
 /// admin taskboard under "Done by Automation" so admins have full visibility.
 /// Can be reverted by an admin (revertedAt set); the revert undoes the side-effect.
 model AutomationLog {
-  id            String    @id @default(uuid())
+  id           String    @id @default(uuid())
   /// Short action type: ORDER_AUTO_CANCELLED | ORDER_REMIND | RIDER_EARNINGS_CREDITED
   /// | SHOP_AUTO_PAUSED | SHOP_AUTO_OPENED | SHOP_AUTO_CLOSED | DISPATCH_RE_OFFERED
-  action        String
+  action       String
   /// Human-readable description of what was done
-  detail        String
+  detail       String
   /// Optional FK to the affected order (nullable)
-  orderId       String?
+  orderId      String?
   /// Optional FK to the affected shop (nullable)
-  shopId        String?
+  shopId       String?
   /// Optional FK to the affected rider user (nullable)
-  riderUserId   String?
+  riderUserId  String?
   /// Set when an admin reverts this action
-  revertedAt    DateTime?
-  revertedById  String?
-  revertNote    String?
-  createdAt     DateTime  @default(now())
+  revertedAt   DateTime?
+  revertedById String?
+  revertNote   String?
+  createdAt    DateTime  @default(now())
 
   @@index([action])
   @@index([createdAt])
@@ -1205,18 +1223,18 @@ model AutomationLog {
 /// One per order (unique on orderId). Must be raised within DISPUTE_WINDOW_HOURS.
 /// Status: OPEN → ASSIGNED (admin claims) → RESOLVED.
 model OrderDispute {
-  id              String    @id @default(uuid())
+  id              String           @id @default(uuid())
   orderId         String
   raisedById      String
-  raisedByRole    String    // CUSTOMER | SHOP | RIDER
+  raisedByRole    String // CUSTOMER | SHOP | RIDER
   reason          String
-  status          String    @default("OPEN")  // OPEN | ASSIGNED | RESOLVED
+  status          String           @default("OPEN") // OPEN | ASSIGNED | RESOLVED
   assignedAdminId String?
   assignedAt      DateTime?
   resolvedAt      DateTime?
-  reopenCount     Int       @default(0)
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  reopenCount     Int              @default(0)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
   messages        DisputeMessage[]
 
   @@unique([orderId, raisedByRole])
@@ -1229,7 +1247,7 @@ model DisputeMessage {
   id         String       @id @default(uuid())
   disputeId  String
   senderId   String
-  senderRole String       // CUSTOMER | SHOP | RIDER | ADMIN
+  senderRole String // CUSTOMER | SHOP | RIDER | ADMIN
   body       String
   createdAt  DateTime     @default(now())
   dispute    OrderDispute @relation(fields: [disputeId], references: [id], onDelete: Cascade)
@@ -1240,24 +1258,24 @@ model DisputeMessage {
 /// City-level offer template created by the owner. Shopkeepers in that city
 /// can select one to run on their shop; the discount is auto-applied at checkout.
 model OfferTemplate {
-  id            String          @id @default(uuid())
-  cityId        String
-  city          ServiceableCity @relation(fields: [cityId], references: [id])
+  id     String          @id @default(uuid())
+  cityId String
+  city   ServiceableCity @relation(fields: [cityId], references: [id])
 
-  title         String          // e.g. "10% OFF on all orders"
+  title         String // e.g. "10% OFF on all orders"
   type          OfferType
   /// For PERCENT_OFF: 1-100 (percent). For FLAT_OFF: paise (e.g. 2000 = ₹20).
   /// For FREE_DELIVERY: ignored (use 0).
-  value         Int             @default(0)
+  value         Int       @default(0)
   /// Minimum item subtotal (paise) required to activate this offer. 0 = always.
-  minOrderPaise Int             @default(0)
-  active        Boolean         @default(true)
+  minOrderPaise Int       @default(0)
+  active        Boolean   @default(true)
 
-  createdAt     DateTime        @default(now())
-  updatedAt     DateTime        @updatedAt
-  deletedAt     DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
 
-  shops         Shop[]          @relation("ShopActiveOffer")
+  shops Shop[] @relation("ShopActiveOffer")
 
   @@index([cityId])
   @@index([active])

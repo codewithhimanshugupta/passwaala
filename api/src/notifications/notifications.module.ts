@@ -5,6 +5,7 @@ import {
   NotificationsService,
 } from './notifications.service';
 import { WebPushService } from './web-push.service';
+import { ExpoPushService } from './expo-push.service';
 import { PushController } from './push.controller';
 
 /**
@@ -27,7 +28,8 @@ import { PushController } from './push.controller';
     },
     NotificationsService,
     WebPushService,
+    ExpoPushService,
   ],
-  exports: [NotificationsService, WebPushService],
+  exports: [NotificationsService, WebPushService, ExpoPushService],
 })
 export class NotificationsModule {}

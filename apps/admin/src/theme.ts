@@ -1,5 +1,5 @@
 /**
- * PassWaala Admin design tokens. A serious, professional admin palette (navy /
+ * NearBaz Admin design tokens. A serious, professional admin palette (navy /
  * slate accent) — distinct from the consumer green so operators know they are in
  * the back office. Kept framework-free (plain objects) so RN + RN Web consume
  * them identically.

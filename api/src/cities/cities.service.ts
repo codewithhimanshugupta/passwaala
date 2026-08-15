@@ -5,7 +5,7 @@ import { UpsertCityDto } from './dto/upsert-city.dto';
 import { CreateOfferDto, UpdateOfferDto } from './dto/offer.dto';
 
 /**
- * CitiesService — owner-controlled serviceable cities. PassWaala operates only in
+ * CitiesService — owner-controlled serviceable cities. NearBaz operates only in
  * enabled cities: shops can register only in one, and customers elsewhere see a
  * "not available in your city yet" state.
  */
@@ -159,7 +159,7 @@ export class CitiesService {
   }
 
   /**
-   * The PassWaala collection UPI configured for a city (case-insensitive, enabled
+   * The NearBaz collection UPI configured for a city (case-insensitive, enabled
    * only). Returns null when the city is unknown/disabled or has no UPI set.
    * Never exposed publicly — only surfaced to a scoped shopkeeper's ledger.
    */
@@ -170,13 +170,13 @@ export class CitiesService {
       select: { collectionUpiVpa: true, collectionUpiName: true, name: true },
     });
     if (!found?.collectionUpiVpa) return null;
-    return { vpa: found.collectionUpiVpa, name: found.collectionUpiName || 'PassWaala' };
+    return { vpa: found.collectionUpiVpa, name: found.collectionUpiName || 'NearBaz' };
   }
 
   /**
    * The platform's default collection UPI — the first enabled city that has one
    * configured. Used where there's no shop/city scope (e.g. a rider depositing
-   * their COD dues to PassWaala). Null when no city has a UPI set.
+   * their COD dues to NearBaz). Null when no city has a UPI set.
    */
   async getDefaultCollectionUpi(): Promise<{ vpa: string; name: string } | null> {
     const found = await this.prisma.serviceableCity.findFirst({
@@ -185,7 +185,7 @@ export class CitiesService {
       select: { collectionUpiVpa: true, collectionUpiName: true },
     });
     if (!found?.collectionUpiVpa) return null;
-    return { vpa: found.collectionUpiVpa, name: found.collectionUpiName || 'PassWaala' };
+    return { vpa: found.collectionUpiVpa, name: found.collectionUpiName || 'NearBaz' };
   }
 
   /** Owner: enable/disable a city by id. */

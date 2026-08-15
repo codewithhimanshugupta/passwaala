@@ -84,14 +84,14 @@ export class ReviewsService {
         customer: { select: { name: true, createdAt: true } },
       },
     });
-    // Surface reviewer display name (first name, or "PassWaala Customer") and how
+    // Surface reviewer display name (first name, or "NearBaz Customer") and how
     // long they've been on the platform — never the phone/PII.
     return reviews.map((r) => ({
       id: r.id,
       rating: r.rating,
       comment: r.comment,
       createdAt: r.createdAt,
-      reviewerName: r.customer?.name?.split(' ')[0] ?? 'PassWaala Customer',
+      reviewerName: r.customer?.name?.split(' ')[0] ?? 'NearBaz Customer',
       memberSince: r.customer?.createdAt ?? null,
     }));
   }

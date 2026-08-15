@@ -10,7 +10,7 @@ import type { RiderMe } from '../types';
 
 /**
  * DuesScreen — the rider's COD cash-to-deposit, a one-tap UPI deposit to
- * PassWaala's collection VPA (+ QR fallback), and the per-distance delivery-fee
+ * NearBaz's collection VPA (+ QR fallback), and the per-distance delivery-fee
  * reference. Split out of the old crowded Home screen onto its own tab.
  */
 export function DuesScreen() {
@@ -74,7 +74,7 @@ export function DuesScreen() {
         <Banner tone="success" title={t.dues.clearTitle} message={t.dues.clearMessage} />
       )}
 
-      {/* Pay now — deposit dues directly to PassWaala's collection UPI. */}
+      {/* Pay now — deposit dues directly to NearBaz's collection UPI. */}
       {dues > 0 && duesUpiLink ? (
         <Card>
           <Text style={styles.payTitle}>{t.home.payDuesTitle}</Text>

@@ -1,12 +1,13 @@
 /**
- * PassWaala shopkeeper design tokens. A fuller partner design system layered on
+ * NearBaz shopkeeper design tokens. A fuller partner design system layered on
  * the shared base: a distinct partner accent (indigo/blue) alongside the
- * PassWaala green, richer neutrals, spacing, radii, shadows, and typography.
+ * NearBaz green, richer neutrals, spacing, radii, shadows, and typography.
  * Kept framework-free (plain objects) so RN + RN Web consume them identically.
  */
+import { Platform } from 'react-native';
 export const theme = {
   color: {
-    // PassWaala brand green (kept for continuity with the customer app).
+    // NearBaz brand green (kept for continuity with the customer app).
     primary: '#0B7A4B',
     primaryDark: '#075C39',
     primarySoft: '#E6F4EC',
@@ -108,11 +109,23 @@ export function rupeeInputToPaise(input: string): number {
 }
 
 /**
+ * A tiny solid-color (neutral #E4E7EC) 1x1 PNG data-URI. React Native's <Image>
+ * cannot render SVG data-URIs, so on native we return this renderable neutral
+ * placeholder (stretched to fill) instead of the SVG below.
+ */
+const NATIVE_PLACEHOLDER_PNG =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGN48vwNAAVqArjtQBuUAAAAAElFTkSuQmCC';
+
+/**
  * Generate a branded SVG placeholder as a data URI — shop name displayed
  * over a gradient background. Used when no real storefront photo exists.
+ *
+ * On native, React Native's <Image> cannot render SVG data-URIs, so we return a
+ * neutral solid-color PNG data-URI instead (still a string URI for callers).
  */
 export function placeholderImage(seed: string, width = 400, height = 300): string {
-  const name = (seed || 'PassWaala').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  if (Platform.OS !== 'web') return NATIVE_PLACEHOLDER_PNG;
+  const name = (seed || 'NearBaz').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const code = [...(seed || 'p')].reduce((n, c) => n + c.charCodeAt(0), 0);
   const gradients = [
     ['#667eea','#764ba2'], ['#f093fb','#f5576c'], ['#4facfe','#00f2fe'],

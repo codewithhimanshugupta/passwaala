@@ -259,7 +259,7 @@ async function main() {
   );
 
   console.log('Creating users…');
-  await prisma.user.create({ data: { phone: '+919000000001', role: 'OWNER', name: 'PassWaala Founder', appType: 'OWNER' } });
+  await prisma.user.create({ data: { phone: '+919000000001', role: 'OWNER', name: 'NearBaz Founder', appType: 'OWNER' } });
   await prisma.user.create({ data: { phone: '+919000000002', role: 'ADMIN', name: 'Admin', appType: 'ADMIN' } });
 
   const shopkeeper = await prisma.user.create({ data: { phone: '+919876543210', role: 'SHOPKEEPER', name: 'Himanshu Jain', appType: 'SHOPKEEPER' } });

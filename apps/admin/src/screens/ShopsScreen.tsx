@@ -143,7 +143,7 @@ export function ShopsScreen() {
   }
 
   async function doPayShop(shop: AdminShop) {
-    // Negative balance = PassWaala owes the shop; the payable amount is its magnitude.
+    // Negative balance = NearBaz owes the shop; the payable amount is its magnitude.
     const payablePaise = Math.max(0, -shop.outstandingDuesPaise);
     const rupees = Number((payShopDraft[shop.id] ?? '').trim());
     if (Number.isNaN(rupees) || rupees <= 0) { flash('Enter a valid amount in ₹.'); return; }
@@ -321,7 +321,7 @@ export function ShopsScreen() {
                     {/* Commission */}
                     <Text style={[styles.col, styles.colComm, styles.cellText]}>{ratePct(shop.commissionRate)}%</Text>
 
-                    {/* Dues (positive = shop owes; negative = PassWaala owes shop) */}
+                    {/* Dues (positive = shop owes; negative = NearBaz owes shop) */}
                     <Text style={[styles.col, styles.colDues, styles.cellText, hasDues && { color: theme.color.warning, fontWeight: '700' }, hasPayable && { color: theme.color.info, fontWeight: '700' }]}>
                       {hasDues ? formatRupees(shop.outstandingDuesPaise) : hasPayable ? `+${formatRupees(payablePaise)}` : '—'}
                     </Text>
@@ -420,7 +420,7 @@ export function ShopsScreen() {
                       ) : payingShop ? (
                         <View style={styles.payShopBox}>
                           <Text style={styles.confirmText}>
-                            Pay <Text style={{ fontWeight: '800' }}>{shop.name}</Text> — PassWaala owes {formatRupees(payablePaise)}.
+                            Pay <Text style={{ fontWeight: '800' }}>{shop.name}</Text> — NearBaz owes {formatRupees(payablePaise)}.
                           </Text>
                           <View style={styles.panelRow}>
                             <View style={styles.commFieldWrap}>

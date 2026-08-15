@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { Modal, Pressable, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { VerificationStatus } from '@passwaala/shared';
-import { api, logout, updateName, type MyAccount } from '../api';
+import { api, updateName, type MyAccount } from '../api';
 import { paiseToRupeeInput, placeholderImage, rupeeInputToPaise, theme } from '../theme';
 import { Badge, Banner, Button, Card, ErrorText, Field, Screen, SectionTitle } from '../ui';
 import { ImagePicker } from '../components/ImagePicker';
@@ -50,10 +50,12 @@ export function SettingsScreen({
   shop,
   onShopChange,
   onKycSubmitted,
+  onLogout,
 }: {
   shop: MyShop;
   onShopChange: (shop: MyShop) => void;
   onKycSubmitted: (status: VerificationStatus) => void;
+  onLogout: () => void;
 }) {
   const { t } = useLang();
 
@@ -165,7 +167,7 @@ export function SettingsScreen({
       </View>
 
       {/* 1. Account */}
-      <ProfileSection />
+      <ProfileSection onLogout={onLogout} />
 
       {/* 2. Shop open/close + contact */}
       <Card style={styles.sectionCard}>
@@ -225,7 +227,7 @@ export function SettingsScreen({
           <View style={styles.sectionBody}>
             <View style={styles.toggleRow}>
               <View style={styles.flex}>
-                <Text style={styles.toggleLabel}>PassWaala Rider Delivery</Text>
+                <Text style={styles.toggleLabel}>NearBaz Rider Delivery</Text>
                 <Text style={styles.toggleHint}>Use platform riders for delivery — fee set by distance</Text>
               </View>
               <Switch value={platformDeliveryEnabled} onValueChange={(v) => { setSaved(false); setPlatformDeliveryEnabled(v); }} trackColor={{ false: theme.color.borderStrong, true: theme.color.primary }} thumbColor={theme.color.white} />
@@ -364,7 +366,7 @@ function TimeBox({ value, onChangeText }: { value: string; onChangeText: (t: str
   );
 }
 
-function ProfileSection() {
+function ProfileSection({ onLogout }: { onLogout: () => void }) {
   const { t } = useLang();
   const [account, setAccount] = useState<MyAccount | null>(null);
   const [name, setName] = useState('');
@@ -372,6 +374,8 @@ function ProfileSection() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -396,6 +400,18 @@ function ProfileSection() {
     finally { setSaving(false); }
   }
 
+  async function doDelete() {
+    setDeleting(true);
+    try {
+      await api.deleteAccount();
+      onLogout();
+    } catch (e) {
+      setError((e as Error).message);
+      setDeleting(false);
+      setConfirmDelete(false);
+    }
+  }
+
   return (
     <Card>
       <SectionTitle>{t.settings.partnerProfile}</SectionTitle>
@@ -410,8 +426,20 @@ function ProfileSection() {
         {error ? <ErrorText>{error}</ErrorText> : null}
         {saved ? <Banner tone="success" message={t.settings.nameSaved} /> : null}
         <Button label={t.settings.saveName} onPress={save} busy={saving} />
-        <Button label={t.common.logout} variant="outline" onPress={logout} />
+        <Button label={t.common.logout} variant="outline" onPress={onLogout} />
+        <Button label={t.settings.deleteAccount} variant="danger" onPress={() => setConfirmDelete(true)} />
       </View>
+
+      <Modal visible={confirmDelete} transparent animationType="fade" onRequestClose={() => setConfirmDelete(false)}>
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>{t.settings.deleteTitle}</Text>
+            <Text style={styles.modalBody}>{t.settings.deleteBody}</Text>
+            <Button label={t.settings.deleteConfirm} onPress={doDelete} variant="danger" busy={deleting} />
+            <Button label={t.common.cancel} onPress={() => setConfirmDelete(false)} variant="ghost" />
+          </View>
+        </View>
+      </Modal>
     </Card>
   );
 }
@@ -574,4 +602,18 @@ const styles = StyleSheet.create({
   readonly: { fontSize: theme.font.small, color: theme.color.textMuted },
   coinRow: { flexDirection: 'row', alignItems: 'center', gap: theme.space.sm },
   coinLabel: { fontSize: theme.font.small, color: theme.color.textMuted },
+
+  // Delete-account confirm modal
+  modalBackdrop: { flex: 1, backgroundColor: theme.color.overlay, alignItems: 'center', justifyContent: 'center', padding: theme.space.lg },
+  modalCard: {
+    backgroundColor: theme.color.bg,
+    borderRadius: theme.radius.lg,
+    padding: theme.space.lg,
+    gap: theme.space.sm,
+    width: '100%',
+    maxWidth: 360,
+    alignItems: 'stretch',
+  },
+  modalTitle: { fontSize: theme.font.h3, fontWeight: '800', color: theme.color.text, textAlign: 'center' },
+  modalBody: { fontSize: theme.font.body, color: theme.color.textMuted, textAlign: 'center', marginBottom: theme.space.sm },
 });

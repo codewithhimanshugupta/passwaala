@@ -62,7 +62,7 @@ export function LoginScreen({
         <View style={styles.logoBadge}>
           <Text style={styles.logoMark}>P</Text>
         </View>
-        <Text style={styles.brand}>PassWaala</Text>
+        <Text style={styles.brand}>NearBaz</Text>
         <Text style={styles.partnerPill}>{t.login.partner}</Text>
         <Text style={styles.tagline}>{t.login.tagline}</Text>
       </View>

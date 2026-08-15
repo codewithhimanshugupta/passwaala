@@ -43,7 +43,7 @@ export class LedgerService {
   ) {}
 
   /**
-   * Build a debit ledger line (shop owes PassWaala): applies 18% GST on the base
+   * Build a debit ledger line (shop owes NearBaz): applies 18% GST on the base
    * and returns a positive signed total. Pure/real — no DB.
    */
   buildDebitLine(type: LedgerEntryType, basePaise: number): LedgerLine {
@@ -52,12 +52,12 @@ export class LedgerService {
       type,
       basePaise: gst.basePaise,
       gstPaise: gst.gstPaise,
-      totalPaise: gst.totalPaise, // positive: owed to PassWaala
+      totalPaise: gst.totalPaise, // positive: owed to NearBaz
     };
   }
 
   /**
-   * Build a credit ledger line (PassWaala credits the shop, e.g. a referral or a
+   * Build a credit ledger line (NearBaz credits the shop, e.g. a referral or a
    * refund reversal): signed NEGATIVE so it reduces outstanding dues. Pure/real.
    */
   buildCreditLine(type: LedgerEntryType, basePaise: number): LedgerLine {
@@ -151,7 +151,7 @@ export class LedgerService {
       order.paymentMethod === 'COD' && isPlatformRider && order.codUpiClaimedAt == null;
     if (order.deliveryFeePaise > 0 && isPlatformRider) {
       if (passWalaHoldsCash) {
-        // (d1) Rider deposits the full cash to PassWaala; PassWaala owes the shop
+        // (d1) Rider deposits the full cash to NearBaz; NearBaz owes the shop
         // everything except the delivery fee it keeps for the rider.
         const owedToShop = collectedTotal - order.deliveryFeePaise;
         lines.push({
@@ -161,7 +161,7 @@ export class LedgerService {
           totalPaise: -owedToShop,
         });
       } else {
-        // (b, d2) Shop collected the fee (via UPI); it owes it to PassWaala to pass on.
+        // (b, d2) Shop collected the fee (via UPI); it owes it to NearBaz to pass on.
         lines.push({
           type: LedgerEntryType.RIDER_DELIVERY_FEE,
           basePaise: order.deliveryFeePaise,
@@ -195,7 +195,7 @@ export class LedgerService {
     ]);
 
     // Credit-limit enforcement: auto-pause once dues cross the limit (never on
-    // a negative balance — that means PassWaala owes the shop).
+    // a negative balance — that means NearBaz owes the shop).
     const newDues = shop.outstandingDuesPaise + duesDelta;
     if (newDues >= shop.creditLimitPaise) {
       await this.prisma.shop.update({
@@ -225,7 +225,7 @@ export class LedgerService {
         select: { outstandingDuesPaise: true, creditLimitPaise: true, isOpen: true, city: true },
       }),
     ]);
-    // Resolve PassWaala's collection UPI for the shop's city (owner-configured).
+    // Resolve NearBaz's collection UPI for the shop's city (owner-configured).
     // Null when the city has no UPI set — the client then shows offline copy.
     const collectionUpi = shop?.city
       ? await this.cities.getCollectionUpiForCity(shop.city)
@@ -261,7 +261,7 @@ export class LedgerService {
       throw new NotFoundException('Shop not found');
     }
     // Only settle when the shop actually owes money — never wipe a negative
-    // balance (that means PassWaala owes the shop; use payShopPayable for that).
+    // balance (that means NearBaz owes the shop; use payShopPayable for that).
     if (shop.outstandingDuesPaise <= 0) {
       return { settled: true, newDuesPaise: shop.outstandingDuesPaise };
     }
@@ -279,7 +279,7 @@ export class LedgerService {
   }
 
   /**
-   * PassWaala pays a shop its negative balance (money PassWaala owes the shop,
+   * NearBaz pays a shop its negative balance (money NearBaz owes the shop,
    * e.g. COD_REMITTANCE from cash a rider deposited). Writes a positive
    * SHOP_PAYOUT line and moves dues back toward zero. Amount is capped at the
    * outstanding payable (|negative dues|).
@@ -295,7 +295,7 @@ export class LedgerService {
     if (!shop) {
       throw new NotFoundException('Shop not found');
     }
-    const payable = -shop.outstandingDuesPaise; // positive when PassWaala owes the shop
+    const payable = -shop.outstandingDuesPaise; // positive when NearBaz owes the shop
     if (payable <= 0) {
       throw new BadRequestException('This shop has no outstanding payable');
     }
@@ -324,9 +324,9 @@ export class LedgerService {
 
   /**
    * Shopkeeper P&L over a window (or all-time). Aggregates DELIVERED orders +
-   * ledger so the shop sees gross sales, discounts they gave, PassWaala-funded
+   * ledger so the shop sees gross sales, discounts they gave, NearBaz-funded
    * coins, delivery fees (pass-through), commission, platform fee, and their net
-   * position with PassWaala (positive netPosition = PassWaala owes them).
+   * position with NearBaz (positive netPosition = NearBaz owes them).
    */
   async plnSummaryForShop(shopId: string | undefined, since?: Date) {
     if (!shopId) {
@@ -380,20 +380,20 @@ export class LedgerService {
       orderCount: orders.length,
       grossSalesPaise,
       discountsGivenPaise,
-      coinsRedeemedPaise, // PassWaala-funded — not the shop's cost
+      coinsRedeemedPaise, // NearBaz-funded — not the shop's cost
       netItemRevenuePaise: grossSalesPaise - discountsGivenPaise - coinsRedeemedPaise,
       deliveryFeesPaise, // pass-through to rider
       commissionPaise: sumByType(LedgerEntryType.COMMISSION),
       platformFeePaise: sumByType(LedgerEntryType.PLATFORM_FEE),
       codCollectedByPasswalaPaise: -sumByType(LedgerEntryType.COD_REMITTANCE),
-      // >0 means PassWaala owes the shop; <0 means the shop owes PassWaala.
+      // >0 means NearBaz owes the shop; <0 means the shop owes NearBaz.
       netPositionPaise: -(shop?.outstandingDuesPaise ?? 0),
     };
   }
 
   /**
-   * Shopkeeper self-settles their PassWaala dues over UPI (no gateway — money
-   * flows straight to PassWaala's VPA; this records the claim, like the customer
+   * Shopkeeper self-settles their NearBaz dues over UPI (no gateway — money
+   * flows straight to NearBaz's VPA; this records the claim, like the customer
    * confirm-payment flow). Flips ACCRUED entries to PAID, writes a signed-NEGATIVE
    * PAYMENT ledger line, and subtracts the amount from outstanding dues.
    *

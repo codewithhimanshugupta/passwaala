@@ -41,7 +41,7 @@ export interface CreateOrder {
   idempotencyKey: string;
   /** Optional free-text delivery instructions. */
   notes?: string;
-  /** PassWaala Coins to redeem (1 coin = ₹1), discounting the item subtotal. */
+  /** NearBaz Coins to redeem (1 coin = ₹1), discounting the item subtotal. */
   redeemCoins?: number;
   /** Optional offer template ID the customer wants to apply at checkout. */
   offerId?: string;

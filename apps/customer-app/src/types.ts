@@ -59,7 +59,7 @@ export interface CartBill {
 }
 
 /**
- * Referral / PassWaala Coins profile (GET /referrals/me via api.referralMe()).
+ * Referral / NearBaz Coins profile (GET /referrals/me via api.referralMe()).
  * Kept local so the ProfileScreen stays typed without touching shared packages.
  */
 export interface ReferralEntry {
@@ -287,7 +287,7 @@ export interface Review {
   createdAt: string;
   /** Display name of the reviewer (never their phone). */
   reviewerName?: string | null;
-  /** ISO date the reviewer joined PassWaala; rendered as "Member since Mon YYYY". */
+  /** ISO date the reviewer joined NearBaz; rendered as "Member since Mon YYYY". */
   memberSince?: string | null;
 }
 

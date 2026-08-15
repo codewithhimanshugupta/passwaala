@@ -17,7 +17,7 @@ export const en = {
   app: {
     loadingProfile: 'Loading your profile…',
     becomePartner: 'Become a partner',
-    brand: 'PassWaala Rider',
+    brand: 'NearBaz Rider',
     logout: 'Logout',
     newJobTitle: (shop: string, fee: string) => `New job! ${shop} · ${fee} fee`,
     pickup: 'Pickup',
@@ -45,7 +45,7 @@ export const en = {
     otpHint: (phone: string) => `Sent to ${phone}. In dev, any 6 digits work.`,
     verifyContinue: 'Verify & continue',
     changeNumber: 'Change number',
-    footer: 'By continuing you agree to deliver orders on PassWaala.',
+    footer: 'By continuing you agree to deliver orders on NearBaz.',
     invalidPhone: 'Enter a valid 10-digit phone number',
     enterCode: 'Enter the 6-digit code',
     enterMobile: 'Enter your mobile number',
@@ -121,6 +121,15 @@ export const en = {
     enterCity: 'Enter your service city',
     enterAadhaar: 'Enter a valid 12-digit Aadhaar number',
     enterDl: 'Enter your driving licence number',
+    kycDocsLabel: 'Document photos (optional)',
+    kycDocsHint: 'Add clear photos of your Aadhaar, driving licence, or other IDs.',
+    kycAddPhoto: 'Add photo',
+    kycTakePhoto: 'Take photo',
+    kycChooseLibrary: 'Choose from library',
+    kycUploading: 'Uploading…',
+    kycUploadFailed: 'Upload failed. Please try again.',
+    kycPermissionDenied: 'Permission denied. Enable it in Settings to add photos.',
+    kycCancel: 'Cancel',
   },
   home: {
     online: "You're ONLINE",
@@ -129,10 +138,10 @@ export const en = {
     tapOnline: 'Tap to go online',
     totalEarnings: 'Total earnings',
     codToDeposit: (dues: string, limit: string) => `COD cash to deposit: ${dues} / ${limit}`,
-    codAtCap: 'You’ve hit your COD limit. Deposit the collected cash with PassWaala to accept more orders.',
+    codAtCap: 'You’ve hit your COD limit. Deposit the collected cash with NearBaz to accept more orders.',
     codBelowCap:
-      'This is cash you collected for COD orders. Deposit it with PassWaala; an admin clears it. New orders are blocked once you hit the limit.',
-    payDuesTitle: 'Pay your dues to PassWaala',
+      'This is cash you collected for COD orders. Deposit it with NearBaz; an admin clears it. New orders are blocked once you hit the limit.',
+    payDuesTitle: 'Pay your dues to NearBaz',
     payDuesSub: (dues: string, name: string) =>
       `Deposit ${dues} to ${name} — an admin then clears your balance.`,
     payNow: (dues: string) => `Pay ${dues} now`,
@@ -141,7 +150,7 @@ export const en = {
     liveMessage: 'Head to the Jobs tab to see available deliveries near you.',
     goOnlineTitle: 'Go online to see delivery jobs',
     goOnlineMessage: "You'll only see available jobs while you're online.",
-    passwala: 'PassWaala',
+    passwala: 'NearBaz',
   },
   dues: {
     clearTitle: 'No dues',
@@ -222,5 +231,13 @@ export const en = {
     dropUnavailable: 'Drop address unavailable',
     pickupLabel: 'PICKUP',
     dropLabel: 'DROP',
+  },
+  account: {
+    title: 'Account',
+    deleteAccount: 'Delete account',
+    deleteTitle: 'Delete your account?',
+    deleteBody:
+      'This permanently removes your rider account and personal details (including KYC). Your past delivery & earnings records are retained as required by law. This cannot be undone.',
+    deleteConfirm: 'Delete account',
   },
 };

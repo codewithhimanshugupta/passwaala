@@ -2,7 +2,7 @@
   "name": "passwaala",
   "version": "0.1.0",
   "private": true,
-  "description": "PassWaala — Your Local Business Network (hyperlocal multi-shop marketplace)",
+  "description": "NearBaz — Your Local Business Network (hyperlocal multi-shop marketplace)",
   "workspaces": [
     "packages/*",
     "api",
@@ -16,7 +16,8 @@
     "api:dev": "npm run start:dev --workspace @passwaala/api",
     "api:test": "npm run test --workspace @passwaala/api",
     "render:build": "npm install && npm run build --workspace @passwaala/shared && npm run build --workspace @passwaala/api-client && npx prisma generate --schema api/prisma/schema.prisma && npm run build --workspace @passwaala/api",
-    "render:start": "node api/dist/main.js"
+    "render:start": "node api/dist/main.js",
+    "eas-build-post-install": "npm run build --workspace @passwaala/shared && npm run build --workspace @passwaala/api-client"
   },
   "engines": {
     "node": ">=20"

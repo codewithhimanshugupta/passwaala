@@ -16,6 +16,7 @@ import { RIDER_ORDER_SELECT } from '../orders/order-select';
 import { PaginationQuery, cursorArgs, toPage } from '../common/pagination';
 import { titleCaseName } from '../common/text.util';
 import { RegisterRiderDto, SetRiderOnlineDto } from './dto/rider.dto';
+import { WebPushService } from '../notifications/web-push.service';
 
 /**
  * RidersService — the platform delivery network (plan → Delivery: designed for,
@@ -40,7 +41,28 @@ export class RidersService {
     private readonly realtime: RealtimeGateway,
     private readonly ledger: LedgerService,
     private readonly referrals: ReferralsService,
+    private readonly webPush: WebPushService,
   ) {}
+
+  /**
+   * Fire an OS/web push to a shop's owner (best-effort, never blocks). Rider
+   * events emit a socket update to the shop feed; this adds a background push
+   * so a shopkeeper with the app closed / phone locked still gets alerted.
+   */
+  private async pushToShopOwner(
+    shopId: string,
+    payload: { title: string; body: string; tag?: string; url?: string },
+  ): Promise<void> {
+    try {
+      const shop = await this.prisma.shop.findUnique({
+        where: { id: shopId },
+        select: { ownerId: true },
+      });
+      if (shop?.ownerId) await this.webPush.sendToUser(shop.ownerId, payload);
+    } catch {
+      /* best-effort — never break the rider action on a push failure */
+    }
+  }
 
   /** Register the caller as a RIDER (idempotent) + return a fresh RIDER token. */
   async register(userId: string, dto: RegisterRiderDto) {
@@ -92,7 +114,7 @@ export class RidersService {
     if (!profile) {
       throw new NotFoundException('Not registered as a rider');
     }
-    // PassWaala's collection UPI so the rider can deposit their COD dues directly
+    // NearBaz's collection UPI so the rider can deposit their COD dues directly
     // (null when the owner hasn't configured one for any enabled city).
     const collectionUpi = await this.cities.getDefaultCollectionUpi();
     // Lifetime earnings breakdown from the rider ledger (running balance is the
@@ -545,6 +567,12 @@ export class RidersService {
     });
     // Nudge the shop's feed to confirm they received the UPI payment.
     this.realtime.emitOrderShopUpdate(order.shopId, { orderId, status: order.status as OrderStatus });
+    void this.pushToShopOwner(order.shopId, {
+      title: 'Confirm UPI payment',
+      body: 'The rider marked this COD order paid by UPI. Confirm you received it.',
+      tag: `order-${orderId}`,
+      url: `/orders/${orderId}`,
+    });
     return { claimed: true };
   }
 
@@ -773,7 +801,15 @@ export class RidersService {
 
     // Notify customer their bulk order has a rider assigned
     const cust = await this.prisma.bulkOrder.findUnique({ where: { id: bulkOrderId }, select: { customerId: true } });
-    if (cust) this.realtime.emitOrderStatusChanged(cust.customerId, { orderId: bulkOrderId, status: 'RIDER_ASSIGNED' });
+    if (cust) {
+      this.realtime.emitOrderStatusChanged(cust.customerId, { orderId: bulkOrderId, status: 'RIDER_ASSIGNED' });
+      void this.webPush.sendToUser(cust.customerId, {
+        title: 'Rider assigned',
+        body: 'A delivery partner is on the way to pick up your order.',
+        tag: `bulk-${bulkOrderId}`,
+        url: `/orders/${bulkOrderId}`,
+      });
+    }
 
     return { accepted: true, pickupSequenceJson };
   }
@@ -825,7 +861,15 @@ export class RidersService {
     await this.advanceBulkStage(order.bulkOrderId);
 
     const bulk = await this.prisma.bulkOrder.findUnique({ where: { id: order.bulkOrderId }, select: { customerId: true, status: true } });
-    if (bulk) this.realtime.emitOrderStatusChanged(bulk.customerId, { orderId: order.bulkOrderId, status: bulk.status });
+    if (bulk) {
+      this.realtime.emitOrderStatusChanged(bulk.customerId, { orderId: order.bulkOrderId, status: bulk.status });
+      void this.webPush.sendToUser(bulk.customerId, {
+        title: 'Order on the way',
+        body: 'Your rider has picked up an order and is heading to you.',
+        tag: `bulk-${order.bulkOrderId}`,
+        url: `/orders/${order.bulkOrderId}`,
+      });
+    }
 
     return { status: OrderStatus.OUT_FOR_DELIVERY };
   }
@@ -895,6 +939,12 @@ export class RidersService {
     // Notify customer the bulk order is delivered
     const customerId = bulk.customerId;
     this.realtime.emitOrderStatusChanged(customerId, { orderId: bulkOrderId, status: BulkOrderStatus.DELIVERED });
+    void this.webPush.sendToUser(customerId, {
+      title: 'Order delivered',
+      body: 'Your order has been delivered. Enjoy!',
+      tag: `bulk-${bulkOrderId}`,
+      url: `/orders/${bulkOrderId}`,
+    });
 
     // Qualify referral for the customer (first bulk delivery counts as a qualifying order)
     await this.referrals.qualifyOnDelivery(customerId).catch(() => undefined);
@@ -912,6 +962,12 @@ export class RidersService {
     if (order.status !== OrderStatus.OUT_FOR_DELIVERY) throw new BadRequestException(`Cannot claim from status ${order.status}`);
     await this.prisma.order.update({ where: { id: subOrderId }, data: { codUpiClaimedAt: new Date() } });
     this.realtime.emitOrderShopUpdate(order.shopId, { orderId: subOrderId, status: order.status as OrderStatus });
+    void this.pushToShopOwner(order.shopId, {
+      title: 'Confirm UPI payment',
+      body: 'The rider marked this COD order paid by UPI. Confirm you received it.',
+      tag: `order-${subOrderId}`,
+      url: `/orders/${subOrderId}`,
+    });
     return { claimed: true };
   }
 

@@ -411,7 +411,7 @@ export function DisputesScreen() {
                 return (
                   <View key={msg.id} style={[s.bubble, isAdmin ? s.bubbleAdmin : s.bubbleUser]}>
                     <Text style={[s.bubbleRole, isAdmin && s.bubbleRoleAdmin]}>
-                      {isAdmin ? 'PassWaala Admin' : thread.raisedByRole.charAt(0) + thread.raisedByRole.slice(1).toLowerCase()}
+                      {isAdmin ? 'NearBaz Admin' : thread.raisedByRole.charAt(0) + thread.raisedByRole.slice(1).toLowerCase()}
                     </Text>
                     <Text style={s.bubbleBody}>{msg.body}</Text>
                     <Text style={s.bubbleTime}>{fmtDate(msg.createdAt)}</Text>

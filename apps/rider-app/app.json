@@ -1,28 +1,89 @@
 {
   "expo": {
-    "name": "PassWaala Rider",
+    "name": "NearBaz Rider",
     "slug": "passwala-rider",
     "scheme": "passwalarider",
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
-    "platforms": ["ios", "android", "web"],
+    "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#F2711C"
+    },
+    "platforms": [
+      "ios",
+      "android",
+      "web"
+    ],
     "web": {
       "bundler": "metro",
       "output": "single",
-      "name": "PassWaala Rider",
-      "shortName": "PW Rider",
-      "description": "Accept deliveries and track earnings on PassWaala",
-      "themeColor": "#0B7A4B",
+      "name": "NearBaz Rider",
+      "shortName": "NB Rider",
+      "description": "Accept deliveries and track earnings on NearBaz",
+      "themeColor": "#F2711C",
       "backgroundColor": "#F5F6F8",
       "display": "standalone",
       "orientation": "portrait",
       "scope": "/",
       "startUrl": "/"
     },
-    "ios": { "supportsTablet": true },
+    "ios": {
+      "bundleIdentifier": "com.passwala.rider",
+      "buildNumber": "1",
+      "supportsTablet": false,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSLocationWhenInUseUsageDescription": "NearBaz Rider uses your location to match you with nearby deliveries and share live tracking with customers while you are online.",
+        "NSCameraUsageDescription": "NearBaz Rider uses the camera to capture KYC verification documents.",
+        "NSPhotoLibraryUsageDescription": "NearBaz Rider needs photo access to upload KYC verification documents."
+      }
+    },
     "android": {
-      "package": "com.passwala.rider"
-    }
+      "package": "com.passwala.rider",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#F2711C"
+      },
+      "permissions": [
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.CAMERA",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.RECORD_AUDIO"
+      ]
+    },
+    "plugins": [
+      "expo-secure-store",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "NearBaz Rider uses your location to match you with nearby deliveries and share live tracking with customers while you are online."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "NearBaz Rider needs photo access to upload KYC verification documents.",
+          "cameraPermission": "NearBaz Rider uses the camera to capture KYC verification documents."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#F2711C"
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "22518e4f-ff6a-4c80-aee0-7b3ccc462dc2"
+      }
+    },
+    "owner": "guphim2"
   }
 }

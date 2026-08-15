@@ -73,7 +73,7 @@ export class UpdateShopSettingsDto {
   @IsObject()
   workingHours?: Record<string, { open: string; close: string }>;
 
-  /** Whether the shop uses the PassWaala rider network. */
+  /** Whether the shop uses the NearBaz rider network. */
   @IsOptional()
   @IsBoolean()
   platformDeliveryEnabled?: boolean;

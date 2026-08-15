@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Linking, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { buildUpiDeepLink } from '@passwaala/shared';
 import { api } from '../api';
+import { getCurrentCoords } from '../geo';
 import { onSocket } from '../socket';
 import { formatRupees, theme } from '../theme';
 import { Badge, Banner, Button, Card, ErrorText, Field, Screen } from '../ui';
@@ -110,18 +111,16 @@ export function JobsScreen({ online }: { online: boolean }) {
   const hasActive = active.length > 0 || activeBulk.length > 0;
   useEffect(() => {
     if (!hasActive) return;
-    const geo = typeof navigator !== 'undefined' ? navigator.geolocation : undefined;
-    if (!geo) return;
+    let cancelled = false;
     const ping = () => {
-      geo.getCurrentPosition(
-        (pos) => { void api.riderUpdateLocation(pos.coords.latitude, pos.coords.longitude).catch(() => undefined); },
-        () => undefined,
-        { enableHighAccuracy: true, timeout: 8000, maximumAge: 5000 },
-      );
+      void getCurrentCoords().then((c) => {
+        if (cancelled || !c) return;
+        void api.riderUpdateLocation(c.lat, c.lng).catch(() => undefined);
+      });
     };
     ping();
     const id = setInterval(ping, 30000);
-    return () => clearInterval(id);
+    return () => { cancelled = true; clearInterval(id); };
   }, [hasActive]);
 
   function openOtp(id: string) {

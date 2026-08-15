@@ -24,7 +24,7 @@ interface Pnl {
 }
 
 /**
- * LedgerScreen — the shop's PassWaala dues. Shows outstanding dues vs the credit
+ * LedgerScreen — the shop's NearBaz dues. Shows outstanding dues vs the credit
  * limit as a progress bar (warning as it nears/over the limit), explains the
  * auto-pause at the limit and HOW dues are settled (manual/offline for MVP),
  * and lists ledger entries grouped per order (commission + platform fee for the
@@ -212,7 +212,7 @@ export function LedgerScreen() {
       )}
 
       {/* Pay dues — actionable UPI self-pay (opens the shopkeeper's UPI app
-          pre-filled with PassWaala's collection VPA + amount, then self-confirm). */}
+          pre-filled with NearBaz's collection VPA + amount, then self-confirm). */}
       <PayDuesCard
         duesPaise={amountDuePaise}
         inCredit={inCredit}
@@ -255,9 +255,9 @@ export function LedgerScreen() {
 
 /**
  * PnlCard — all-time profit & loss summary. A prominent net-position banner
- * (green when PassWaala owes the shop, amber when the shop owes PassWaala) plus a
+ * (green when NearBaz owes the shop, amber when the shop owes NearBaz) plus a
  * line-by-line breakdown of gross sales, discounts, coins, commission, platform
- * fee, delivery fees, and COD held by PassWaala. Loads from api.myPnl() upstream.
+ * fee, delivery fees, and COD held by NearBaz. Loads from api.myPnl() upstream.
  */
 function PnlCard({ pnl, error }: { pnl: Pnl | null; error: string | null }) {
   if (error) {
@@ -292,7 +292,7 @@ function PnlCard({ pnl, error }: { pnl: Pnl | null; error: string | null }) {
         ]}
       >
         <Text style={[styles.pnlNetLabel, { color: owedToShop ? theme.color.success : theme.color.warning }]}>
-          {owedToShop ? 'PassWaala owes you' : 'You owe PassWaala'}
+          {owedToShop ? 'NearBaz owes you' : 'You owe NearBaz'}
         </Text>
         <Text style={[styles.pnlNetValue, { color: owedToShop ? theme.color.success : theme.color.warning }]}>
           {formatRupees(Math.abs(net))}
@@ -312,7 +312,7 @@ function PnlCard({ pnl, error }: { pnl: Pnl | null; error: string | null }) {
         />
         <PnlRow
           label="Coins used"
-          note="PassWaala-funded"
+          note="NearBaz-funded"
           value={formatRupees(pnl.coinsRedeemedPaise)}
           muted
         />
@@ -334,7 +334,7 @@ function PnlCard({ pnl, error }: { pnl: Pnl | null; error: string | null }) {
           muted
         />
         <PnlRow
-          label="COD collected by PassWaala"
+          label="COD collected by NearBaz"
           value={formatRupees(pnl.codCollectedByPasswalaPaise)}
           muted
         />
@@ -380,7 +380,7 @@ function PnlRow({
  * PayDuesCard — the actionable "Pay dues" section. Shows the amount owed, an
  * editable "pay this much" field (default = current dues; the shopkeeper can
  * overpay to build advance credit), a Pay Now button that opens their UPI app
- * pre-filled with PassWaala's per-city collection VPA + amount, and an "I've paid"
+ * pre-filled with NearBaz's per-city collection VPA + amount, and an "I've paid"
  * self-confirm that settles the dues (POST /ledger/pay). Falls back to offline
  * copy when the city has no collection UPI configured.
  */
@@ -418,7 +418,7 @@ function PayDuesCard({
       collectionUpi.vpa,
       collectionUpi.name,
       amountPaise,
-      'PassWaala dues',
+      'NearBaz dues',
     );
     try {
       if (Platform.OS === 'web') window.open(link, '_blank');
@@ -583,9 +583,9 @@ function EntryLine({ entry, t }: { entry: LedgerEntry; t: Strings }) {
 /** Clear, shopkeeper-facing labels for ledger entry types. */
 const ENTRY_LABELS: Record<string, string> = {
   DISCOUNT_GIVEN: 'Discount you gave',
-  COD_REMITTANCE: 'COD held by PassWaala (owed to you)',
+  COD_REMITTANCE: 'COD held by NearBaz (owed to you)',
   RIDER_DELIVERY_FEE: 'Delivery fee (to rider)',
-  SHOP_PAYOUT: 'PassWaala paid you',
+  SHOP_PAYOUT: 'NearBaz paid you',
 };
 
 function formatType(type: string): string {

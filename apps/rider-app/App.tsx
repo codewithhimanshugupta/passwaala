@@ -17,6 +17,7 @@ import { formatRupees, theme } from './src/theme';
 import { useNewJobAlerts } from './src/useNewJobAlerts';
 import { useSystemAlerts } from './src/useSystemAlerts';
 import { unlockAudio } from './src/sound';
+import { registerPushToken, unregisterPushToken } from './src/push';
 import { TabIcon } from './src/TabIcon';
 import { LanguageProvider, useLang } from './src/i18n/LanguageContext';
 import type { RiderJob } from './src/types';
@@ -27,7 +28,7 @@ function isAuthExpired(err: unknown): boolean {
 }
 
 /**
- * PassWaala rider app root. Flow: login (OTP) → resolve rider (riderMe 200 = a
+ * NearBaz rider app root. Flow: login (OTP) → resolve rider (riderMe 200 = a
  * rider; 403/404 = must become a delivery partner) → main app with a hand-rolled
  * bottom tab bar (Home / Jobs / Deliveries) + Logout. The session token persists
  * (src/api.ts) so a refresh/restart keeps the rider logged in.
@@ -118,6 +119,12 @@ function AppRoot() {
     }
   }, [resolveRider]);
 
+  // Register the device's Expo push token once authenticated (native only —
+  // push.ts is a web no-op). Idempotent, so re-running across stages is safe.
+  useEffect(() => {
+    if (stage !== 'login') void registerPushToken();
+  }, [stage]);
+
   // Connect the realtime socket while in the app; disconnect otherwise.
   useEffect(() => {
     if (stage === 'app') {
@@ -139,6 +146,7 @@ function AppRoot() {
   }, []);
 
   function doLogout() {
+    void unregisterPushToken();
     logout();
     setOnline(false);
     setSessionExpired(false);
@@ -209,7 +217,7 @@ function AppRoot() {
               {tab === 'home' && <HomeScreen online={online} onOnlineChange={setOnline} />}
               {tab === 'jobs' && <JobsScreen online={online} />}
               {tab === 'deliveries' && <DeliveriesScreen />}
-              {tab === 'earnings' && <EarningsScreen />}
+              {tab === 'earnings' && <EarningsScreen onDeleted={doLogout} />}
               {tab === 'dues' && <DuesScreen />}
               {tab === 'alerts' && <AlertsScreen alerts={systemAlerts.alerts} onSeen={systemAlerts.markSeen} />}
             </View>

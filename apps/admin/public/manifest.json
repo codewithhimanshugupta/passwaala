@@ -1,6 +1,6 @@
 {
-  "name": "PassWaala Admin",
-  "short_name": "PassWaala Admin",
+  "name": "NearBaz Admin",
+  "short_name": "NearBaz Admin",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#FFFFFF",

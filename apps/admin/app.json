@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "PassWaala Admin",
+    "name": "NearBaz Admin",
     "slug": "passwala-admin",
     "scheme": "passwalaadmin",
     "version": "0.1.0",
@@ -10,9 +10,9 @@
     "web": {
       "bundler": "metro",
       "output": "single",
-      "name": "PassWaala Admin",
+      "name": "NearBaz Admin",
       "shortName": "PW Admin",
-      "description": "PassWaala operations & partner console",
+      "description": "NearBaz operations & partner console",
       "themeColor": "#1E293B",
       "backgroundColor": "#F8FAFC",
       "display": "standalone",

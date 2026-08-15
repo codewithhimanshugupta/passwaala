@@ -52,7 +52,7 @@ export class ShopsService {
     if (!city) throw new BadRequestException('City is required');
     if (!(await this.cities.isServiceable(city))) {
       throw new BadRequestException(
-        `PassWaala is not available in ${city} yet. Please check back soon.`,
+        `NearBaz is not available in ${city} yet. Please check back soon.`,
       );
     }
 

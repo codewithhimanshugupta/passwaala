@@ -5,9 +5,9 @@ import { GstService } from './gst.service';
 import { UpsertGstConfigDto } from './dto/upsert-gst-config.dto';
 
 /**
- * GstController — admin/owner GST compliance surface: PassWaala's own GST config,
+ * GstController — admin/owner GST compliance surface: NearBaz's own GST config,
  * monthly tax-invoice generation from the ledger, GSTR-1 (B2B) export, and a
- * CA-friendly summary. All routes are ADMIN/OWNER; writing the config (PassWaala's
+ * CA-friendly summary. All routes are ADMIN/OWNER; writing the config (NearBaz's
  * legal identity) is OWNER-only.
  *
  * Dates arrive as ISO strings on the query/body and are parsed to Date here so
@@ -18,13 +18,13 @@ import { UpsertGstConfigDto } from './dto/upsert-gst-config.dto';
 export class GstController {
   constructor(private readonly gst: GstService) {}
 
-  /** Read PassWaala's single GST config row (null until configured). */
+  /** Read NearBaz's single GST config row (null until configured). */
   @Get('config')
   getConfig() {
     return this.gst.getConfig();
   }
 
-  /** Owner-only: create/update PassWaala's GST registration details. */
+  /** Owner-only: create/update NearBaz's GST registration details. */
   @Roles(UserRole.OWNER)
   @Patch('config')
   upsertConfig(@Body() dto: UpsertGstConfigDto) {

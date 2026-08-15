@@ -1,5 +1,5 @@
 /**
- * PassWaala Admin service worker. Cache-first shell, network-only API,
+ * NearBaz Admin service worker. Cache-first shell, network-only API,
  * navigation fallback to cached index.html, SWR for images.
  * Bump CACHE_VERSION on each deploy.
  */
@@ -14,7 +14,7 @@ const PRECACHE_URLS = ['/', '/index.html', '/favicon.png', '/icons/icon-192.png'
 self.addEventListener("push", (event) => {
   let data = {};
   try { data = event.data ? event.data.json() : {}; } catch { data = {}; }
-  const title = data.title || "PassWaala";
+  const title = data.title || "NearBaz";
   const options = {
     body: data.body || "You have a new update.",
     tag: data.tag || "passwaala",

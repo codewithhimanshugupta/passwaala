@@ -19,6 +19,7 @@ import { TabIcon } from './src/TabIcon';
 import { verificationMeta } from './src/status';
 import { useNewOrderAlerts } from './src/useNewOrderAlerts';
 import { unlockAudio } from './src/sound';
+import { registerPushToken, unregisterPushToken } from './src/push';
 import { LanguageProvider, useLang } from './src/i18n/LanguageContext';
 import type { Strings } from './src/i18n/strings';
 import type { MyShop, MyShopSummary, FeedOrder } from './src/types';
@@ -29,7 +30,7 @@ function isAuthExpired(err: unknown): boolean {
 }
 
 /**
- * PassWaala shopkeeper app root. Flow: login (OTP) → resolve shop (myShop 200 =
+ * NearBaz shopkeeper app root. Flow: login (OTP) → resolve shop (myShop 200 =
  * has a shop; 403/404 = must register) → main app with a hand-rolled bottom tab
  * bar (Home / Orders / Products / Settings / Ledger). The session token persists
  * (src/api.ts) so a refresh/restart keeps the shopkeeper logged in.
@@ -95,6 +96,13 @@ function AppRoot() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stage, shop]);
 
+  // Once authenticated (any stage past login), register the device's Expo push
+  // token so the backend can send remote order pushes. No-op on web; idempotent
+  // upsert on the backend so re-running is harmless.
+  useEffect(() => {
+    if (stage !== 'login') void registerPushToken();
+  }, [stage]);
+
   // Connect the realtime socket while in the app; disconnect otherwise.
   useEffect(() => {
     if (stage === 'app') {
@@ -153,6 +161,7 @@ function AppRoot() {
   }, []);
 
   async function doLogout() {
+    await unregisterPushToken();
     await logout();
     setShop(null);
     setShops([]);
@@ -362,7 +371,7 @@ function AppRoot() {
                       t={t}
                     />
                   ) : null}
-                  <SettingsScreen shop={shop} onShopChange={onShopChange} onKycSubmitted={onKycSubmitted} />
+                  <SettingsScreen shop={shop} onShopChange={onShopChange} onKycSubmitted={onKycSubmitted} onLogout={doLogout} />
                 </>
               )}
               {tab === 'ledger' && <LedgerScreen />}

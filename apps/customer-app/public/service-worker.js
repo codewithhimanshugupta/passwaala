@@ -1,5 +1,5 @@
 /**
- * PassWaala customer-app service worker.
+ * NearBaz customer-app service worker.
  *
  * Strategy:
  *   - Static app shell (JS/CSS/HTML/images under /assets/ and the root HTML)
@@ -34,7 +34,7 @@ const PRECACHE_URLS = [
 self.addEventListener("push", (event) => {
   let data = {};
   try { data = event.data ? event.data.json() : {}; } catch { data = {}; }
-  const title = data.title || "PassWaala";
+  const title = data.title || "NearBaz";
   const options = {
     body: data.body || "You have a new update.",
     tag: data.tag || "passwaala",
@@ -62,7 +62,7 @@ self.addEventListener('install', (event) => {
     caches.open(SHELL_CACHE).then((cache) =>
       cache.addAll(PRECACHE_URLS).catch((err) => {
         // Some shell URLs might not exist yet in dev — don't block install.
-        console.warn('[PassWaala SW] precache partial failure:', err);
+        console.warn('[NearBaz SW] precache partial failure:', err);
       })
     ).then(() => self.skipWaiting())
   );

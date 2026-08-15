@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ensureLocationPermission, getCurrentCoords } from '../geo';
 
 interface Props {
   onGranted: () => void;
@@ -9,19 +10,19 @@ interface Props {
 export function LocationPermissionScreen({ onGranted, name }: Props) {
   const [denied, setDenied] = useState(false);
 
-  function requestLocation() {
+  async function requestLocation() {
     setDenied(false);
-    const geo = typeof navigator !== 'undefined' ? navigator.geolocation : null;
-    if (!geo) {
-      // No geolocation API — let through (web fallback will use default coords).
-      onGranted();
+    const ok = await ensureLocationPermission();
+    if (!ok) {
+      // Web: no geolocation API — let through (fallback uses default coords).
+      // Native: permission not granted — guide the user to settings.
+      if (Platform.OS === 'web') { onGranted(); return; }
+      setDenied(true);
       return;
     }
-    geo.getCurrentPosition(
-      () => onGranted(),
-      () => setDenied(true),
-      { enableHighAccuracy: false, timeout: 12000 },
-    );
+    const coords = await getCurrentCoords({ timeoutMs: 12000 });
+    if (coords) onGranted();
+    else setDenied(true);
   }
 
   return (
@@ -58,7 +59,7 @@ export function LocationPermissionScreen({ onGranted, name }: Props) {
         <Pressable style={s.btn} onPress={requestLocation}>
           <Text style={s.btnText}>Use current location</Text>
         </Pressable>
-        <Text style={s.note}>Location is required to use PassWaala</Text>
+        <Text style={s.note}>Location is required to use NearBaz</Text>
       </View>
     </View>
   );

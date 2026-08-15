@@ -4,6 +4,7 @@ import { api } from '../api';
 import { theme } from '../theme';
 import { Banner, Button, Card, ErrorText, Field, Screen, SectionTitle } from '../ui';
 import { LanguagePicker } from '../components/LanguagePicker';
+import { KycDocPicker } from '../components/KycDocPicker';
 import { useLang } from '../i18n/LanguageContext';
 
 /** Loose Aadhaar check: 12 digits once spaces are stripped. */
@@ -17,8 +18,9 @@ function isValidAadhaar(raw: string): boolean {
  * and the KYC details (identity + documents) an admin needs to verify the
  * partner, then calls registerRider and installs the returned RIDER-scoped token
  * so subsequent calls are authorised as a rider. On success onRegistered() is
- * called. Text-only — the rider app has no image picker, so photoUrl/docUrls
- * are left unsent.
+ * called. KYC document photos are captured via KycDocPicker (camera / library
+ * on native, file input on web), uploaded to the `kyc` folder, and their URLs
+ * sent as `docUrls`.
  */
 export function RegisterRiderScreen({ onRegistered }: { onRegistered: () => void }) {
   const [name, setName] = useState('');
@@ -34,6 +36,7 @@ export function RegisterRiderScreen({ onRegistered }: { onRegistered: () => void
   const [vehicleNumber, setVehicleNumber] = useState('');
   const [emergencyName, setEmergencyName] = useState('');
   const [emergencyPhone, setEmergencyPhone] = useState('');
+  const [docUrls, setDocUrls] = useState<string[]>([]);
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -92,6 +95,7 @@ export function RegisterRiderScreen({ onRegistered }: { onRegistered: () => void
         vehicleNumber: vehicleNumber.trim() || undefined,
         emergencyName: emergencyName.trim() || undefined,
         emergencyPhone: emergencyPhone.trim() || undefined,
+        docUrls: docUrls.length ? docUrls : undefined,
       });
       // Switch to the new RIDER-scoped token so subsequent calls are authorised.
       api.setToken(accessToken);
@@ -200,6 +204,12 @@ export function RegisterRiderScreen({ onRegistered }: { onRegistered: () => void
             onChangeText={setEmergencyPhone}
             keyboardType="phone-pad"
             maxLength={10}
+          />
+          <KycDocPicker
+            label={t.register.kycDocsLabel}
+            hint={t.register.kycDocsHint}
+            values={docUrls}
+            onChange={setDocUrls}
           />
         </View>
       </Card>

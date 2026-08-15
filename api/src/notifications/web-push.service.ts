@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as webpush from 'web-push';
 import { PrismaService } from '../prisma/prisma.service';
+import { ExpoPushService } from './expo-push.service';
 
 /**
  * WebPushService — sends Web Push (VAPID) notifications to a user's subscribed
@@ -16,7 +17,10 @@ export class WebPushService {
   private readonly logger = new Logger(WebPushService.name);
   private enabled = false;
 
-  constructor(private readonly prisma: PrismaService) {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly expoPush: ExpoPushService,
+  ) {
     const pub = process.env.VAPID_PUBLIC;
     const priv = process.env.VAPID_PRIVATE;
     const subject = process.env.VAPID_SUBJECT || 'mailto:support@passwaala.in';
@@ -53,6 +57,16 @@ export class WebPushService {
     userId: string,
     payload: { title: string; body: string; tag?: string; url?: string },
   ): Promise<void> {
+    // Fan the SAME payload out to the user's native app installs (iOS/Android)
+    // via Expo. This rides every existing call site (order/status/job/credit
+    // events) with zero business-logic change. Independent of VAPID being
+    // configured, and never throws.
+    try {
+      await this.expoPush.sendToUser(userId, payload);
+    } catch (e) {
+      this.logger.warn(`expo fan-out failed: ${(e as Error).message}`);
+    }
+
     if (!this.enabled) return;
     const subs = await this.prisma.pushSubscription.findMany({ where: { userId } });
     if (!subs.length) return;

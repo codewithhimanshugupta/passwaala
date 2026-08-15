@@ -37,7 +37,7 @@ export interface RiderMe {
   earningsPaise: number;
   duesPaise: number;
   creditLimitPaise: number;
-  /** PassWaala's collection UPI so the rider can deposit COD dues (null if unset). */
+  /** NearBaz's collection UPI so the rider can deposit COD dues (null if unset). */
   collectionUpi: { vpa: string; name: string } | null;
   lifetimeEarnedPaise?: number;
   lifetimePaidOutPaise?: number;

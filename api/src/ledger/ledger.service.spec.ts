@@ -24,7 +24,7 @@ describe('LedgerService', () => {
     service = moduleRef.get(LedgerService);
   });
 
-  it('applies 18% GST on a debit line (owed to PassWaala)', () => {
+  it('applies 18% GST on a debit line (owed to NearBaz)', () => {
     const line = service.buildDebitLine(LedgerEntryType.COMMISSION, 10000);
     expect(line).toEqual({
       type: LedgerEntryType.COMMISSION,

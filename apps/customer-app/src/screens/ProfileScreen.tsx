@@ -108,7 +108,7 @@ export function ProfileScreen({ onLogout }: { onLogout: () => void }) {
   async function shareReferral() {
     const code = referral?.referralCode;
     if (!code) return;
-    const message = `Join me on PassWaala! Use my referral code ${code} to get started. Jo chahiye, paas mein mil jayega.`;
+    const message = `Join me on NearBaz! Use my referral code ${code} to get started. Jo chahiye, paas mein mil jayega.`;
     // Web: prefer the clipboard with a brief "Copied!" confirmation. Native:
     // use the OS share sheet.
     if (Platform.OS === 'web') {
@@ -346,7 +346,7 @@ export function ProfileScreen({ onLogout }: { onLogout: () => void }) {
         ) : null}
       </View>
 
-      {/* Referrals & PassWaala Coins */}
+      {/* Referrals & NearBaz Coins */}
       <View style={styles.section}>
         <View style={styles.sectionHead}>
           <Text style={styles.sectionTitle}>{t.profile.referEarn}</Text>

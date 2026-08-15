@@ -1,9 +1,9 @@
 import { IsOptional, IsString, Length, MaxLength, MinLength } from 'class-validator';
 
 /**
- * UpsertGstConfigDto — owner sets PassWaala's own GST registration details
+ * UpsertGstConfigDto — owner sets NearBaz's own GST registration details
  * (the single PlatformGstConfig row). gstin is the 15-char GSTIN; stateCode is
- * the 2-char state code that defines PassWaala's home state (intra- vs
+ * the 2-char state code that defines NearBaz's home state (intra- vs
  * inter-state split). invoicePrefix defaults to "PW" in the schema when absent.
  */
 export class UpsertGstConfigDto {

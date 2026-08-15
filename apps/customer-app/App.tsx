@@ -15,6 +15,7 @@ import { OrdersScreen } from './src/screens/OrdersScreen';
 import { ProfileScreen } from './src/screens/ProfileScreen';
 import { api, hasSavedToken, logout, onAuthExpired } from './src/api';
 import { connectSocket, disconnectSocket } from './src/socket';
+import { registerPushToken, unregisterPushToken } from './src/push';
 import type { Account } from './src/types';
 import { resetCartStore, useCart } from './src/cart';
 import { clearCheckoutPrefetch, prefetchCheckout } from './src/checkoutPrefetch';
@@ -123,7 +124,7 @@ const confirmedStyles = StyleSheet.create({
 });
 
 /**
- * PassWaala customer app root. A hand-rolled in-memory navigator: a bottom tab
+ * NearBaz customer app root. A hand-rolled in-memory navigator: a bottom tab
  * bar (Home / Cart / Orders / Profile) plus pushed detail views (storefront,
  * order tracking). No react-navigation dep. The session token is persisted (see
  * src/api.ts) so a refresh/restart keeps the user logged in.
@@ -279,6 +280,7 @@ function AppRoot() {
   useEffect(() => {
     if (loggedIn) {
       connectSocket();
+      void registerPushToken();
       return () => disconnectSocket();
     }
   }, [loggedIn]);
@@ -299,6 +301,7 @@ function AppRoot() {
   }, []);
 
   function doLogout() {
+    void unregisterPushToken();
     logout();
     resetCartStore();
     clearCheckoutPrefetch();

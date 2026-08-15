@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import { Animated, Platform, StyleSheet, Text, View } from 'react-native';
 import { Circle, Path, Rect, Svg } from 'react-native-svg';
 import { theme } from '../theme';
+import { TrackingMapNative } from './TrackingMapNative';
 
 /** A lat/lng point. */
 export interface Geo {
@@ -39,7 +40,9 @@ export function TrackingMap({
   if (Platform.OS === 'web') {
     return <WebMap shop={shop} drop={drop} rider={rider} phase={phase} extraShops={extraShops} currentShopIndex={currentShopIndex} />;
   }
-  return <SchematicMap shop={shop} drop={drop} rider={rider} phase={phase} extraShops={extraShops} currentShopIndex={currentShopIndex} />;
+  // Native: real map tiles via react-native-maps. SchematicMap below stays as a
+  // safe (currently unused) SVG fallback.
+  return <TrackingMapNative shop={shop} drop={drop} rider={rider} phase={phase} extraShops={extraShops} currentShopIndex={currentShopIndex} />;
 }
 
 // ─── Leaflet iframe ───────────────────────────────────────────────────────────

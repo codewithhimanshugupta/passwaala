@@ -1,5 +1,5 @@
 /**
- * PassWaala shared enums.
+ * NearBaz shared enums.
  *
  * These enums are the single source of truth shared across the API and apps.
  *
@@ -71,7 +71,7 @@ export enum OrderStatus {
 }
 
 /**
- * How the customer pays the shop DIRECTLY (PassWaala is never in the money flow).
+ * How the customer pays the shop DIRECTLY (NearBaz is never in the money flow).
  * UPI_DIRECT = UPI deep-link / QR to the shop's VPA; COD = cash on delivery.
  */
 export enum PaymentMethod {
@@ -96,7 +96,7 @@ export enum OrderItemStatus {
 }
 
 /**
- * Ledger entry type (what PassWaala is owed / crediting). Credits
+ * Ledger entry type (what NearBaz is owed / crediting). Credits
  * (REFERRAL_CREDIT, REFUND_REVERSAL) are stored as signed-negative amounts.
  */
 export enum LedgerEntryType {
@@ -105,15 +105,15 @@ export enum LedgerEntryType {
   PLATFORM_FEE = 'PLATFORM_FEE',
   REFERRAL_CREDIT = 'REFERRAL_CREDIT',
   REFUND_REVERSAL = 'REFUND_REVERSAL',
-  /** A shopkeeper's dues payment to PassWaala — stored as a signed-negative amount. */
+  /** A shopkeeper's dues payment to NearBaz — stored as a signed-negative amount. */
   PAYMENT = 'PAYMENT',
-  /** PassWaala holds COD cash owed to the shop — signed-negative credit. */
+  /** NearBaz holds COD cash owed to the shop — signed-negative credit. */
   COD_REMITTANCE = 'COD_REMITTANCE',
   /** Shop owes the delivery fee it collected (passed to rider) — positive debit, no GST. */
   RIDER_DELIVERY_FEE = 'RIDER_DELIVERY_FEE',
   /** Informational discount line (total 0) — "you gave ₹X discount". */
   DISCOUNT_GIVEN = 'DISCOUNT_GIVEN',
-  /** PassWaala pays a shop its negative balance — positive debit toward 0. */
+  /** NearBaz pays a shop its negative balance — positive debit toward 0. */
   SHOP_PAYOUT = 'SHOP_PAYOUT',
 }
 

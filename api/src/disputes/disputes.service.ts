@@ -72,7 +72,7 @@ export class DisputesService {
 
     // Send an automatic welcome message from the system
     const total = (order.adjustedTotalPaise ?? order.originalTotalPaise) / 100;
-    const welcome = `👋 Hi! We've received your dispute for order #${orderId.slice(0, 8).toUpperCase()} (${order.shop?.name ?? 'your order'}, ₹${total.toFixed(2)}).\n\nA PassWaala admin will review and respond shortly. In the meantime, you can type your question below — our system may be able to help instantly.`;
+    const welcome = `👋 Hi! We've received your dispute for order #${orderId.slice(0, 8).toUpperCase()} (${order.shop?.name ?? 'your order'}, ₹${total.toFixed(2)}).\n\nA NearBaz admin will review and respond shortly. In the meantime, you can type your question below — our system may be able to help instantly.`;
     await this.prisma.disputeMessage.create({
       data: { disputeId: dispute.id, senderId: SYSTEM_ID, senderRole: 'SYSTEM', body: welcome },
     });

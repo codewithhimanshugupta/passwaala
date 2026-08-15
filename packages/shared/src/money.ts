@@ -7,7 +7,7 @@
  * value.
  */
 
-/** GST rate applied to everything PassWaala charges the shop (18%). */
+/** GST rate applied to everything NearBaz charges the shop (18%). */
 export const GST_RATE = 0.18;
 
 /** Number of paise in one rupee. */

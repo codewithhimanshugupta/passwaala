@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { theme } from '../theme';
+import { getCurrentCoords } from '../geo';
 
 export interface PickedLocation {
   lat: number;
@@ -229,24 +230,18 @@ function NativePicker({
   const [picked, setPicked] = useState<PickedLocation | null>(initial ?? null);
   const [error, setError] = useState<string | null>(null);
 
-  function useGps() {
-    const geo = typeof navigator !== 'undefined' && navigator.geolocation ? navigator.geolocation : null;
-    if (!geo) { setError('Location not available on this device.'); return; }
+  async function useGps() {
     setLocating(true);
     setError(null);
-    geo.getCurrentPosition(
-      (pos) => {
-        const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-        setPicked(loc);
-        onChange(loc);
-        setLocating(false);
-      },
-      () => {
-        setError('Could not get your location. Please allow location access.');
-        setLocating(false);
-      },
-      { enableHighAccuracy: true, timeout: 12000 },
-    );
+    const coords = await getCurrentCoords({ timeoutMs: 12000 });
+    if (coords) {
+      const loc = { lat: coords.lat, lng: coords.lng };
+      setPicked(loc);
+      onChange(loc);
+    } else {
+      setError('Could not get your location. Please allow location access.');
+    }
+    setLocating(false);
   }
 
   return (

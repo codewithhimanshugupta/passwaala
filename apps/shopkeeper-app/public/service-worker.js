@@ -1,5 +1,5 @@
 /**
- * PassWaala Partner (shopkeeper) service worker. Same strategy as customer-app:
+ * NearBaz Partner (shopkeeper) service worker. Same strategy as customer-app:
  *  - Static shell (JS/CSS/hashed assets) → cache-first
  *  - API / cross-origin → network-only (never cached)
  *  - Navigation → network, fallback to cached index.html (offline)
@@ -19,7 +19,7 @@ const PRECACHE_URLS = ['/', '/index.html', '/favicon.png', '/icons/icon-192.png'
 self.addEventListener('push', (event) => {
   let data = {};
   try { data = event.data ? event.data.json() : {}; } catch { data = {}; }
-  const title = data.title || 'PassWaala Partner';
+  const title = data.title || 'NearBaz Partner';
   const options = {
     body: data.body || 'You have a new update.',
     tag: data.tag || 'passwaala',

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Modal, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { api } from '../api';
 import { formatRupees, theme } from '../theme';
-import { Card, ErrorText, Screen } from '../ui';
+import { Button, Card, ErrorText, Screen } from '../ui';
 import { useLang } from '../i18n/LanguageContext';
 import type { RiderLedgerType, RiderMe } from '../types';
 
@@ -12,12 +12,14 @@ import type { RiderLedgerType, RiderMe } from '../types';
  * recent ledger history. Split out of the old crowded Home screen so earnings
  * live on their own tab.
  */
-export function EarningsScreen() {
+export function EarningsScreen({ onDeleted }: { onDeleted: () => void }) {
   const { t } = useLang();
   const [me, setMe] = useState<RiderMe | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -33,6 +35,18 @@ export function EarningsScreen() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  async function doDelete() {
+    setDeleting(true);
+    try {
+      await api.deleteAccount();
+      onDeleted();
+    } catch (e) {
+      setError((e as Error).message);
+      setDeleting(false);
+      setConfirmDelete(false);
+    }
+  }
 
   if (loading) {
     return <View style={styles.center}><ActivityIndicator color={theme.color.accent} size="large" /></View>;
@@ -97,6 +111,32 @@ export function EarningsScreen() {
       </Card>
 
       {error ? <ErrorText>{error}</ErrorText> : null}
+
+      {/* Account — in-app account deletion (Apple 5.1.1(v) / Google Play). */}
+      <Card>
+        <Text style={styles.statementTitle}>{t.account.title}</Text>
+        <Button
+          label={t.account.deleteAccount}
+          onPress={() => setConfirmDelete(true)}
+          variant="danger"
+        />
+      </Card>
+
+      <Modal
+        visible={confirmDelete}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setConfirmDelete(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>{t.account.deleteTitle}</Text>
+            <Text style={styles.modalBody}>{t.account.deleteBody}</Text>
+            <Button label={t.account.deleteConfirm} onPress={doDelete} variant="danger" busy={deleting} />
+            <Button label={t.common.cancel} onPress={() => setConfirmDelete(false)} variant="ghost" />
+          </View>
+        </View>
+      </Modal>
     </Screen>
   );
 }
@@ -107,7 +147,7 @@ function ledgerLabel(type: RiderLedgerType): string {
     case 'DELIVERY_EARNING':
       return 'Delivery earning';
     case 'EARNING_PAYOUT':
-      return 'Paid out by PassWaala';
+      return 'Paid out by NearBaz';
     case 'COD_COLLECTED':
       return 'COD collected';
     case 'COD_DEPOSIT':
@@ -168,4 +208,23 @@ const styles = StyleSheet.create({
   ledgerDate: { fontSize: theme.font.tiny, color: theme.color.textFaint },
   ledgerAmount: { fontSize: theme.font.small, fontWeight: '800', color: theme.color.text },
   ledgerAmountEarning: { color: theme.color.success },
+
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: theme.color.overlay,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: theme.space.xl,
+  },
+  modalCard: {
+    backgroundColor: theme.color.surface,
+    borderRadius: theme.radius.lg,
+    padding: theme.space.xl,
+    gap: theme.space.sm,
+    width: '100%',
+    maxWidth: 360,
+    alignItems: 'stretch',
+  },
+  modalTitle: { fontSize: theme.font.h2, fontWeight: '800', color: theme.color.text, textAlign: 'center' },
+  modalBody: { fontSize: theme.font.body, color: theme.color.textMuted, textAlign: 'center', marginBottom: theme.space.sm },
 });

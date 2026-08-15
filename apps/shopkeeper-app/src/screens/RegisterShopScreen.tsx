@@ -275,8 +275,8 @@ export function RegisterShopScreen({ onRegistered }: { onRegistered: (shop: MySh
             <LocationPicker initial={coords ? { lat: coords.latitude, lng: coords.longitude } : undefined} onChange={handleLocationPick} />
             <Field label={t.register.city} placeholder={t.register.cityPlaceholder} value={city} onChangeText={setCity} hint={t.register.cityHint} />
             {cityTrimmed.length > 0 && serviceable !== null && (cityNotServiceable || serviceable.length === 0) ? (
-              <Banner tone="danger" title={`PassWaala is not available in ${cityTrimmed} yet`}
-                message={serviceable.length > 0 ? `We currently operate in: ${serviceable.join(', ')}.` : 'PassWaala hasn\'t launched in your city yet.'} />
+              <Banner tone="danger" title={`NearBaz is not available in ${cityTrimmed} yet`}
+                message={serviceable.length > 0 ? `We currently operate in: ${serviceable.join(', ')}.` : 'NearBaz hasn\'t launched in your city yet.'} />
             ) : cityTrimmed && serviceable !== null && serviceable.length > 0 && !cityNotServiceable ? (
               <Banner tone="success" title={`${cityTrimmed} is a serviceable city`} message="You can proceed to the next step." />
             ) : null}
@@ -304,7 +304,7 @@ export function RegisterShopScreen({ onRegistered }: { onRegistered: (shop: MySh
             </View>
             <View style={styles.toggleRow}>
               <View style={styles.flex}>
-                <Text style={styles.toggleLabel}>PassWaala Rider Delivery</Text>
+                <Text style={styles.toggleLabel}>NearBaz Rider Delivery</Text>
                 <Text style={styles.toggleHint}>Use platform riders — fee set by distance</Text>
               </View>
               <Switch value={platformDeliveryEnabled} onValueChange={setPlatformDeliveryEnabled} trackColor={{ false: theme.color.borderStrong, true: theme.color.primary }} thumbColor={theme.color.white} />

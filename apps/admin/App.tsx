@@ -23,7 +23,7 @@ import { LanguagePicker } from './src/components/LanguagePicker';
 import { NavIcon, type NavIconName } from './src/NavIcon';
 
 /**
- * PassWaala Admin root. Flow: OTP login → an authenticated shell with a fixed
+ * NearBaz Admin root. Flow: OTP login → an authenticated shell with a fixed
  * sidebar (Dashboard, Approvals, Settlements, + Admins for OWNER) + Logout. The
  * session token is persisted (src/api.ts) so a refresh/restart keeps the admin
  * signed in until Logout.
