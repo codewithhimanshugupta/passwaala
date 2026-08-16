@@ -1,0 +1,56 @@
+# NearBaz API — Render blueprint.
+# Stand up the API service reproducibly (New + → Blueprint → this repo), or use
+# it as the reference for a manual "New Web Service". Secrets are sync:false —
+# copy their VALUES from the old service's Environment tab into the new one.
+services:
+  - type: web
+    name: nearbaz
+    runtime: node
+    region: oregon          # match the existing service's region (gcp-us-west1 ≈ oregon)
+    plan: starter           # set to match your current service's plan
+    branch: main
+    autoDeploy: true
+    healthCheckPath: /health
+    buildCommand: npm run render:build
+    startCommand: npm run render:start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # --- Database (Supabase) — REQUIRED to boot ---
+      - key: DATABASE_URL          # pooler (PgBouncer, :6543, ?pgbouncer=true)
+        sync: false
+      - key: DIRECT_URL            # direct (:5432) for migrations
+        sync: false
+      # --- Auth — REQUIRED ---
+      - key: JWT_SECRET
+        sync: false
+      - key: JWT_EXPIRES
+        sync: false
+      - key: AUTH_ENC_KEY          # OTP-at-rest encryption (64 hex chars)
+        sync: false
+      # --- OTP / SMS — REQUIRED in production (signup/verify) ---
+      - key: MSG91_AUTH_KEY
+        sync: false
+      # --- Supabase Storage (image uploads) ---
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_BUCKET
+        sync: false
+      # --- Web / native push (optional; no-op if unset) ---
+      - key: VAPID_PUBLIC
+        sync: false
+      - key: VAPID_PRIVATE
+        sync: false
+      - key: VAPID_SUBJECT
+        sync: false
+      - key: EXPO_ACCESS_TOKEN
+        sync: false
+      # --- Optional overrides ---
+      - key: CORS_ORIGINS
+        sync: false
+      - key: PUBLIC_URL
+        sync: false
