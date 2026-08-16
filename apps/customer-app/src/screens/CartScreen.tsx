@@ -362,6 +362,14 @@ export function CartScreen({
         }
       }
     }
+    // Guard: never send a placement without a shop or lines. JSON.stringify drops
+    // an `undefined` shopId, which the server reads as the legacy server-cart path
+    // and rejects as "Cart is empty" — a confusing error for what is really a
+    // malformed local cart. Surface a clear message and stop here instead.
+    if (!localCart.shopId || localCart.lines.length === 0) {
+      setError(t.cart.emptyTitle);
+      return;
+    }
     setPlacing(true);
     setPlacingStep(0);
     setError(null);

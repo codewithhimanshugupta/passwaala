@@ -30,7 +30,32 @@ interface LocalCart {
   lines: LocalLine[];
 }
 
-const EMPTY: LocalCart = { shopId: null, shopName: null, lines: [] };
+/**
+ * A FRESH empty cart every call — its own `lines` array, never shared.
+ *
+ * Critical: do NOT reuse a single `const EMPTY` and spread it (`{ ...EMPTY }`).
+ * Object spread copies `lines` BY REFERENCE, so `local.lines` would alias the
+ * shared template; a later `local.lines.push(...)` then mutates the template
+ * itself. That corruption resurrects "ghost" lines on the next reset (a deleted
+ * product reappears, "−1" seems not to work) and can leave a cart with lines but
+ * a null shopId — which the server rejects at checkout as "Cart is empty".
+ */
+function emptyCart(): LocalCart {
+  return { shopId: null, shopName: null, lines: [] };
+}
+
+/**
+ * Guard a (possibly persisted / possibly corrupted) cart into a consistent
+ * shape: `lines` is always an array, and a cart with no shopId holds no lines.
+ * This heals carts left corrupted by the old shared-EMPTY aliasing bug so a
+ * ghost line can't survive a page reload.
+ */
+function sanitize(cart: Partial<LocalCart> | null | undefined): LocalCart {
+  if (!cart || !cart.shopId || !Array.isArray(cart.lines) || cart.lines.length === 0) {
+    return emptyCart();
+  }
+  return { shopId: cart.shopId, shopName: cart.shopName ?? null, lines: cart.lines };
+}
 
 /**
  * Synchronous startup read from the localStorage MIRROR (idbSet keeps it in
@@ -41,12 +66,12 @@ function load(): LocalCart {
   try {
     if (typeof localStorage !== 'undefined') {
       const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) return JSON.parse(raw) as LocalCart;
+      if (raw) return sanitize(JSON.parse(raw) as Partial<LocalCart>);
     }
   } catch {
     /* ignore */
   }
-  return { ...EMPTY };
+  return emptyCart();
 }
 
 let local: LocalCart = load();
@@ -82,7 +107,7 @@ async function hydrateFromIdb(): Promise<void> {
   try {
     const stored = await idbGet<LocalCart>(STORAGE_KEY);
     if (!didMutate && stored && stored.lines && stored.lines.length > 0 && local.lines.length === 0) {
-      local = stored;
+      local = sanitize(stored);
       version += 1;
       cached = snapshot();
       for (const l of listeners) l();
@@ -126,7 +151,7 @@ export async function setQty(productId: string, qty: number): Promise<void> {
   // Decrementing the last item empties the cart entirely — reset local state AND
   // clear BOTH server cart and IndexedDB so a page reload never restores the old items.
   if (local.lines.length === 0) {
-    local = { ...EMPTY };
+    local = emptyCart();
     // Clear IDB + the localStorage mirror immediately so hydrateFromIdb()/the
     // sync startup read on the next load finds nothing, and drop the server cart.
     void idbSet(STORAGE_KEY, null);
@@ -150,7 +175,7 @@ export async function decOne(productId: string): Promise<void> {
 
 /** Clear the whole cart, then optionally start fresh with a product. */
 export async function clearCart(thenAdd?: { productId: string; shopId: string; shopName?: string; name: string; unitPricePaise: number; imageUrl?: string | null }): Promise<void> {
-  local = { ...EMPTY, lines: [] };
+  local = emptyCart();
   if (thenAdd) {
     local.shopId = thenAdd.shopId;
     local.shopName = thenAdd.shopName ?? null;
@@ -205,7 +230,7 @@ export async function loadFromServer(): Promise<void> {
       items?: Array<{ productId: string; name: string; unitPricePaise: number; qty: number }>;
     };
     if (cart.empty || !cart.shop || !cart.items?.length) {
-      local = { ...EMPTY, lines: [] };
+      local = emptyCart();
     } else {
       local = {
         shopId: cart.shop.id,
@@ -260,7 +285,7 @@ export function useCart(): CartSnapshot {
 
 /** Reset local cart (e.g. on logout). */
 export function resetCartStore(): void {
-  local = { ...EMPTY, lines: [] };
+  local = emptyCart();
   // Also drop the SERVER cart. The explicit-items placement path never consumes
   // the server cart, so a stale server cart would otherwise resurface via
   // reorder/loadFromServer and show items from an already-placed order.
@@ -305,7 +330,7 @@ export async function reconcileWithCatalog(): Promise<{ removed: string[]; repri
   if (removed.length === 0 && !repriced) return { removed: [], repriced: false };
   local.lines = kept;
   if (local.lines.length === 0) {
-    local = { ...EMPTY };
+    local = emptyCart();
     void idbSet(STORAGE_KEY, null);
     if (typeof localStorage !== 'undefined') localStorage.removeItem(STORAGE_KEY);
     void api.clearCart().catch(() => undefined);
