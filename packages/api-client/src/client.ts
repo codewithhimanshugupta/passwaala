@@ -1227,19 +1227,21 @@ export class PasswaalaApiClient {
     const text = await res.text();
     const parsed = text ? JSON.parse(text) : undefined;
     if (!res.ok) {
-      // 401 = expired/invalid session. Clear the token and notify the app so it
-      // can route to login, then throw a typed AuthExpiredError. The @Public
-      // auth routes (login) also 401 on a bad OTP in prod — but the dev bypass
-      // means login succeeds; a 401 here always means an expired bearer token.
-      if (res.status === 401) {
-        this.setToken(undefined);
-        this.onUnauthorized?.();
-        throw new AuthExpiredError();
-      }
       const message =
         (parsed && typeof parsed === 'object' && 'message' in parsed
           ? String((parsed as { message: unknown }).message)
           : res.statusText) || 'Request failed';
+      // A 401 on an /auth/* attempt (login, signup, verify-otp, reset-credentials)
+      // is NOT an expired session — it's a failed credential/OTP/phone check. Surface
+      // the REAL server message ("No account found", "Incorrect PIN", "Phone
+      // verification failed") instead of the generic "session expired", and never
+      // clear a token we didn't send. Only a 401 on an authenticated endpoint means
+      // the bearer token expired → clear it, notify the app to route to login.
+      if (res.status === 401 && !path.startsWith('/auth/')) {
+        this.setToken(undefined);
+        this.onUnauthorized?.();
+        throw new AuthExpiredError();
+      }
       throw new ApiError(res.status, message, parsed);
     }
     return parsed as T;

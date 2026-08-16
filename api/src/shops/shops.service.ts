@@ -513,6 +513,11 @@ export class ShopsService {
            LIMIT 1
         ) spon ON TRUE
        WHERE s."deletedAt" IS NULL
+         -- Always reference $9 (topCategories) so Postgres can infer its type.
+         -- The sort=rating ORDER BY branch omits the personalization term (the
+         -- only other place $9 appears), and an unreferenced parameter fails at
+         -- prepare time with 42P18 "could not determine data type of parameter".
+         AND ($9::text[] IS NOT NULL OR TRUE)
          AND ($10::text IS NULL OR s.city ILIKE $10)
          AND s."verificationStatus" = 'APPROVED'
          AND s."isOpen" = TRUE
