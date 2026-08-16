@@ -1,33 +1,42 @@
 import { randomUUID } from 'crypto';
 import { extname } from 'path';
-import { mkdirSync } from 'fs';
+import { mkdirSync, writeFileSync } from 'fs';
 import {
   BadRequestException,
   Controller,
+  InternalServerErrorException,
   Post,
   Query,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { diskStorage } from 'multer';
+import { memoryStorage } from 'multer';
 import { UserRole } from '@passwaala/shared';
 
-/** Minimal shape of an uploaded file (subset of Express.Multer.File we use). */
+/** Minimal shape of an in-memory uploaded file (subset of Express.Multer.File). */
 interface UploadedFileShape {
-  filename: string; // may include a subfolder prefix, e.g. "shops/<id>/x.jpg"
+  buffer: Buffer;
   originalname: string;
   mimetype: string;
   size: number;
 }
 import { Roles } from '../common/roles.decorator';
 
-/** Absolute path to the local uploads dir (configurable via UPLOADS_DIR). */
+/** Absolute path to the local uploads dir (dev fallback only; configurable). */
 export const UPLOADS_DIR = process.env.UPLOADS_DIR ?? `${process.cwd()}/uploads`;
+
+/** Supabase Storage config (prod). When SUPABASE_URL is unset we fall back to
+ *  writing to the local disk (dev). */
+const SUPABASE_URL = (process.env.SUPABASE_URL ?? '').replace(/\/+$/, '');
+const SUPABASE_KEY =
+  process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SUPABASE_KEY ?? '';
+const SUPABASE_BUCKET = process.env.SUPABASE_BUCKET ?? 'uploads';
+const USE_SUPABASE = Boolean(SUPABASE_URL && SUPABASE_KEY);
 
 const ALLOWED = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif']);
 
-/** Upload categories → top-level folder under uploads/. Anything else → "misc". */
+/** Upload categories → top-level folder under the bucket. Anything else → "misc". */
 const CATEGORY_DIRS: Record<string, string> = {
   shop: 'shops',
   product: 'products',
@@ -37,7 +46,7 @@ const CATEGORY_DIRS: Record<string, string> = {
   misc: 'misc',
 };
 
-/** Sanitise an id/segment so it can't escape the uploads dir (no slashes/dots). */
+/** Sanitise an id/segment so it can't escape the folder (no slashes/dots). */
 function safeSegment(v: string | undefined): string {
   if (!v) return '';
   return v.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64);
@@ -47,7 +56,6 @@ function safeSegment(v: string | undefined): string {
  * Resolve the relative subfolder for an upload from ?type=&scopeId=.
  *   type=shop    scopeId=<shopId>  → shops/<shopId>
  *   type=product scopeId=<shopId>  → products/<shopId>
- *   type=kyc     scopeId=<shopId>  → kyc/<shopId>
  * Missing/unknown type → misc. Missing scopeId → just the category folder.
  */
 function subfolderFor(type?: string, scopeId?: string): string {
@@ -57,11 +65,40 @@ function subfolderFor(type?: string, scopeId?: string): string {
 }
 
 /**
- * UploadController — local media upload, organised into per-category, per-shop
- * folders (shops/<id>, products/<id>, kyc/<id>) so files are easy to track
- * instead of one flat pile. Local ./uploads in dev behind a swappable interface;
- * R2/CDN later (same URL contract). Random filename avoids collisions/traversal;
- * only image extensions, capped at 5 MB.
+ * Upload a buffer to Supabase Storage via its REST API (no SDK dependency —
+ * global fetch). The bucket must be public so the returned URL resolves without
+ * a signed token. Returns the public URL.
+ */
+async function uploadToSupabase(
+  relPath: string,
+  buffer: Buffer,
+  mime: string,
+): Promise<string> {
+  const endpoint = `${SUPABASE_URL}/storage/v1/object/${SUPABASE_BUCKET}/${relPath}`;
+  const res = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${SUPABASE_KEY}`,
+      apikey: SUPABASE_KEY,
+      'Content-Type': mime || 'application/octet-stream',
+      'x-upsert': 'true',
+      'cache-control': '31536000',
+    },
+    body: new Uint8Array(buffer),
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(`Supabase upload failed (${res.status}): ${detail.slice(0, 300)}`);
+  }
+  return `${SUPABASE_URL}/storage/v1/object/public/${SUPABASE_BUCKET}/${relPath}`;
+}
+
+/**
+ * UploadController — image upload to durable object storage. In prod, files go
+ * to Supabase Storage (SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY set) and the
+ * returned URL is a public CDN URL. In dev (no Supabase env) it falls back to
+ * the local ./uploads dir served by ServeStatic at /uploads/. Random filename
+ * avoids collisions/traversal; only image extensions, capped at 5 MB.
  */
 @Controller('uploads')
 export class UploadController {
@@ -76,26 +113,9 @@ export class UploadController {
   @Post('image')
   @UseInterceptors(
     FileInterceptor('file', {
-      storage: diskStorage({
-        destination: (req, _file, cb) => {
-          const q = (req.query ?? {}) as { type?: string; scopeId?: string };
-          const rel = subfolderFor(q.type, q.scopeId);
-          const dir = `${UPLOADS_DIR}/${rel}`;
-          try {
-            mkdirSync(dir, { recursive: true });
-            cb(null, dir);
-          } catch (e) {
-            cb(e as Error, dir);
-          }
-        },
-        filename: (req, file, cb) => {
-          const ext = extname(file.originalname).toLowerCase();
-          const q = (req.query ?? {}) as { type?: string; scopeId?: string };
-          // Store the relative path in `filename` so the URL keeps the subfolder.
-          const rel = subfolderFor(q.type, q.scopeId);
-          cb(null, `${rel}/${randomUUID()}${ext}`);
-        },
-      }),
+      // Buffer in memory so we can stream the bytes to object storage. Images
+      // are capped at 5 MB so this is safe.
+      storage: memoryStorage(),
       limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB
       fileFilter: (_req, file, cb) => {
         const ext = extname(file.originalname).toLowerCase();
@@ -107,18 +127,39 @@ export class UploadController {
       },
     }),
   )
-  uploadImage(
+  async uploadImage(
     @UploadedFile() file?: UploadedFileShape,
-    @Query('type') _type?: string,
-    @Query('scopeId') _scopeId?: string,
-  ): { url: string; filename: string } {
+    @Query('type') type?: string,
+    @Query('scopeId') scopeId?: string,
+  ): Promise<{ url: string; filename: string }> {
     if (!file) {
       throw new BadRequestException('No file uploaded (field name must be "file")');
     }
-    // multer's diskStorage put the file at UPLOADS_DIR but `filename` may hold a
-    // subfolder path; the destination fn already created that folder. The public
-    // URL keeps the subfolder so it resolves via ServeStaticModule at /uploads/.
+    const ext = extname(file.originalname).toLowerCase();
+    const rel = `${subfolderFor(type, scopeId)}/${randomUUID()}${ext}`;
+
+    if (USE_SUPABASE) {
+      try {
+        const url = await uploadToSupabase(rel, file.buffer, file.mimetype);
+        return { url, filename: rel };
+      } catch (e) {
+        throw new InternalServerErrorException(
+          e instanceof Error ? e.message : 'Upload failed',
+        );
+      }
+    }
+
+    // Dev fallback: write to the local uploads dir, served at /uploads/.
+    try {
+      const dir = `${UPLOADS_DIR}/${subfolderFor(type, scopeId)}`;
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(`${UPLOADS_DIR}/${rel}`, file.buffer);
+    } catch (e) {
+      throw new InternalServerErrorException(
+        e instanceof Error ? e.message : 'Upload failed',
+      );
+    }
     const base = process.env.PUBLIC_URL ?? `http://localhost:${process.env.PORT ?? 3000}`;
-    return { url: `${base}/uploads/${file.filename}`, filename: file.filename };
+    return { url: `${base}/uploads/${rel}`, filename: rel };
   }
 }
