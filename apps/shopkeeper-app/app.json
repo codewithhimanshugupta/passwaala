@@ -3,7 +3,7 @@
     "name": "NearBaz Partner",
     "slug": "passwala-shopkeeper",
     "scheme": "passwalapartner",
-    "version": "0.1.0",
+    "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "icon": "./assets/icon.png",

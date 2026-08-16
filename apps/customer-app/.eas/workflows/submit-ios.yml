@@ -1,0 +1,24 @@
+name: Submit iOS (NearBaz customer)
+
+# Manual trigger only — run from apps/customer-app with:
+#   eas workflow:run submit-ios.yml
+# To build + submit automatically on every push to main, uncomment the block
+# below. WARNING: this consumes EAS build minutes on every push to main.
+# on:
+#   push:
+#     branches: ['main']
+
+jobs:
+  build_ios:
+    name: Build iOS app
+    type: build
+    params:
+      platform: ios
+      profile: production
+
+  submit_ios:
+    name: Submit to TestFlight
+    needs: [build_ios]
+    type: testflight
+    params:
+      build_id: ${{ needs.build_ios.outputs.build_id }}
