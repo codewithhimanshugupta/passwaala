@@ -7,6 +7,7 @@ import { ReferralsModule } from '../referrals/referrals.module';
 import { DispatchModule } from '../dispatch/dispatch.module';
 import { DisputesModule } from '../disputes/disputes.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { CouponsModule } from '../coupons/coupons.module';
 
 /**
  * OrdersModule — order placement + lifecycle transitions.
@@ -17,7 +18,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
  * (auto-open a review dispute when an order is cancelled / refund-pending).
  */
 @Module({
-  imports: [RealtimeModule, LedgerModule, ReferralsModule, DispatchModule, DisputesModule, NotificationsModule],
+  imports: [RealtimeModule, LedgerModule, ReferralsModule, DispatchModule, DisputesModule, NotificationsModule, CouponsModule],
   controllers: [OrdersController],
   providers: [OrdersService],
   exports: [OrdersService],

@@ -45,6 +45,13 @@ export interface CreateOrder {
   redeemCoins?: number;
   /** Optional offer template ID the customer wants to apply at checkout. */
   offerId?: string;
+  /**
+   * Optional coupon code the customer wants to apply at checkout. Mutually
+   * exclusive with offerId and with any second coupon — a single order carries at
+   * most ONE discount source (enforced server-side). Resolves to either a
+   * shop-funded or a NearBaz-funded (platform) coupon.
+   */
+  couponCode?: string;
 }
 
 /**

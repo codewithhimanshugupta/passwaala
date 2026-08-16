@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { LoginScreen } from './src/screens/LoginScreen';
 import { DashboardScreen } from './src/screens/DashboardScreen';
@@ -160,7 +160,11 @@ function Sidebar({
         </View>
       </View>
 
-      <View style={styles.navGroup}>
+      <ScrollView
+        style={styles.navScroll}
+        contentContainerStyle={styles.navGroup}
+        showsVerticalScrollIndicator={false}
+      >
         <Text style={styles.navGroupLabel}>MAIN</Text>
         <NavItem
           icon="dashboard"
@@ -261,9 +265,7 @@ function Sidebar({
             />
           </>
         ) : null}
-      </View>
-
-      <View style={styles.spacer} />
+      </ScrollView>
 
       <View style={styles.sidebarFooter}>
         <LanguagePicker label={t.common.language} />
@@ -330,7 +332,8 @@ const styles = StyleSheet.create({
   logoText: { color: '#fff', fontWeight: '800', fontSize: theme.font.body },
   brand: { color: '#fff', fontWeight: '800', fontSize: theme.font.h3 },
   brandSub: { color: theme.color.sidebarText, fontSize: theme.font.tiny },
-  navGroup: { gap: 2 },
+  navScroll: { flex: 1 },
+  navGroup: { gap: 2, paddingBottom: theme.space.md },
   navGroupLabel: {
     fontSize: theme.font.tiny,
     fontWeight: '700',

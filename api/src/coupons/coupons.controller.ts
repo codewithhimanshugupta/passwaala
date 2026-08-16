@@ -46,6 +46,20 @@ export class AdminCouponsController {
     return this.coupons.list(user.sub, user.role, all === 'true');
   }
 
+  /** Serviceable cities (id + name) for the coupon city multiselect. */
+  @Roles(UserRole.ADMIN, UserRole.OWNER)
+  @Get('cities')
+  cities() {
+    return this.coupons.listCities();
+  }
+
+  /** NearBaz-funded coupon spend (platform marketing cost) + breakdown. */
+  @Roles(UserRole.ADMIN, UserRole.OWNER)
+  @Get('platform-spend')
+  platformSpend(@CurrentUser() user: AuthPayload) {
+    return this.coupons.platformCouponSpend(user.sub, user.role);
+  }
+
   @Roles(UserRole.ADMIN, UserRole.OWNER)
   @Patch(':id')
   update(@Param('id') id: string, @Body() dto: Partial<CreateCouponDto>) {

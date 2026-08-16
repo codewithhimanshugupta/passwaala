@@ -30,11 +30,16 @@ interface Coupon {
   expiresAt: string | null;
   active: boolean;
   shopIds: string[];
+  cityIds: string[];
+  fundedBy: string; // 'SHOP' | 'NEARBAZ'
   createdAt: string;
   _count?: { usages: number };
 }
 
+interface CityOption { id: string; name: string; enabled: boolean }
+
 type CouponType = 'PERCENT_OFF' | 'FLAT_OFF' | 'FREE_DELIVERY';
+type FundedBy = 'SHOP' | 'NEARBAZ';
 
 const TYPE_LABELS: Record<CouponType, string> = {
   PERCENT_OFF: 'Percentage',
@@ -67,11 +72,13 @@ function discountLabel(c: Coupon): string {
 
 function CouponForm({
   initial,
+  cities,
   onSave,
   onCancel,
   saving,
 }: {
   initial?: Partial<Coupon>;
+  cities: CityOption[];
   onSave: (data: Record<string, unknown>) => void;
   onCancel: () => void;
   saving: boolean;
@@ -86,6 +93,14 @@ function CouponForm({
   const [maxUsesPerUser, setMaxUsesPerUser] = useState(initial?.maxUsesPerUser != null ? String(initial.maxUsesPerUser) : '');
   const [expiresAt, setExpiresAt] = useState(initial?.expiresAt ? initial.expiresAt.slice(0, 10) : '');
   const [active, setActive] = useState(initial?.active ?? true);
+  const [fundedBy, setFundedBy] = useState<FundedBy>((initial?.fundedBy as FundedBy) ?? 'SHOP');
+  const [cityIds, setCityIds] = useState<string[]>(initial?.cityIds ?? []);
+
+  const nearbaz = fundedBy === 'NEARBAZ';
+
+  function toggleCity(id: string) {
+    setCityIds(prev => (prev.includes(id) ? prev.filter(c => c !== id) : [...prev, id]));
+  }
 
   function handleSave() {
     const v = parseFloat(value) || 0;
@@ -100,12 +115,53 @@ function CouponForm({
       maxUsesPerUser: maxUsesPerUser.trim() ? parseInt(maxUsesPerUser) : null,
       expiresAt: expiresAt ? new Date(expiresAt).toISOString() : null,
       active,
+      fundedBy,
+      // NearBaz-funded coupons are city-targeted with NO shop involvement.
+      cityIds: nearbaz ? cityIds : [],
     });
   }
+
+  // NearBaz-funded coupons require at least one city selected.
+  const cityMissing = nearbaz && cityIds.length === 0;
 
   return (
     <ScrollView style={f.root} contentContainerStyle={f.body}>
       <Text style={f.heading}>{initial?.id ? 'Edit Coupon' : 'Create Discount Coupon'}</Text>
+
+      <Text style={f.label}>Funded By *</Text>
+      <View style={f.typePicker}>
+        {(['SHOP', 'NEARBAZ'] as FundedBy[]).map(fb => (
+          <Pressable key={fb} style={[f.typeBtn, fundedBy === fb && f.typeBtnActive]} onPress={() => setFundedBy(fb)}>
+            <Text style={[f.typeBtnText, fundedBy === fb && f.typeBtnTextActive]}>
+              {fb === 'SHOP' ? 'Shop (shop pays)' : 'NearBaz (platform pays)'}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+      <Text style={f.hint}>
+        {nearbaz
+          ? 'NearBaz absorbs this discount as a marketing cost. No shop is charged; it applies city-wide to the selected cities.'
+          : 'The shop bears this discount (deducted from its earnings), like an offer.'}
+      </Text>
+
+      {nearbaz ? (
+        <>
+          <Text style={f.label}>Target Cities * (applies to all shops in these cities)</Text>
+          <View style={f.cityWrap}>
+            {cities.length === 0 ? (
+              <Text style={f.hint}>No serviceable cities found.</Text>
+            ) : cities.map(c => {
+              const on = cityIds.includes(c.id);
+              return (
+                <Pressable key={c.id} style={[f.cityChip, on && f.cityChipOn]} onPress={() => toggleCity(c.id)}>
+                  <Text style={[f.cityChipText, on && f.cityChipTextOn]}>{on ? '✓ ' : ''}{c.name}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          {cityMissing ? <Text style={f.errHint}>Select at least one city.</Text> : null}
+        </>
+      ) : null}
 
       <View style={f.row2}>
         <View style={f.col}>
@@ -190,8 +246,8 @@ function CouponForm({
         <Pressable style={f.cancelBtn} onPress={onCancel}>
           <Text style={f.cancelBtnText}>Cancel</Text>
         </Pressable>
-        <Pressable style={[f.saveBtn, (saving || !code.trim()) && f.saveBtnDim]}
-          onPress={handleSave} disabled={saving || !code.trim()}>
+        <Pressable style={[f.saveBtn, (saving || !code.trim() || cityMissing) && f.saveBtnDim]}
+          onPress={handleSave} disabled={saving || !code.trim() || cityMissing}>
           {saving ? <ActivityIndicator color="#fff" /> : <Text style={f.saveBtnText}>{initial?.id ? 'Save Changes' : 'Create Coupon'}</Text>}
         </Pressable>
       </View>
@@ -205,6 +261,8 @@ function CouponForm({
 
 export function CouponsScreen() {
   const [coupons, setCoupons] = useState<Coupon[]>([]);
+  const [cities, setCities] = useState<CityOption[]>([]);
+  const [spend, setSpend] = useState<{ totalSpendPaise: number; redemptions: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [forbidden, setForbidden] = useState(false);
@@ -218,8 +276,14 @@ export function CouponsScreen() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const list = (await api.adminListCoupons(showAll)) as Coupon[];
+      const [list, cityList, spendData] = await Promise.all([
+        api.adminListCoupons(showAll) as Promise<Coupon[]>,
+        api.adminCouponCities().catch(() => [] as CityOption[]),
+        api.adminPlatformCouponSpend().catch(() => null),
+      ]);
       setCoupons(list);
+      setCities(cityList);
+      setSpend(spendData);
     } catch (e) {
       if (e instanceof ApiError && e.status === 403) setForbidden(true);
     } finally { setLoading(false); }
@@ -286,11 +350,11 @@ export function CouponsScreen() {
   );
 
   if (creating) return (
-    <CouponForm saving={saving} onCancel={() => setCreating(false)} onSave={handleCreate} />
+    <CouponForm cities={cities} saving={saving} onCancel={() => setCreating(false)} onSave={handleCreate} />
   );
 
   if (editing) return (
-    <CouponForm initial={editing} saving={saving}
+    <CouponForm initial={editing} cities={cities} saving={saving}
       onCancel={() => setEditing(null)}
       onSave={(data) => handleUpdate(editing.id, data)} />
   );
@@ -322,15 +386,37 @@ export function CouponsScreen() {
 
         {loading ? <ActivityIndicator color={theme.color.accent} style={{ margin: 32 }} /> : null}
 
-        {coupons.map(c => (
+        {spend && spend.redemptions > 0 ? (
+          <View style={s.spendCard}>
+            <Text style={s.spendLabel}>NEARBAZ-FUNDED COUPON SPEND</Text>
+            <Text style={s.spendValue}>₹{(spend.totalSpendPaise / 100).toFixed(2)}</Text>
+            <Text style={s.spendSub}>Platform marketing cost · {spend.redemptions} redemption{spend.redemptions !== 1 ? 's' : ''} (not billed to shops)</Text>
+          </View>
+        ) : null}
+
+        {coupons.map(c => {
+          const nearbaz = c.fundedBy === 'NEARBAZ';
+          const cityNames = c.cityIds
+            .map(id => cities.find(ct => ct.id === id)?.name)
+            .filter(Boolean)
+            .join(', ');
+          return (
           <View key={c.id} style={[s.card, !c.active && s.cardInactive]}>
             <View style={s.cardHead}>
               <View style={[s.stub, { backgroundColor: TYPE_COLORS[c.type] ?? '#6B7280' }]}>
                 <Text style={s.stubText}>{c.code}</Text>
               </View>
               <View style={s.cardMid}>
-                <Text style={s.cardDiscount}>{discountLabel(c)}</Text>
+                <View style={s.cardTitleRow}>
+                  <Text style={s.cardDiscount}>{discountLabel(c)}</Text>
+                  <View style={[s.fundBadge, nearbaz ? s.fundBadgeNearbaz : s.fundBadgeShop]}>
+                    <Text style={[s.fundBadgeText, nearbaz ? s.fundBadgeTextNearbaz : s.fundBadgeTextShop]}>
+                      {nearbaz ? 'NearBaz-funded' : 'Shop-funded'}
+                    </Text>
+                  </View>
+                </View>
                 {c.description ? <Text style={s.cardDesc} numberOfLines={1}>{c.description}</Text> : null}
+                {nearbaz && cityNames ? <Text style={s.cardDesc} numberOfLines={1}>Cities: {cityNames}</Text> : null}
                 <Text style={s.cardMeta}>
                   {c.minOrderPaise > 0 ? `Min ₹${c.minOrderPaise / 100}  ·  ` : ''}
                   Used {c._count?.usages ?? c.usedCount}×
@@ -350,7 +436,8 @@ export function CouponsScreen() {
               </View>
             </View>
           </View>
-        ))}
+          );
+        })}
 
         {!loading && coupons.length === 0 ? (
           <View style={s.empty}>
@@ -390,6 +477,13 @@ const f = StyleSheet.create({
   typeBtnActive: { backgroundColor: theme.color.primary, borderColor: theme.color.primary },
   typeBtnText: { fontSize: theme.font.tiny, fontWeight: '700', color: theme.color.textMuted },
   typeBtnTextActive: { color: '#fff' },
+  hint: { fontSize: theme.font.tiny, color: theme.color.textMuted, marginTop: -theme.space.xs },
+  errHint: { fontSize: theme.font.tiny, color: theme.color.critical, fontWeight: '600' },
+  cityWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: theme.space.sm },
+  cityChip: { paddingVertical: theme.space.sm, paddingHorizontal: theme.space.md, borderRadius: theme.radius.md, borderWidth: 1, borderColor: theme.color.border, backgroundColor: theme.color.surface },
+  cityChipOn: { backgroundColor: theme.color.primary, borderColor: theme.color.primary },
+  cityChipText: { fontSize: theme.font.small, fontWeight: '600', color: theme.color.textMuted },
+  cityChipTextOn: { color: '#fff' },
   activeRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   actions: { flexDirection: 'row', justifyContent: 'flex-end', gap: theme.space.md, marginTop: theme.space.lg },
   cancelBtn: { paddingVertical: theme.space.md, paddingHorizontal: theme.space.xl, borderRadius: theme.radius.md, borderWidth: 1, borderColor: theme.color.border },
@@ -422,7 +516,18 @@ const s = StyleSheet.create({
   stub: { width: 64, paddingVertical: theme.space.lg, alignItems: 'center', justifyContent: 'center' },
   stubText: { color: '#fff', fontWeight: '900', fontSize: 11, textAlign: 'center' },
   cardMid: { flex: 1, padding: theme.space.md, gap: 3 },
+  cardTitleRow: { flexDirection: 'row', alignItems: 'center', gap: theme.space.sm, flexWrap: 'wrap' },
   cardDiscount: { fontSize: theme.font.h3, fontWeight: '800', color: theme.color.text },
+  fundBadge: { paddingVertical: 2, paddingHorizontal: theme.space.sm, borderRadius: theme.radius.sm },
+  fundBadgeShop: { backgroundColor: theme.color.border },
+  fundBadgeNearbaz: { backgroundColor: '#FEF3C7' },
+  fundBadgeText: { fontSize: theme.font.tiny, fontWeight: '800' },
+  fundBadgeTextShop: { color: theme.color.textMuted },
+  fundBadgeTextNearbaz: { color: '#B45309' },
+  spendCard: { backgroundColor: '#FFFBEB', borderRadius: theme.radius.lg, borderWidth: 1, borderColor: '#FDE68A', padding: theme.space.lg, gap: 2 },
+  spendLabel: { fontSize: theme.font.tiny, fontWeight: '800', color: '#B45309', letterSpacing: 0.5 },
+  spendValue: { fontSize: theme.font.h1, fontWeight: '800', color: '#92400E' },
+  spendSub: { fontSize: theme.font.tiny, color: '#B45309' },
   cardDesc: { fontSize: theme.font.small, color: theme.color.textMuted },
   cardMeta: { fontSize: theme.font.tiny, color: theme.color.textFaint, marginTop: 2 },
   cardActions: { flexDirection: 'row', alignItems: 'center', gap: theme.space.sm, paddingRight: theme.space.md },

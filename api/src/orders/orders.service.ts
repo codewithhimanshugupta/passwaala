@@ -27,6 +27,7 @@ import { ReferralsService } from '../referrals/referrals.service';
 import { DispatchService } from '../dispatch/dispatch.service';
 import { DisputesService } from '../disputes/disputes.service';
 import { WebPushService } from '../notifications/web-push.service';
+import { CouponsService } from '../coupons/coupons.service';
 import { AdvanceOrderDto } from './dto/advance-order.dto';
 import { PlaceOrderDto } from './dto/place-order.dto';
 import { POSCreateSaleDto } from './dto/pos-create-sale.dto';
@@ -58,6 +59,7 @@ export class OrdersService {
     private readonly dispatch: DispatchService,
     private readonly disputes: DisputesService,
     private readonly webPush: WebPushService,
+    private readonly coupons: CouponsService,
   ) {}
 
   /**
@@ -395,15 +397,44 @@ export class OrdersService {
       });
       offer = chosen ?? null;
     }
+
+    // Resolve coupon (code-based) — MUTUALLY EXCLUSIVE with an offer and with any
+    // second coupon. A single order carries at most ONE discount source: enforce
+    // it here, server-side. validate() checks city/shop scope, expiry, min-order,
+    // and usage limits. A coupon can be shop-funded or NearBaz(platform)-funded.
+    let coupon:
+      | { id: string; code: string; type: string; value: number; minOrderPaise: number; maxDiscountPaise: number | null; fundedBy: string }
+      | null = null;
+    const couponCode = dto.couponCode?.trim();
+    if (couponCode) {
+      if (offer) {
+        throw new BadRequestException('Apply either an offer or a coupon — not both.');
+      }
+      coupon = await this.coupons.validate(couponCode, customerId, cart.shopId, subtotalPaise);
+    }
+
+    // Feed the chosen discount source (offer OR coupon) through the SAME bill maths
+    // — a coupon behaves exactly like an offer (percent/flat/free-delivery), only
+    // its funding differs. maxDiscount cap applies to coupons (offers have none here).
     const bill = computeBill({
       subtotalPaise,
       deliveryFeePaise,
       freeDeliveryAbovePaise,
-      offerType: offer?.type as import('@passwaala/shared').OfferType | null ?? null,
-      offerValue: offer?.value ?? null,
-      offerMinOrderPaise: offer?.minOrderPaise ?? null,
+      offerType: (offer?.type ?? coupon?.type) as import('@passwaala/shared').OfferType | null ?? null,
+      offerValue: offer?.value ?? coupon?.value ?? null,
+      offerMinOrderPaise: offer?.minOrderPaise ?? coupon?.minOrderPaise ?? null,
+      offerMaxDiscountPaise: coupon?.maxDiscountPaise ?? null,
       platformFeeOverridePaise: cityCfg?.platformFeePaise ?? null,
     });
+
+    // Funding split. An OFFER or a SHOP-funded coupon is borne by the shop
+    // (discountPaise — shop absorbs it, exactly like today). A NEARBAZ-funded
+    // coupon is borne by the PLATFORM (nearbazDiscountPaise): NearBaz eats the
+    // discount, the shop is commissioned on the full subtotal and its ledger is
+    // never touched — the subsidy is recorded in PlatformLedgerEntry on delivery.
+    const nearbazFunded = coupon?.fundedBy === 'NEARBAZ';
+    const shopDiscountPaise = nearbazFunded ? 0 : bill.discountPaise;
+    const nearbazDiscountPaise = nearbazFunded ? bill.discountPaise : 0;
 
     // NearBaz Coins redemption (1 coin = ₹1 = 100 paise). Discounts the item
     // SUBTOTAL only; capped by the customer's balance AND the subtotal. Fees are
@@ -466,9 +497,12 @@ export class OrdersService {
           riderPickupOtp,
           originalTotalPaise: totalPaise,
           coinsRedeemedPaise: coinsRedeemedPaise_adjusted,
-          discountPaise: bill.discountPaise,
+          discountPaise: shopDiscountPaise,
+          nearbazDiscountPaise,
           offerId: bill.offerApplied && offer ? offer.id : null,
           offerTitle: bill.offerApplied && offer ? offer.title : null,
+          couponId: bill.offerApplied && coupon ? coupon.id : null,
+          couponCode: bill.offerApplied && coupon ? coupon.code : null,
           platformFeePaise: bill.platformFeePaise,
           deliveryFeePaise: bill.deliveryFeePaise,
           commissionRateSnapshot: cart.shop.commissionRate,
@@ -513,6 +547,13 @@ export class OrdersService {
       }
       return order;
     });
+
+    // Record coupon redemption (usage count + per-user history) once the order is
+    // durably committed. Off the critical path — a failure here never unwinds a
+    // placed order; the shop/platform funding was already snapshotted on the order.
+    if (bill.offerApplied && coupon) {
+      await this.coupons.recordUsage(coupon.id, customerId, created.id).catch(() => undefined);
+    }
 
     // Off the durable path: live new-order alert to the shop's room. (Phase 1
     // reliability plan moves this onto a BullMQ queue with retries; the order is

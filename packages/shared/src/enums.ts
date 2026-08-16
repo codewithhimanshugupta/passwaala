@@ -195,6 +195,28 @@ export enum OfferType {
 }
 
 /**
+ * Coupon discount kinds. Mirrors OfferType exactly (a coupon is applied through
+ * the same bill maths as an offer, with which it is mutually exclusive).
+ */
+export enum CouponType {
+  PERCENT_OFF   = 'PERCENT_OFF',   // value = percent (1-100)
+  FLAT_OFF      = 'FLAT_OFF',      // value = paise amount off subtotal
+  FREE_DELIVERY = 'FREE_DELIVERY', // waives delivery fee entirely
+}
+
+/**
+ * Who bears a coupon's discount.
+ *  - SHOP    = deducted from the shop's earnings (default; behaves like an offer).
+ *  - NEARBAZ = platform-funded: NearBaz absorbs the discount as a marketing cost
+ *              (recorded in PlatformLedgerEntry), the shop is never charged and
+ *              its ledger is untouched. NEARBAZ coupons are city-targeted.
+ */
+export enum CouponFundedBy {
+  SHOP    = 'SHOP',
+  NEARBAZ = 'NEARBAZ',
+}
+
+/**
  * BulkOrder lifecycle status (append-only). Envelope over multiple sub-orders.
  * PLACED → ACCEPTED_ALL → READY_ALL → RIDER_ASSIGNED → PICKING_UP
  * → OUT_FOR_DELIVERY → DELIVERED. CANCELLED ends the run.

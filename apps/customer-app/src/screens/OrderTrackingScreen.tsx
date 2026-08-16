@@ -897,7 +897,7 @@ export function OrderTrackingScreen({
         ) : null}
         {(order.coinsRedeemedPaise ?? 0) > 0 ? (
           <View style={styles.recapRow}>
-            <Text style={[styles.recapName, { color: theme.color.success }]}>PassWala Coins</Text>
+            <Text style={[styles.recapName, { color: theme.color.success }]}>NearBaz Coins</Text>
             <Text style={[styles.recapPrice, { color: theme.color.success }]}>−{formatRupees(order.coinsRedeemedPaise!)}</Text>
           </View>
         ) : null}

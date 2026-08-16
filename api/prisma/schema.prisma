@@ -836,6 +836,20 @@ model Order {
   offerId       String? // FK to OfferTemplate (for audit; nullable after deletedAt)
   offerTitle    String? // snapshot of offer title at order time
 
+  // NearBaz-funded (platform) coupon discount applied at order time. Distinct from
+  // discountPaise: this amount is borne by the NearBaz PLATFORM, never the shop —
+  // it is recorded in PlatformLedgerEntry (COUPON_SUBSIDY) and NEVER writes a shop
+  // ledger line. 0 when no NearBaz coupon was applied. The shop is still
+  // commissioned on the full pre-discount subtotal (added back like discountPaise).
+  nearbazDiscountPaise Int @default(0)
+
+  // Coupon applied to this order (shop-funded OR NearBaz-funded). couponId links to
+  // the Coupon for usage/audit; couponCode snapshots the code at order time. Null
+  // when no coupon was used. A single order carries at most ONE coupon (mutually
+  // exclusive with an offer and with a second coupon — enforced server-side).
+  couponId    String?
+  couponCode  String?
+
   // Reliability — client-generated key so retries/double-taps never duplicate.
   idempotencyKey String @unique
 
@@ -1245,6 +1259,11 @@ model Coupon {
   active           Boolean       @default(true)
   shopIds          String[] // empty = applicable to all shops
   cityIds          String[] // empty = all cities; non-empty = only these cities
+  /// Who bears the discount: "SHOP" (default — deducted from the shop's earnings,
+  /// like an offer) or "NEARBAZ" (platform-funded — NearBaz absorbs the discount
+  /// as a marketing cost; the shop is never charged and its ledger is untouched).
+  /// NEARBAZ coupons are city-targeted (cityIds) with no shop involvement.
+  fundedBy         String        @default("SHOP") // SHOP | NEARBAZ
   createdById      String
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
@@ -1286,6 +1305,46 @@ model Banner {
   deletedAt DateTime?
 
   @@index([active])
+}
+
+/// NearBaz's OWN ledger — platform-level costs/subsidies that are NOT a shop's
+/// dues and must never touch the shop-scoped LedgerEntry table. Today it records
+/// COUPON_SUBSIDY entries: the discount NearBaz funded on a platform-funded
+/// (fundedBy = NEARBAZ) coupon. This is NearBaz's marketing expense — a debit to
+/// the platform P&L — so amountPaise is stored POSITIVE (money NearBaz gave away).
+/// Lightweight audit table (mirrors AutomationLog): FK-like columns are plain
+/// String? with indexes, no relations, so it never widens shop/order queries.
+/// Never hard-deleted (deletedAt only) — losing a row = losing a cost record.
+model PlatformLedgerEntry {
+  id String @id @default(uuid())
+
+  /// Short cost type. Today: "COUPON_SUBSIDY". Kept as a String (like Coupon.type)
+  /// so new platform-cost kinds can be added without an enum migration.
+  type String
+
+  /// Optional links (audit only — no relations, mirrors AutomationLog).
+  orderId  String?
+  couponId String?
+  cityId   String?
+  userId   String? // the customer who redeemed the coupon
+
+  /// Money, integer paise (rule #4). SIGNED: positive = cost NearBaz incurred
+  /// (money given away); negative would be a reversal/credit back to NearBaz.
+  amountPaise Int
+
+  /// Snapshot of the coupon code for human-readable reporting.
+  couponCode String?
+
+  note String?
+
+  createdAt DateTime  @default(now())
+  deletedAt DateTime?
+
+  @@index([type])
+  @@index([orderId])
+  @@index([couponId])
+  @@index([cityId])
+  @@index([createdAt])
 }
 
 /// Every action taken automatically by the system (cron jobs). Displayed in the

@@ -16,7 +16,7 @@ import { api } from '../api';
 import { clearCart, setQty, useCart, resetCartStore } from '../cart';
 import type { Address, ShopView } from '../types';
 import { AddressForm } from '../components/AddressForm';
-import { CouponScreen } from './CouponScreen';
+import { CouponScreen, type AppliedCoupon } from './CouponScreen';
 import { estimateOrderMinutes, formatDistance, formatMinutesBand, formatRupees, haversineMeters, productImage, shadow, theme } from '../theme';
 import { EditIcon } from '../EditDeleteIcons';
 import { Badge, Button, CoinChip, Divider, EmptyState, Loading } from '../ui';
@@ -104,6 +104,9 @@ export function CartScreen({
   const [pendingCancelFeePaise, setPendingCancelFeePaise] = useState(0);
   const [useCoins, setUseCoins] = useState(false);
   const [selectedOfferId, setSelectedOfferId] = useState<string | null>(null);
+  // A coupon applied at checkout (shop-funded OR NearBaz-funded). Mutually
+  // exclusive with an offer — applying one clears the other (server enforces too).
+  const [appliedCoupon, setAppliedCoupon] = useState<AppliedCoupon | null>(null);
   const [showCoupons, setShowCoupons] = useState(false);
   // Customer's current GPS position (best-effort) for the soft "far from your
   // current location" warning. Null until/if geolocation resolves.
@@ -354,7 +357,10 @@ export function CartScreen({
         idempotencyKey,
         notes: userNote || undefined,
         redeemCoins: appliedCoins > 0 ? appliedCoins : 0,
-        offerId: selectedOfferId ?? undefined,
+        // Exactly ONE discount source — a coupon takes precedence and clears any
+        // offer (mutually exclusive; the server also rejects both together).
+        offerId: appliedCoupon ? undefined : selectedOfferId ?? undefined,
+        couponCode: appliedCoupon?.code ?? undefined,
         shopId: localCart.shopId ?? undefined,
         items: localCart.lines.map((l) => ({ productId: l.productId, qty: l.qty })),
       } as Parameters<typeof api.placeOrder>[0]);
@@ -391,6 +397,17 @@ export function CartScreen({
   // preloaded on the shop object — no separate fetch.
   const availableOffers = shopData?.availableOffers ?? [];
   const activeOffer = availableOffers.find((o) => o.id === selectedOfferId) ?? null;
+
+  // The SINGLE active discount source for this order. A coupon and an offer are
+  // mutually exclusive (the UI clears one when the other is applied, and the
+  // server rejects both). An applied coupon takes precedence. Both map onto the
+  // shared computeBill offer params so the preview uses identical maths.
+  const discountType = (appliedCoupon ? appliedCoupon.type : activeOffer?.type) as OfferType | undefined;
+  const discountValue = appliedCoupon ? appliedCoupon.value : activeOffer?.value;
+  const discountMinOrderPaise = appliedCoupon ? appliedCoupon.minOrderPaise : activeOffer?.minOrderPaise;
+  const discountMaxPaise = appliedCoupon ? appliedCoupon.maxDiscountPaise : null;
+  // A short label for the applied discount in the bill / entry row.
+  const discountLabel = appliedCoupon ? appliedCoupon.code : activeOffer?.title;
 
   // Admin-set serviceable delivery radius (metres) for this shop's city. When
   // set, a drop beyond it is out of range (blocks delivery placement).
@@ -442,9 +459,10 @@ export function CartScreen({
         subtotalPaise: localCart.totalPaise,
         deliveryFeePaise: deliveryFeeInput,
         freeDeliveryAbovePaise,
-        offerType: (activeOffer?.type as OfferType | undefined) ?? null,
-        offerValue: activeOffer?.value ?? null,
-        offerMinOrderPaise: activeOffer?.minOrderPaise ?? null,
+        offerType: discountType ?? null,
+        offerValue: discountValue ?? null,
+        offerMinOrderPaise: discountMinOrderPaise ?? null,
+        offerMaxDiscountPaise: discountMaxPaise ?? null,
       })
     : null;
 
@@ -512,10 +530,11 @@ export function CartScreen({
       <CouponScreen
         offers={availableOffers}
         selectedOfferId={selectedOfferId}
+        selectedCouponCode={appliedCoupon?.code ?? null}
         subtotalPaise={bill?.subtotalPaise ?? 0}
         shopId={localCart.shopId ?? undefined}
-        onApply={(id) => setSelectedOfferId(id)}
-        onApplyCoupon={(code) => { /* TODO: pass coupon code to order placement */ }}
+        onApply={(id) => { setSelectedOfferId(id); if (id) setAppliedCoupon(null); }}
+        onApplyCoupon={(c) => { setAppliedCoupon(c); if (c) setSelectedOfferId(null); }}
         onBack={() => setShowCoupons(false)}
       />
     );
@@ -671,18 +690,22 @@ export function CartScreen({
         </View>
         ) : null}
 
-        {/* Offer / coupon picker — Swiggy-style entry row */}
-        {availableOffers.length ? (
+        {/* Offer / coupon picker — Swiggy-style entry row. Shown when the shop has
+            offers OR a coupon is already applied (NearBaz city coupons can exist
+            even with no shop offers, so the row lets the customer manage it). */}
+        {availableOffers.length || appliedCoupon ? (
           <View style={styles.section}>
             <Pressable style={styles.couponRow} onPress={() => setShowCoupons(true)}>
               <View style={styles.couponMid}>
-                {selectedOfferId && bill?.offerApplied && bill.discountPaise > 0 ? (
+                {(appliedCoupon || (selectedOfferId && bill?.offerApplied)) ? (
                   <>
                     <Text style={styles.couponAppliedTitle}>
-                      {activeOffer?.title ?? 'Offer applied'}
+                      {discountLabel ?? 'Discount applied'}
                     </Text>
                     <Text style={styles.couponSaving}>
-                      {formatRupees(bill.discountPaise)} off applied
+                      {bill && bill.discountPaise > 0
+                        ? `${formatRupees(bill.discountPaise)} off applied`
+                        : 'Applied'}
                     </Text>
                   </>
                 ) : (
@@ -714,7 +737,7 @@ export function CartScreen({
             <BillRow label={t.cart.itemSubtotal} value={formatRupees(bill.subtotalPaise)} />
             {bill.offerApplied && bill.discountPaise > 0 ? (
               <BillRow
-                label={activeOffer?.title ?? 'Offer discount'}
+                label={discountLabel ?? 'Discount'}
                 value={`-${formatRupees(bill.discountPaise)}`}
                 valueTone="success"
               />

@@ -27,7 +27,23 @@ interface ShopCoupon {
   value: number;
   description: string | null;
   minOrderPaise: number;
+  maxDiscountPaise?: number | null;
   expiresAt: string | null;
+  fundedBy?: string; // 'SHOP' | 'NEARBAZ'
+}
+
+/**
+ * A coupon the customer has applied at checkout. Passed up to the cart so it can
+ * preview the discount (with the SAME bill maths) and send couponCode on placement.
+ * A coupon is mutually exclusive with an offer and with any second coupon.
+ */
+export interface AppliedCoupon {
+  code: string;
+  type: string;
+  value: number;
+  minOrderPaise: number;
+  maxDiscountPaise: number | null;
+  fundedBy: string; // 'SHOP' | 'NEARBAZ'
 }
 
 const TYPE_COLOR: Record<string, string> = {
@@ -114,6 +130,7 @@ function CouponCard({
 export function CouponScreen({
   offers,
   selectedOfferId,
+  selectedCouponCode,
   subtotalPaise,
   shopId,
   onApply,
@@ -122,10 +139,11 @@ export function CouponScreen({
 }: {
   offers: Offer[];
   selectedOfferId: string | null;
+  selectedCouponCode?: string | null;
   subtotalPaise: number;
   shopId?: string;
   onApply: (id: string | null) => void;
-  onApplyCoupon?: (code: string | null) => void;
+  onApplyCoupon?: (coupon: AppliedCoupon | null) => void;
   onBack: () => void;
 }) {
   const [code, setCode] = useState('');
@@ -133,7 +151,7 @@ export function CouponScreen({
   const [shopCoupons, setShopCoupons] = useState<ShopCoupon[]>([]);
   const [loadingCoupons, setLoadingCoupons] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [appliedCouponCode, setAppliedCouponCode] = useState<string | null>(null);
+  const [validating, setValidating] = useState(false);
 
   const loadCoupons = useCallback(async () => {
     if (!shopId) return;
@@ -152,10 +170,26 @@ export function CouponScreen({
 
   useEffect(() => { void loadCoupons(); }, [loadCoupons]);
 
-  function handleApplyCode() {
+  // Applying a coupon selects EXACTLY ONE discount source. The cart clears any
+  // selected offer when a coupon is applied (mutual exclusivity, also enforced
+  // server-side). Snapshots the fields the cart needs to preview the discount.
+  function applyCoupon(c: ShopCoupon) {
+    setCodeError(null);
+    onApplyCoupon?.({
+      code: c.code,
+      type: c.type,
+      value: c.value,
+      minOrderPaise: c.minOrderPaise,
+      maxDiscountPaise: c.maxDiscountPaise ?? null,
+      fundedBy: c.fundedBy ?? 'SHOP',
+    });
+    onBack();
+  }
+
+  async function handleApplyCode() {
     const trimmed = code.trim().toUpperCase();
     if (!trimmed) return;
-    // Check against offer titles
+    // Check against offer titles first (offers are code-less; matched by title).
     const matchOffer = offers.find(o => o.title.toUpperCase() === trimmed);
     if (matchOffer) {
       setCodeError(null);
@@ -163,22 +197,30 @@ export function CouponScreen({
       onBack();
       return;
     }
-    // Check against shop coupons
+    // Then against the shop's listed coupons (incl. NearBaz city coupons).
     const matchCoupon = shopCoupons.find(c => c.code === trimmed);
     if (matchCoupon) {
-      setCodeError(null);
-      setAppliedCouponCode(trimmed);
-      onApplyCoupon?.(trimmed);
-      onBack();
+      applyCoupon(matchCoupon);
       return;
     }
-    setCodeError('Invalid coupon code. Check the code and try again.');
+    // Fall back to a server validate so ANY valid code (even one not surfaced in
+    // the list) is accepted — the server enforces city/shop scope + limits.
+    if (!shopId) { setCodeError('Invalid coupon code. Check the code and try again.'); return; }
+    setValidating(true);
+    try {
+      const c = (await api.validateCoupon(trimmed, shopId, subtotalPaise)) as ShopCoupon;
+      applyCoupon(c);
+    } catch (e) {
+      setCodeError((e as Error).message || 'Invalid coupon code. Check the code and try again.');
+    } finally {
+      setValidating(false);
+    }
   }
 
   const seenIds = new Set<string>();
   const allItems = [
-    ...offers.map(o => ({ kind: 'offer' as const, id: o.id, code: o.title, type: o.type, value: o.value, description: null as string | null, minOrderPaise: o.minOrderPaise, expiresAt: null as string | null })),
-    ...shopCoupons.map(c => ({ kind: 'coupon' as const, id: c.id, code: c.code, type: c.type, value: c.value, description: c.description, minOrderPaise: c.minOrderPaise, expiresAt: c.expiresAt })),
+    ...offers.map(o => ({ kind: 'offer' as const, id: o.id, code: o.title, type: o.type, value: o.value, description: null as string | null, minOrderPaise: o.minOrderPaise, maxDiscountPaise: null as number | null, expiresAt: null as string | null, fundedBy: 'SHOP' })),
+    ...shopCoupons.map(c => ({ kind: 'coupon' as const, id: c.id, code: c.code, type: c.type, value: c.value, description: c.description, minOrderPaise: c.minOrderPaise, maxDiscountPaise: c.maxDiscountPaise ?? null, expiresAt: c.expiresAt, fundedBy: c.fundedBy ?? 'SHOP' })),
   ].filter(item => { if (seenIds.has(item.id)) return false; seenIds.add(item.id); return true; });
 
   return (
@@ -204,8 +246,8 @@ export function CouponScreen({
           returnKeyType="done"
           onSubmitEditing={handleApplyCode}
         />
-        <Pressable onPress={handleApplyCode} disabled={!code.trim()}>
-          <Text style={[s.codeApply, !code.trim() && s.codeApplyDim]}>APPLY</Text>
+        <Pressable onPress={handleApplyCode} disabled={!code.trim() || validating}>
+          <Text style={[s.codeApply, (!code.trim() || validating) && s.codeApplyDim]}>{validating ? '…' : 'APPLY'}</Text>
         </Pressable>
       </View>
       {codeError ? <Text style={s.codeError}>{codeError}</Text> : null}
@@ -233,15 +275,21 @@ export function CouponScreen({
             description={item.description}
             minOrderPaise={item.minOrderPaise}
             expiresAt={item.expiresAt}
-            selected={item.kind === 'offer' ? selectedOfferId === item.id : appliedCouponCode === item.code}
+            selected={item.kind === 'offer' ? selectedOfferId === item.id : (selectedCouponCode ?? null) === item.code}
             subtotalPaise={subtotalPaise}
             onApply={() => {
               if (item.kind === 'offer') { onApply(item.id); onBack(); }
-              else { setAppliedCouponCode(item.code); onApplyCoupon?.(item.code); onBack(); }
+              else {
+                applyCoupon({
+                  id: item.id, code: item.code, type: item.type, value: item.value,
+                  description: item.description, minOrderPaise: item.minOrderPaise,
+                  maxDiscountPaise: item.maxDiscountPaise, expiresAt: item.expiresAt, fundedBy: item.fundedBy,
+                });
+              }
             }}
             onRemove={() => {
               if (item.kind === 'offer') onApply(null);
-              else { setAppliedCouponCode(null); onApplyCoupon?.(null); }
+              else { onApplyCoupon?.(null); }
             }}
           />
         )}

@@ -90,6 +90,10 @@ export class LedgerService {
         platformFeePaise: true,
         deliveryFeePaise: true,
         discountPaise: true,
+        nearbazDiscountPaise: true,
+        couponId: true,
+        couponCode: true,
+        customerId: true,
         coinsRedeemedPaise: true,
         commissionRateSnapshot: true,
         paymentMethod: true,
@@ -109,16 +113,19 @@ export class LedgerService {
 
     const shop = await this.prisma.shop.findUnique({
       where: { id: order.shopId },
-      select: { commissionFreeUntil: true, creditLimitPaise: true, outstandingDuesPaise: true },
+      select: { commissionFreeUntil: true, creditLimitPaise: true, outstandingDuesPaise: true, city: true },
     });
     if (!shop) return;
 
-    // collectedTotal = what the customer paid = (S − D − C) + F_d + F_p
+    // collectedTotal = what the customer paid = (S − D − N − C) + F_d + F_p
     const collectedTotal = order.adjustedTotalPaise ?? order.originalTotalPaise;
-    // netItems = S − D − C (item money net of discount + coins)
+    // netItems = S − D − N − C (item money net of ALL discounts + coins), where
+    // D = shop-funded discount, N = NearBaz-funded (platform) coupon discount.
     const netItems = collectedTotal - order.platformFeePaise - order.deliveryFeePaise;
-    // Commission base = pre-discount subtotal S (shop absorbs discounts — add back D + C).
-    const commissionBasePaise = netItems + order.discountPaise + order.coinsRedeemedPaise;
+    // Commission base = pre-discount subtotal S. The shop is commissioned on the
+    // FULL subtotal regardless of who funded the discount — add back D + N + C.
+    const commissionBasePaise =
+      netItems + order.discountPaise + order.nearbazDiscountPaise + order.coinsRedeemedPaise;
 
     const inHoliday =
       shop.commissionFreeUntil != null && shop.commissionFreeUntil.getTime() > Date.now();
@@ -186,8 +193,38 @@ export class LedgerService {
       });
     });
 
+    // Platform-funded coupon subsidy: NearBaz's OWN cost (a marketing expense),
+    // recorded in the platform ledger — NEVER on the shop's ledger and never in
+    // the shop's dues (duesDelta above excludes it). This is the accounting entry
+    // for "a discount given by NearBaz". amountPaise is stored POSITIVE (money
+    // given away). Written in the same once-only accrual guarded above.
+    let cityId: string | null = null;
+    if (order.nearbazDiscountPaise > 0 && shop.city) {
+      const city = await this.prisma.serviceableCity.findFirst({
+        where: { name: { equals: shop.city, mode: 'insensitive' }, deletedAt: null },
+        select: { id: true },
+      });
+      cityId = city?.id ?? null;
+    }
+    const platformSubsidy =
+      order.nearbazDiscountPaise > 0
+        ? this.prisma.platformLedgerEntry.create({
+            data: {
+              type: 'COUPON_SUBSIDY',
+              orderId,
+              couponId: order.couponId,
+              couponCode: order.couponCode,
+              cityId,
+              userId: order.customerId,
+              amountPaise: order.nearbazDiscountPaise,
+              note: 'NearBaz-funded coupon discount',
+            },
+          })
+        : null;
+
     await this.prisma.$transaction([
       ...creates,
+      ...(platformSubsidy ? [platformSubsidy] : []),
       this.prisma.shop.update({
         where: { id: order.shopId },
         data: { outstandingDuesPaise: { increment: duesDelta } },

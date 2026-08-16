@@ -63,6 +63,17 @@ export class PlaceOrderDto {
   offerId?: string;
 
   /**
+   * Optional coupon code the customer wants to apply. MUTUALLY EXCLUSIVE with
+   * offerId and with any second coupon — a single order carries at most ONE
+   * discount source (enforced server-side). Resolves to either a shop-funded or a
+   * NearBaz-funded (platform) coupon; server validates city/shop scope + limits.
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  couponCode?: string;
+
+  /**
    * CLIENT-CART path: the shop + items the customer built locally. When present,
    * the order is placed from these (server still re-validates stock/price/shop);
    * when absent, the order falls back to the server-side cart (legacy path).

@@ -844,7 +844,7 @@ function OrderCard({
           ) : null}
           {(order.cancelFeePaise ?? 0) > 0 ? (
             <Text style={styles.cancelReqFee}>
-              Cancel fee: {formatRupees(order.cancelFeePaise!)} (50% to you, 50% to PassWala)
+              Cancel fee: {formatRupees(order.cancelFeePaise!)} (50% to you, 50% to NearBaz)
             </Text>
           ) : (
             <Text style={styles.cancelReqFee}>No cancellation fee set</Text>

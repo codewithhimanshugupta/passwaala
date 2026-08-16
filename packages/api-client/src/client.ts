@@ -752,12 +752,29 @@ export class PasswaalaApiClient {
     code: string; type: string; value?: number; description?: string;
     minOrderPaise?: number; maxDiscountPaise?: number | null; maxUses?: number | null; maxUsesPerUser?: number | null;
     validFrom?: string | null; expiresAt?: string | null; active?: boolean; shopIds?: string[];
+    cityIds?: string[]; fundedBy?: 'SHOP' | 'NEARBAZ';
   }): Promise<unknown> {
     return this.post('/admin/coupons', body);
   }
   /** Admin: list all coupons. */
   adminListCoupons(all = false): Promise<unknown[]> {
     return this.get(`/admin/coupons${all ? '?all=true' : ''}`) as Promise<unknown[]>;
+  }
+  /** Admin: serviceable cities (id + name) for the coupon city multiselect. */
+  adminCouponCities(): Promise<Array<{ id: string; name: string; enabled: boolean }>> {
+    return this.get('/admin/coupons/cities') as Promise<Array<{ id: string; name: string; enabled: boolean }>>;
+  }
+  /** Admin: NearBaz-funded coupon spend (platform marketing cost) + breakdown. */
+  adminPlatformCouponSpend(): Promise<{
+    totalSpendPaise: number;
+    redemptions: number;
+    entries: Array<{ id: string; couponCode: string | null; amountPaise: number; orderId: string | null; cityId: string | null; createdAt: string }>;
+  }> {
+    return this.get('/admin/coupons/platform-spend') as Promise<{
+      totalSpendPaise: number;
+      redemptions: number;
+      entries: Array<{ id: string; couponCode: string | null; amountPaise: number; orderId: string | null; cityId: string | null; createdAt: string }>;
+    }>;
   }
   /** Admin: update a coupon. */
   adminUpdateCoupon(id: string, body: Record<string, unknown>): Promise<unknown> {
