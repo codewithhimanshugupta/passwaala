@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
-import { DeliveryMode, OrderStatus } from '@passwaala/shared';
+import { DeliveryMode, OrderStatus } from '@nearbaz/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { WebPushService } from '../notifications/web-push.service';
@@ -437,7 +437,7 @@ export class AutomationService {
       await this.prisma.disputeMessage.create({ data: { disputeId: dispute.id, senderId: order.customerId, senderRole: 'SYSTEM', body: msg } });
       await this.webPush.sendToUser(order.customerId, {
         title: 'Refund delayed — we\'re following up',
-        body: `Refund for #${ref} is overdue. PassWala has escalated this to our team.`,
+        body: `Refund for #${ref} is overdue. NearBaz has escalated this to our team.`,
         tag: `refund-sla-${order.id}`,
       }).catch(() => undefined);
       await this.log({ action: 'REFUND_SLA_ESCALATED', detail: msg, orderId: order.id, shopId: order.shopId });

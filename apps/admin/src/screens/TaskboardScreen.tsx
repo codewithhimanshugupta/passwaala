@@ -10,7 +10,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { ApiError } from '@passwaala/api-client';
+import { ApiError } from '@nearbaz/api-client';
 import { api } from '../api';
 import { theme } from '../theme';
 

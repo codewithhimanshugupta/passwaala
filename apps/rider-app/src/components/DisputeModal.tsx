@@ -11,7 +11,7 @@ import {
   View,
   ActivityIndicator,
 } from 'react-native';
-import { DISPUTE_WINDOW_HOURS } from '@passwaala/shared';
+import { DISPUTE_WINDOW_HOURS } from '@nearbaz/shared';
 import { api } from '../api';
 import { theme } from '../theme';
 

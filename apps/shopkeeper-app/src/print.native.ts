@@ -31,7 +31,7 @@ export class PrintUnavailableError extends Error {
   }
 }
 
-const SAVED_PRINTER_KEY = 'passwaala.shopkeeper.pos.printer.v1';
+const SAVED_PRINTER_KEY = 'nearbaz.shopkeeper.pos.printer.v1';
 
 /** Native platforms support thermal printing. */
 export function isPrintingSupported(): boolean {

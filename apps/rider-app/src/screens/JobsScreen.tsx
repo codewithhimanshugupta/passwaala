@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, RefreshControl, StyleSheet, Text, View } from 'react-native';
-import { buildUpiDeepLink } from '@passwaala/shared';
+import { buildUpiDeepLink } from '@nearbaz/shared';
 import { api } from '../api';
 import { getCurrentCoords, openDirections } from '../geo';
 import { getPrefetchedJobs } from '../riderPrefetch';

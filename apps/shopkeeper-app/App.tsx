@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, SafeAreaView, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import { AuthExpiredError } from '@passwaala/api-client';
-import type { VerificationStatus } from '@passwaala/shared';
-import type { PrescriptionView } from '@passwaala/shared';
-import { MEDICAL_CATEGORY } from '@passwaala/shared';
+import { AuthExpiredError } from '@nearbaz/api-client';
+import type { VerificationStatus } from '@nearbaz/shared';
+import type { PrescriptionView } from '@nearbaz/shared';
+import { MEDICAL_CATEGORY } from '@nearbaz/shared';
 import { LoginScreen } from './src/screens/LoginScreen';
 import { SignupScreen } from './src/screens/SignupScreen';
 import { ForgotScreen } from './src/screens/ForgotScreen';
@@ -293,7 +293,7 @@ function AppRoot() {
   }, []);
 
   const advanceOrderForShop = useCallback(
-    async (orderId: string, shopId: string, status: import('@passwaala/shared').OrderStatus, reason?: string, otpCode?: string) => {
+    async (orderId: string, shopId: string, status: import('@nearbaz/shared').OrderStatus, reason?: string, otpCode?: string) => {
       await withShopToken(shopId, () => api.advanceOrder(orderId, status, reason, otpCode).then(() => undefined));
     },
     [withShopToken],

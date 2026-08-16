@@ -9,8 +9,8 @@ import {
   Text,
   View,
 } from 'react-native';
-import { PrescriptionStatus } from '@passwaala/shared';
-import type { PrescriptionView } from '@passwaala/shared';
+import { PrescriptionStatus } from '@nearbaz/shared';
+import type { PrescriptionView } from '@nearbaz/shared';
 import { api } from '../api';
 import { shadow, theme } from '../theme';
 import { Badge, Button, ErrorState, Loading } from '../ui';

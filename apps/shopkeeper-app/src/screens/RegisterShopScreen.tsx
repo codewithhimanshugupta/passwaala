@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Image, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
-import { VerificationStatus } from '@passwaala/shared';
+import { VerificationStatus } from '@nearbaz/shared';
 import { api } from '../api';
 import { placeholderImage, rupeeInputToPaise, theme } from '../theme';
 import { Banner, Button, Card, ErrorText, Field, Screen } from '../ui';

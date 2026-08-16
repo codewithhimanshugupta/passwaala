@@ -12,7 +12,7 @@ import { prisma } from './db';
  *
  * The app's PrismaService is overridden to reuse the test client (test/db.ts),
  * so the app and the test's own queries/truncation share one connection pool
- * against passwala_test.
+ * against nearbaz_test.
  */
 export async function createTestApp(): Promise<INestApplication> {
   const moduleRef = await Test.createTestingModule({

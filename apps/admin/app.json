@@ -1,8 +1,8 @@
 {
   "expo": {
     "name": "NearBaz Admin",
-    "slug": "passwala-admin",
-    "scheme": "passwalaadmin",
+    "slug": "nearbaz-admin",
+    "scheme": "nearbazadmin",
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
@@ -22,7 +22,7 @@
     },
     "ios": { "supportsTablet": true },
     "android": {
-      "package": "com.passwala.admin"
+      "package": "com.nearbaz.admin"
     },
     "extra": {
       "webDevPort": 8084

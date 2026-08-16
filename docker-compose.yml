@@ -1,4 +1,4 @@
-# PassWaala — Docker Compose (local dev)
+# NearBaz — Docker Compose (local dev)
 # Postgres + PostGIS with a persistent named volume.
 # All dev data stays on your machine — ₹0, offline, production-identical.
 # The same image powers CI tests.
@@ -6,18 +6,18 @@
 services:
   db:
     image: postgis/postgis:16-3.4
-    container_name: passwaala-db
+    container_name: nearbaz-db
     restart: unless-stopped
     environment:
-      POSTGRES_USER: passwaala
+      POSTGRES_USER: nearbaz
       POSTGRES_PASSWORD: dev
-      POSTGRES_DB: passwaala
+      POSTGRES_DB: nearbaz
     ports:
       - "5432:5432"
     volumes:
-      - passwaala_pgdata:/var/lib/postgresql/data
+      - nearbaz_pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U passwaala -d passwaala"]
+      test: ["CMD-SHELL", "pg_isready -U nearbaz -d nearbaz"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -26,13 +26,13 @@ services:
   # Present from day one so the async-work seams are real, not retrofitted.
   redis:
     image: redis:7-alpine
-    container_name: passwaala-redis
+    container_name: nearbaz-redis
     restart: unless-stopped
     ports:
       - "6379:6379"
     volumes:
-      - passwaala_redisdata:/data
+      - nearbaz_redisdata:/data
 
 volumes:
-  passwaala_pgdata:
-  passwaala_redisdata:
+  nearbaz_pgdata:
+  nearbaz_redisdata:

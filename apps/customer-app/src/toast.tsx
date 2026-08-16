@@ -5,7 +5,7 @@
  *
  * Mount <ToastHost /> once at the app root. Call notifyError()/notifyInfo()/
  * notifySuccess() from anywhere. Messages are already human-friendly (run raw
- * errors through friendlyMessage() from @passwaala/api-client before calling).
+ * errors through friendlyMessage() from @nearbaz/api-client before calling).
  */
 import { useEffect, useRef, useState } from 'react';
 import { Animated, Platform, Pressable, StyleSheet, Text, View } from 'react-native';

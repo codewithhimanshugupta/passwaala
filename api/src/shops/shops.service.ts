@@ -9,7 +9,7 @@ import {
   DEFAULT_CREDIT_LIMIT_PAISE,
   UserRole,
   VerificationStatus,
-} from '@passwaala/shared';
+} from '@nearbaz/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
 import { CitiesService } from '../cities/cities.service';

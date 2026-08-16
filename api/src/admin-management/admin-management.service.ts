@@ -5,7 +5,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { AdminInviteStatus, UserRole } from '@passwaala/shared';
+import { AdminInviteStatus, UserRole } from '@nearbaz/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { InviteAdminDto } from './dto/invite-admin.dto';
 

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Linking, Modal, Platform, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
-import { buildUpiDeepLink, UPI_APPS, toIntentLink } from '@passwaala/shared';
+import { buildUpiDeepLink, UPI_APPS, toIntentLink } from '@nearbaz/shared';
 import { api } from '../api';
 import { getPrefetchedRiderMe } from '../riderPrefetch';
 import { formatRupees, theme } from '../theme';
@@ -102,7 +102,7 @@ export function DuesScreen() {
         <Card>
           <Text style={styles.payTitle}>{t.home.payDuesTitle}</Text>
           <Text style={styles.paySub}>
-            {t.home.payDuesSub(formatRupees(dues), me?.collectionUpi?.name ?? t.home.passwala)}
+            {t.home.payDuesSub(formatRupees(dues), me?.collectionUpi?.name ?? t.home.nearbaz)}
           </Text>
           <Button label={t.home.payNow(formatRupees(dues))} onPress={() => openDuesUpi(duesUpiLink, dues)} />
           <View style={styles.qrWrap}>

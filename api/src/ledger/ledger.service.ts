@@ -4,7 +4,7 @@ import {
   LedgerEntryType,
   PLATFORM_FEE_PAISE,
   computeGst,
-} from '@passwaala/shared';
+} from '@nearbaz/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { CitiesService } from '../cities/cities.service';
 import { PaginationQuery, cursorArgs, toPage } from '../common/pagination';
@@ -154,10 +154,10 @@ export class LedgerService {
 
     // Delivery-fee custody branch (decision #1: full fee to rider).
     const isPlatformRider = order.deliveryMode === 'PLATFORM_RIDER';
-    const passWalaHoldsCash =
+    const nearbazHoldsCash =
       order.paymentMethod === 'COD' && isPlatformRider && order.codUpiClaimedAt == null;
     if (order.deliveryFeePaise > 0 && isPlatformRider) {
-      if (passWalaHoldsCash) {
+      if (nearbazHoldsCash) {
         // (d1) Rider deposits the full cash to NearBaz; NearBaz owes the shop
         // everything except the delivery fee it keeps for the rider.
         const owedToShop = collectedTotal - order.deliveryFeePaise;
@@ -477,7 +477,7 @@ export class LedgerService {
       deliveryFeesPaise, // pass-through to rider
       commissionPaise: sumByType(LedgerEntryType.COMMISSION),
       platformFeePaise: sumByType(LedgerEntryType.PLATFORM_FEE),
-      codCollectedByPasswalaPaise: -sumByType(LedgerEntryType.COD_REMITTANCE),
+      codCollectedByNearBazPaise: -sumByType(LedgerEntryType.COD_REMITTANCE),
       // >0 means NearBaz owes the shop; <0 means the shop owes NearBaz.
       netPositionPaise: -(shop?.outstandingDuesPaise ?? 0),
     };

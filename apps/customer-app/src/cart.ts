@@ -9,12 +9,12 @@
  * prompts the caller to clear first (isDifferentShopError stays for CartScreen).
  */
 import { useSyncExternalStore } from 'react';
-import { ApiError } from '@passwaala/api-client';
+import { ApiError } from '@nearbaz/api-client';
 import { api } from './api';
 import { idbGet, idbSet } from './idbKv';
 import type { Cart } from './types';
 
-const STORAGE_KEY = 'passwaala.customer.cart';
+const STORAGE_KEY = 'nearbaz.customer.cart';
 
 /** A locally-held cart line — enough to render + to sync to the server. */
 export interface LocalLine {

@@ -61,7 +61,7 @@ export function notifyNewOrder(title: string, body: string): void {
   if (!isTabHidden()) return; // focused — the in-app banner + sound cover it
   try {
     // eslint-disable-next-line no-new
-    new N(title, { body, tag: 'passwaala-order', renotify: true });
+    new N(title, { body, tag: 'nearbaz-order', renotify: true });
   } catch {
     /* ignore a single failed notification */
   }

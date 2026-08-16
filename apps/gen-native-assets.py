@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Generate native (iOS/Android) app assets for the three PassWaala native apps.
+Generate native (iOS/Android) app assets for the three NearBaz native apps.
 Produces, per app, under apps/<app>/assets/:
   - icon.png          1024x1024  full-bleed brand square + white "P" + accent dot
   - adaptive-icon.png 1024x1024  transparent bg, centered logo inside the Android
@@ -14,7 +14,7 @@ Pillow only.
 import os
 from PIL import Image, ImageDraw, ImageFont
 
-ROOT = "/Users/c5354358/passwala/apps"
+ROOT = "/Users/c5354358/nearbaz/apps"
 FONT_PATH = "/System/Library/Fonts/HelveticaNeue.ttc"
 
 # app dir -> (background hex, accent-dot hex)

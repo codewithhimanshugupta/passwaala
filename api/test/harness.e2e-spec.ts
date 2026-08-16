@@ -5,7 +5,7 @@ import { closeDb, resetDb } from './db';
 
 /**
  * Harness smoke test — proves the integration setup works end to end against the
- * REAL passwala_test database (plan → Testing Standard). It boots the full Nest
+ * REAL nearbaz_test database (plan → Testing Standard). It boots the full Nest
  * app (with global guards + ValidationPipe), hits the public health + auth
  * routes, and confirms the DB reset helper runs.
  *

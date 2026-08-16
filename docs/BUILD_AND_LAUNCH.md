@@ -1,11 +1,11 @@
-# PassWaala — Native App Build & Store Launch Guide
+# NearBaz — Native App Build & Store Launch Guide
 
 Three native apps are ready to build via **EAS (Expo Application Services) cloud build**:
 **customer** (`apps/customer-app`), **shopkeeper** (`apps/shopkeeper-app`), **rider**
 (`apps/rider-app`). Admin stays web-only. Everything below is what **you** run (it needs
 your own Expo / Apple / Google accounts).
 
-The apps point at the production API `https://passwaala.onrender.com` (baked into every
+The apps point at the production API `https://api.nearbaz.in` (baked into every
 EAS build profile — see each app's `eas.json`).
 
 ---
@@ -140,7 +140,7 @@ outside the app. This is explicitly allowed **without** Apple IAP / Google Play 
 (those are only for digital goods). Note this in App Review notes to avoid a 3.1.1 rejection.
 
 ## 6. Privacy policy
-Host `docs/PRIVACY_POLICY.md` at a public URL (e.g. `https://passwaala.in/privacy`), fill the
+Host `docs/PRIVACY_POLICY.md` at a public URL (e.g. `https://nearbaz.in/privacy`), fill the
 `[FILL IN]` fields, and link it in each store listing + inside each app's settings.
 
 ---

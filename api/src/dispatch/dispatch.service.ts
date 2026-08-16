@@ -1,5 +1,5 @@
 import { Injectable, Logger, NotImplementedException, OnApplicationBootstrap, OnModuleDestroy } from '@nestjs/common';
-import { BulkOrderStatus, DeliveryMode, OrderStatus } from '@passwaala/shared';
+import { BulkOrderStatus, DeliveryMode, OrderStatus } from '@nearbaz/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { WebPushService } from '../notifications/web-push.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';

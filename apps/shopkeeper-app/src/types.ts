@@ -1,4 +1,4 @@
-import type { OrderStatus, VerificationStatus, LedgerEntryType, LedgerEntryStatus, DeliveryMode } from '@passwaala/shared';
+import type { OrderStatus, VerificationStatus, LedgerEntryType, LedgerEntryStatus, DeliveryMode } from '@nearbaz/shared';
 
 /**
  * App-local types describing the shopkeeper API response shapes. The shared

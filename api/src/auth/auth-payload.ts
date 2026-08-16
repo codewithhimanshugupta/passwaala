@@ -1,4 +1,4 @@
-import { UserRole } from '@passwaala/shared';
+import { UserRole } from '@nearbaz/shared';
 
 /**
  * The verified JWT payload attached to request.user by JwtAuthGuard.

@@ -1,8 +1,8 @@
 {
   "expo": {
     "name": "NearBaz Partner",
-    "slug": "passwala-shopkeeper",
-    "scheme": "passwalapartner",
+    "slug": "nearbaz-shopkeeper",
+    "scheme": "nearbazpartner",
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
@@ -31,7 +31,7 @@
       "startUrl": "/"
     },
     "ios": {
-      "bundleIdentifier": "com.passwala.shopkeeper",
+      "bundleIdentifier": "com.nearbaz.shopkeeper",
       "buildNumber": "1",
       "supportsTablet": false,
       "infoPlist": {
@@ -45,7 +45,7 @@
       }
     },
     "android": {
-      "package": "com.passwala.shopkeeper",
+      "package": "com.nearbaz.shopkeeper",
       "versionCode": 1,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",

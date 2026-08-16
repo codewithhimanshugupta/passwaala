@@ -40,16 +40,15 @@ async function bootstrap(): Promise<void> {
     }),
   );
 
-  // CORS: explicit allowlist from CORS_ORIGINS, plus any *.vercel.app,
-  // *.passwaala.in or *.nearbaz.in origin (so newly-deployed apps + custom
-  // subdomains work without editing env vars each time). During the nearbaz.in
-  // migration BOTH brand domains are honoured. Non-browser callers (no Origin) allowed.
+  // CORS: explicit allowlist from CORS_ORIGINS, plus any *.vercel.app or
+  // *.nearbaz.in origin (so newly-deployed apps + custom subdomains work
+  // without editing env vars each time). Non-browser callers (no Origin) allowed.
   const corsOrigins = (process.env.CORS_ORIGINS ?? '')
     .split(',')
     .map((o) => o.trim())
     .filter(Boolean);
-  const allowedHostSuffixes = ['.vercel.app', '.passwaala.in', '.nearbaz.in'];
-  const allowedApexHosts = ['passwaala.in', 'nearbaz.in'];
+  const allowedHostSuffixes = ['.vercel.app', '.nearbaz.in'];
+  const allowedApexHosts = ['nearbaz.in'];
   app.enableCors({
     origin: (origin, cb) => {
       if (!origin) return cb(null, true); // curl / server-to-server / same-origin

@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { VerificationStatus } from '@passwaala/shared';
+import { VerificationStatus } from '@nearbaz/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { assertOwnedByShop, requireShopScope } from '../common/shop-scope';
 import { titleCaseName } from '../common/text.util';

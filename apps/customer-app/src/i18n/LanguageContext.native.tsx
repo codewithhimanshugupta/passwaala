@@ -8,7 +8,7 @@ import { dict, type Lang, type Strings } from './strings';
  * async, so we default to English on first render and hydrate the saved
  * language in a mount effect — a one-frame flash at most, then it sticks.
  */
-const STORAGE_KEY = 'passwala.customer.lang';
+const STORAGE_KEY = 'nearbaz.customer.lang';
 
 interface LanguageValue {
   lang: Lang;

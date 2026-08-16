@@ -61,7 +61,7 @@ export function notifyNewJob(title: string, body: string): void {
   if (!isTabHidden()) return; // focused — the in-app banner + sound cover it
   try {
     // eslint-disable-next-line no-new
-    new N(title, { body, tag: 'passwaala-job', renotify: true });
+    new N(title, { body, tag: 'nearbaz-job', renotify: true });
   } catch {
     /* ignore a single failed notification */
   }
@@ -78,7 +78,7 @@ export function notifyAlert(title: string, body: string): void {
   if (!N || N.permission !== 'granted') return;
   try {
     // eslint-disable-next-line no-new
-    new N(title, { body, tag: 'passwaala-alert', renotify: true });
+    new N(title, { body, tag: 'nearbaz-alert', renotify: true });
   } catch {
     /* ignore a single failed notification */
   }

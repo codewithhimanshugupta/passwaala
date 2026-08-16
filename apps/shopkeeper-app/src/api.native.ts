@@ -1,4 +1,4 @@
-import { PasswaalaApiClient } from '@passwaala/api-client';
+import { NearBazApiClient } from '@nearbaz/api-client';
 import * as SecureStore from 'expo-secure-store';
 
 /**
@@ -8,7 +8,7 @@ import * as SecureStore from 'expo-secure-store';
  * client is constructed with the restored token on first render (no gate).
  */
 const baseUrl = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
-const TOKEN_KEY = 'passwaala_shopkeeper_token'; // SecureStore keys: [A-Za-z0-9._-]
+const TOKEN_KEY = 'nearbaz_shopkeeper_token'; // SecureStore keys: [A-Za-z0-9._-]
 
 function loadToken(): string | undefined {
   try {
@@ -37,7 +37,7 @@ export function onAuthExpired(fn: AuthExpiredListener): () => void {
   return () => authExpiredListeners.delete(fn);
 }
 
-export const api = new PasswaalaApiClient({
+export const api = new NearBazApiClient({
   baseUrl,
   token: loadToken(),
   onTokenChange: saveToken,

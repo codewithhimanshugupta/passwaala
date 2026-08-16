@@ -173,7 +173,7 @@ export const en = {
     liveMessage: 'Head to the Jobs tab to see available deliveries near you.',
     goOnlineTitle: 'Go online to see delivery jobs',
     goOnlineMessage: "You'll only see available jobs while you're online.",
-    passwala: 'NearBaz',
+    nearbaz: 'NearBaz',
   },
   dues: {
     clearTitle: 'No dues',

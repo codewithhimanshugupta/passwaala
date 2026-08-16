@@ -64,7 +64,7 @@ export function notifyNewOrder(title: string, body: string): void {
   if (AppState.currentState === 'active') return; // foreground — banner + sound cover it
   try {
     void Notifications.scheduleNotificationAsync({
-      content: { title, body, data: { tag: 'passwaala-order' }, sound: 'default' },
+      content: { title, body, data: { tag: 'nearbaz-order' }, sound: 'default' },
       trigger: null,
     });
   } catch {

@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
-import { OrderStatus, UserRole } from '@passwaala/shared';
+import { OrderStatus, UserRole } from '@nearbaz/shared';
 import { Roles } from '../common/roles.decorator';
 import { CurrentUser, ShopId } from '../common/current-user.decorator';
 import { PaginationQuery } from '../common/pagination';

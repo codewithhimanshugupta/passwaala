@@ -5,7 +5,7 @@
  * verbatim from DiscoveryScreen so web behavior is byte-for-byte unchanged.
  */
 import { useEffect, useRef } from 'react';
-import type { NearbyShop } from '@passwaala/api-client';
+import type { NearbyShop } from '@nearbaz/api-client';
 import type { ShopContactFields } from '../types';
 
 export function NearbyShopsMap({ shops, center, selected, onSelect, onRadiusChange }: {

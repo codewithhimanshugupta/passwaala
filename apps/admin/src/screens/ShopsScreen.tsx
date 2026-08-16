@@ -9,7 +9,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { ApiError } from '@passwaala/api-client';
+import { ApiError } from '@nearbaz/api-client';
 import { api, recordPayment } from '../api';
 import { formatRupees, theme } from '../theme';
 import { useLang } from '../i18n/LanguageContext';

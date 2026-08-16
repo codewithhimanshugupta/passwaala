@@ -4,8 +4,8 @@
  * Bump CACHE_VERSION on each deploy.
  */
 const CACHE_VERSION = "v2";
-const SHELL_CACHE   = `passwaala-rider-shell-${CACHE_VERSION}`;
-const STATIC_CACHE  = `passwaala-rider-static-${CACHE_VERSION}`;
+const SHELL_CACHE   = `nearbaz-rider-shell-${CACHE_VERSION}`;
+const STATIC_CACHE  = `nearbaz-rider-static-${CACHE_VERSION}`;
 
 const PRECACHE_URLS = ['/', '/index.html', '/favicon.png', '/icons/icon-192.png', '/icons/icon-512.png'];
 
@@ -17,7 +17,7 @@ self.addEventListener("push", (event) => {
   const title = data.title || "NearBaz";
   const options = {
     body: data.body || "You have a new update.",
-    tag: data.tag || "passwaala",
+    tag: data.tag || "nearbaz",
     renotify: true,
     icon: "/icons/icon-192.png",
     badge: "/icons/icon-192.png",

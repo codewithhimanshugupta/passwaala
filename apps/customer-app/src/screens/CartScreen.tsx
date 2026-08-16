@@ -10,9 +10,9 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { PaymentMethod, DeliveryMode, OfferType, computeBill, platformDeliveryFeePaise } from '@passwaala/shared';
-import type { PlaceOrderResult } from '@passwaala/shared';
-import { friendlyMessage } from '@passwaala/api-client';
+import { PaymentMethod, DeliveryMode, OfferType, computeBill, platformDeliveryFeePaise } from '@nearbaz/shared';
+import type { PlaceOrderResult } from '@nearbaz/shared';
+import { friendlyMessage } from '@nearbaz/api-client';
 import { api } from '../api';
 import { clearCart, decOne, addOne, useCart, resetCartStore, reconcileWithCatalog } from '../cart';
 import type { Address, ShopView } from '../types';

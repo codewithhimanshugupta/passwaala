@@ -11,7 +11,7 @@ import {
   PRODUCT_ONBOARDING_FEE_PAISE,
   VerificationStatus,
   computeGst,
-} from '@passwaala/shared';
+} from '@nearbaz/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { PaginationQuery, cursorArgs, toPage } from '../common/pagination';
 import { resolveAdminCity } from '../common/admin-city';
@@ -457,7 +457,7 @@ export class AdminService {
       totalOrders: orders,
       deliveredOrders: deliveredAgg._count._all,
       gmvPaise: deliveredAgg._sum.originalTotalPaise ?? 0,
-      passwalaRevenuePaise: revenueAgg._sum.totalPaise ?? 0,
+      nearbazRevenuePaise: revenueAgg._sum.totalPaise ?? 0,
       refundPendingCount: refundPending,
       statusCounts,
     };

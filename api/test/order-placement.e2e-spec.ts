@@ -1,6 +1,6 @@
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import { OrderStatus, PaymentMethod, UserRole } from '@passwaala/shared';
+import { OrderStatus, PaymentMethod, UserRole } from '@nearbaz/shared';
 import { createTestApp } from './create-test-app';
 import {
   closeDb,

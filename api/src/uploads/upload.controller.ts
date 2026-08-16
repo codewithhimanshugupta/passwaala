@@ -12,7 +12,7 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
-import { UserRole } from '@passwaala/shared';
+import { UserRole } from '@nearbaz/shared';
 
 /** Minimal shape of an in-memory uploaded file (subset of Express.Multer.File). */
 interface UploadedFileShape {

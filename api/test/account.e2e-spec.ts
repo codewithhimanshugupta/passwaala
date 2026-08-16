@@ -1,7 +1,7 @@
 import { INestApplication } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import request from 'supertest';
-import { UserRole } from '@passwaala/shared';
+import { UserRole } from '@nearbaz/shared';
 import { createTestApp } from './create-test-app';
 import { closeDb, prisma, resetDb } from './db';
 import { bearer, createUser } from './auth';
@@ -84,7 +84,7 @@ describe('Admin dashboard (e2e)', () => {
       .set(...bearer(adminToken))
       .expect(200);
     expect(res.body).toHaveProperty('gmvPaise');
-    expect(res.body).toHaveProperty('passwalaRevenuePaise');
+    expect(res.body).toHaveProperty('nearbazRevenuePaise');
     expect(res.body).toHaveProperty('activeShops');
   });
 });

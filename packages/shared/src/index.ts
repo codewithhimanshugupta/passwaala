@@ -1,9 +1,9 @@
 /**
- * @passwaala/shared — shared TypeScript types, enums, constants, and pure
+ * @nearbaz/shared — shared TypeScript types, enums, constants, and pure
  * helpers used across the API and the apps.
  *
  * Barrel file: re-exports everything so consumers can
- *   import { OrderStatus, canTransition, computeGst } from '@passwaala/shared';
+ *   import { OrderStatus, canTransition, computeGst } from '@nearbaz/shared';
  */
 
 export * from './enums';

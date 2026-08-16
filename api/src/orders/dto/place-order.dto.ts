@@ -1,6 +1,6 @@
 import { IsArray, IsEnum, IsInt, IsOptional, IsString, MaxLength, Min, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
-import { DeliveryMode, PaymentMethod } from '@passwaala/shared';
+import { DeliveryMode, PaymentMethod } from '@nearbaz/shared';
 
 /** One line of a client-side cart sent at placement. */
 export class PlaceOrderItemDto {

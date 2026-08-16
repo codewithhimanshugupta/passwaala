@@ -8,7 +8,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import type { AdShopDrilldown, AdCampaignView, AdSeriesPoint, AdCampaignStatus } from '@passwaala/shared';
+import type { AdShopDrilldown, AdCampaignView, AdSeriesPoint, AdCampaignStatus } from '@nearbaz/shared';
 import { api } from '../api';
 import { formatRupees, rupeeInputToPaise, paiseToRupeeInput, theme } from '../theme';
 import { Badge, Button, Card, ErrorText, Field } from '../ui';

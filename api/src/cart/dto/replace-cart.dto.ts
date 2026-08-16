@@ -10,7 +10,7 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
-import { DeliveryMode } from '@passwaala/shared';
+import { DeliveryMode } from '@nearbaz/shared';
 
 /** A single line in a bulk cart replace. */
 export class ReplaceCartItemDto {

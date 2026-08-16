@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Image, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { OrderStatus, PaymentMethod, DeliveryMode, buildUpiDeepLink, UPI_APPS, toIntentLink, splitGstInclusive } from '@passwaala/shared';
-import type { PlaceOrderResult, ProductPublic } from '@passwaala/shared';
+import { OrderStatus, PaymentMethod, DeliveryMode, buildUpiDeepLink, UPI_APPS, toIntentLink, splitGstInclusive } from '@nearbaz/shared';
+import type { PlaceOrderResult, ProductPublic } from '@nearbaz/shared';
 import { api } from '../api';
 import type { OrderDetail } from '../types';
 import { estimateOrderMinutes, formatMinutesBand, formatRupees, haversineMeters, shadow, theme } from '../theme';
@@ -252,7 +252,7 @@ export function OrderTrackingScreen({
     prevOrderRef.current = order;
     if (!prev) return; // first load — don't fire on initial render
 
-    const tag = `passwaala-order-${order.id}`;
+    const tag = `nearbaz-order-${order.id}`;
 
     // Payment requested by shop
     if (prev.status !== OrderStatus.AWAITING_PAYMENT && order.status === OrderStatus.AWAITING_PAYMENT) {

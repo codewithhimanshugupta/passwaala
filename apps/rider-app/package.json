@@ -1,5 +1,5 @@
 {
-  "name": "@passwaala/rider-app",
+  "name": "@nearbaz/rider-app",
   "version": "0.1.0",
   "private": true,
   "main": "index.ts",
@@ -9,13 +9,13 @@
     "ios": "expo start --ios",
     "web": "expo start --web --port 8085",
     "web:export": "expo export --platform web",
-    "eas-build-post-install": "cd ../.. && npm run build --workspace @passwaala/shared && npm run build --workspace @passwaala/api-client"
+    "eas-build-post-install": "cd ../.. && npm run build --workspace @nearbaz/shared && npm run build --workspace @nearbaz/api-client"
   },
   "dependencies": {
     "@expo/metro-runtime": "~3.2.3",
     "@msg91comm/sendotp-react-native": "^2.1.0",
-    "@passwaala/api-client": "*",
-    "@passwaala/shared": "*",
+    "@nearbaz/api-client": "*",
+    "@nearbaz/shared": "*",
     "@react-native-async-storage/async-storage": "1.23.1",
     "babel-preset-expo": "~11.0.0",
     "expo": "~51.0.0",

@@ -9,7 +9,7 @@ import {
   View,
 } from 'react-native';
 import { api, APP_TYPE } from '../api';
-import { ApiError, friendlyMessage } from '@passwaala/api-client';
+import { ApiError, friendlyMessage } from '@nearbaz/api-client';
 import { theme } from '../theme';
 import { Button } from '../ui';
 import { PinBoxes } from '../PinBoxes';

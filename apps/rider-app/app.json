@@ -1,8 +1,8 @@
 {
   "expo": {
     "name": "NearBaz Rider",
-    "slug": "passwala-rider",
-    "scheme": "passwalarider",
+    "slug": "nearbaz-rider",
+    "scheme": "nearbazrider",
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
@@ -31,7 +31,7 @@
       "startUrl": "/"
     },
     "ios": {
-      "bundleIdentifier": "com.passwala.rider",
+      "bundleIdentifier": "com.nearbaz.rider",
       "buildNumber": "1",
       "supportsTablet": false,
       "infoPlist": {
@@ -42,7 +42,7 @@
       }
     },
     "android": {
-      "package": "com.passwala.rider",
+      "package": "com.nearbaz.rider",
       "versionCode": 1,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",

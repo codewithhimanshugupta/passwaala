@@ -1,6 +1,6 @@
-import { PasswaalaApiClient, friendlyMessage } from '@passwaala/api-client';
+import { NearBazApiClient, friendlyMessage } from '@nearbaz/api-client';
 import { notifyError } from './toast';
-import type { POSCreateSale, POSSaleResult } from '@passwaala/shared';
+import type { POSCreateSale, POSSaleResult } from '@nearbaz/shared';
 import { enqueueOutbox, flushOutbox, PosOfflineError, type FlushResult } from './posOutbox';
 
 /**
@@ -8,7 +8,7 @@ import { enqueueOutbox, flushOutbox, PosOfflineError, type FlushResult } from '.
  * (web) or restart (native) keeps the shopkeeper logged in until they log out.
  */
 const baseUrl = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
-const TOKEN_KEY = 'passwaala.shopkeeper.token';
+const TOKEN_KEY = 'nearbaz.shopkeeper.token';
 
 function loadToken(): string | undefined {
   try {
@@ -46,7 +46,7 @@ export function onAuthExpired(fn: AuthExpiredListener): () => void {
   return () => authExpiredListeners.delete(fn);
 }
 
-export const api = new PasswaalaApiClient({
+export const api = new NearBazApiClient({
   baseUrl,
   token: loadToken(),
   onTokenChange: saveToken,

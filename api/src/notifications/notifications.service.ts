@@ -5,7 +5,7 @@ import {
 } from './notification-channel.interface';
 
 /** DI token for the ordered list of notification channels (FCM, SMS, WhatsApp). */
-export const NOTIFICATION_CHANNELS = 'passwaala:notification-channels';
+export const NOTIFICATION_CHANNELS = 'nearbaz:notification-channels';
 
 /**
  * NotificationsService — fans an event out over the configured channels

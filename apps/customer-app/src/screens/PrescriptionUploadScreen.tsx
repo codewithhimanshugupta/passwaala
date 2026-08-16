@@ -13,7 +13,7 @@ import {
   View,
 } from 'react-native';
 import * as ImagePickerExpo from 'expo-image-picker';
-import { DeliveryMode } from '@passwaala/shared';
+import { DeliveryMode } from '@nearbaz/shared';
 import { api } from '../api';
 import type { Address, ShopView } from '../types';
 import { AddressForm } from '../components/AddressForm';

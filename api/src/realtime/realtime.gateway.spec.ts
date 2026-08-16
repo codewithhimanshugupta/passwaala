@@ -1,6 +1,6 @@
 import { Test } from '@nestjs/testing';
 import { JwtService } from '@nestjs/jwt';
-import { OrderStatus } from '@passwaala/shared';
+import { OrderStatus } from '@nearbaz/shared';
 import {
   RealtimeGateway,
   customerRoom,

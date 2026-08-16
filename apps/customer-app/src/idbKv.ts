@@ -7,7 +7,7 @@
  * (e.g. first render) should keep a localStorage mirror for the instant read and
  * treat IDB as the durable store that hydrates shortly after.
  */
-const DB_NAME = 'passwaala';
+const DB_NAME = 'nearbaz';
 const STORE = 'kv';
 
 function openDb(): Promise<IDBDatabase | null> {

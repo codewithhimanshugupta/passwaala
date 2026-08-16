@@ -1,5 +1,5 @@
 import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength } from 'class-validator';
-import { OfferType } from '@passwaala/shared';
+import { OfferType } from '@nearbaz/shared';
 
 export class CreateOfferDto {
   @IsString()

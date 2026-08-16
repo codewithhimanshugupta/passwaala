@@ -1,5 +1,5 @@
 import { SetMetadata } from '@nestjs/common';
-import { UserRole } from '@passwaala/shared';
+import { UserRole } from '@nearbaz/shared';
 
 /**
  * @Roles(...) — attach the allowed roles to a route/controller.
@@ -9,5 +9,5 @@ import { UserRole } from '@passwaala/shared';
  * Security rule (plan → Security & Data Protection): RBAC on every endpoint,
  * and NO public path may ever create/elevate ADMIN or OWNER.
  */
-export const ROLES_KEY = 'passwala:roles';
+export const ROLES_KEY = 'nearbaz:roles';
 export const Roles = (...roles: UserRole[]) => SetMetadata(ROLES_KEY, roles);

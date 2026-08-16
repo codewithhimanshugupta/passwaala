@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Post, Query } from '@nestjs/common';
-import { UserRole } from '@passwaala/shared';
+import { UserRole } from '@nearbaz/shared';
 import { Public } from '../common/public.decorator';
 import { Roles } from '../common/roles.decorator';
 import { ShopId } from '../common/current-user.decorator';

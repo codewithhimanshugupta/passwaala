@@ -1,7 +1,7 @@
 import { Test } from '@nestjs/testing';
 import { JwtModule, JwtService } from '@nestjs/jwt';
 import { UnauthorizedException } from '@nestjs/common';
-import { UserRole } from '@passwaala/shared';
+import { UserRole } from '@nearbaz/shared';
 import { AuthService } from './auth.service';
 import { PrismaService } from '../prisma/prisma.service';
 

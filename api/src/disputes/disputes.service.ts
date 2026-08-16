@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { DISPUTE_WINDOW_HOURS } from '@passwaala/shared';
+import { DISPUTE_WINDOW_HOURS } from '@nearbaz/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { resolveAdminCity } from '../common/admin-city';
 

@@ -14,8 +14,8 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import type { ProductPublic, ProductDetailPublic } from '@passwaala/shared';
-import { MEDICAL_CATEGORY } from '@passwaala/shared';
+import type { ProductPublic, ProductDetailPublic } from '@nearbaz/shared';
+import { MEDICAL_CATEGORY } from '@nearbaz/shared';
 import { api } from '../api';
 import {
   addOne,

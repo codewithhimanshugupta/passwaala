@@ -17,8 +17,8 @@ import {
   MAX_SHOPS_PER_BULK_ORDER,
   MULTI_SHOP_SURCHARGE_PAISE,
   PLATFORM_FEE_PAISE,
-} from '@passwaala/shared';
-import { computeGst } from '@passwaala/shared';
+} from '@nearbaz/shared';
+import { computeGst } from '@nearbaz/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { WebPushService } from '../notifications/web-push.service';

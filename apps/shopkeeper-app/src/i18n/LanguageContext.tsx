@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
 import { dict, type Lang, type Strings } from './strings';
 
-const STORAGE_KEY = 'passwala.shopkeeper.lang';
+const STORAGE_KEY = 'nearbaz.shopkeeper.lang';
 
 /** Read the saved language (guarded for native/SSR), defaulting to English. */
 function loadLang(): Lang {

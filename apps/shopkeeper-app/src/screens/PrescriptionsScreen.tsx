@@ -11,7 +11,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import type { PrescriptionView, PrescriptionStatus } from '@passwaala/shared';
+import type { PrescriptionView, PrescriptionStatus } from '@nearbaz/shared';
 import { api } from '../api';
 import { onSocket } from '../socket';
 import { formatRupees, resolveImage, rupeeInputToPaise, theme } from '../theme';

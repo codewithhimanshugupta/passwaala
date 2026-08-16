@@ -6,8 +6,8 @@
  * Run: cd api && npx ts-node scripts/backfill-ledger.ts
  */
 import { PrismaClient } from '@prisma/client';
-import { LedgerEntryType } from '@passwaala/shared';
-import { computeGst } from '@passwaala/shared';
+import { LedgerEntryType } from '@nearbaz/shared';
+import { computeGst } from '@nearbaz/shared';
 
 const PLATFORM_FEE_PAISE = 1000; // ₹10
 

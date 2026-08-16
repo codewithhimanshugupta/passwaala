@@ -7,7 +7,7 @@ import {
   StyleSheet,
   Text,
   View,
-} from 'react-native';import { ApiError } from '@passwaala/api-client';
+} from 'react-native';import { ApiError } from '@nearbaz/api-client';
 import { api } from '../api';
 import { formatRupees, formatRupeesCompact, theme } from '../theme';
 import { useLang } from '../i18n/LanguageContext';
@@ -18,7 +18,7 @@ interface DashboardStats {
   totalOrders: number;
   deliveredOrders: number;
   gmvPaise: number;
-  passwalaRevenuePaise: number;
+  nearbazRevenuePaise: number;
   refundPendingCount: number;
   statusCounts: {
     pending: number;
@@ -137,7 +137,7 @@ export function DashboardScreen() {
   const inactiveShops = stats.shops - stats.activeShops;
   const nonDelivered = stats.totalOrders - stats.deliveredOrders;
   const avgRevPerOrder = stats.deliveredOrders > 0
-    ? Math.round(stats.passwalaRevenuePaise / stats.deliveredOrders)
+    ? Math.round(stats.nearbazRevenuePaise / stats.deliveredOrders)
     : 0;
 
   const details: Record<string, { label: string; value: string; highlight?: boolean }[]> = {
@@ -160,9 +160,9 @@ export function DashboardScreen() {
       { label: 'Avg order value', value: stats.deliveredOrders > 0 ? formatRupees(Math.round(stats.gmvPaise / stats.deliveredOrders)) : '—' },
     ],
     revenue: [
-      { label: 'Total revenue (fees + onboarding)', value: formatRupees(stats.passwalaRevenuePaise) },
+      { label: 'Total revenue (fees + onboarding)', value: formatRupees(stats.nearbazRevenuePaise) },
       { label: 'Avg per delivered order', value: avgRevPerOrder > 0 ? formatRupees(avgRevPerOrder) : '—' },
-      { label: 'GMV take-rate', value: stats.gmvPaise > 0 ? `${(stats.passwalaRevenuePaise / stats.gmvPaise * 100).toFixed(1)}%` : '—' },
+      { label: 'GMV take-rate', value: stats.gmvPaise > 0 ? `${(stats.nearbazRevenuePaise / stats.gmvPaise * 100).toFixed(1)}%` : '—' },
     ],
     refunds: [
       { label: 'Refunds pending', value: String(stats.refundPendingCount), highlight: stats.refundPendingCount > 0 },
@@ -224,9 +224,9 @@ export function DashboardScreen() {
             selected={expanded === 'gmv'} onPress={() => toggle('gmv')}
           />
           <StatTile
-            tileKey="revenue" label={t.dashboard.passwalaRevenue}
-            value={formatRupeesCompact(stats.passwalaRevenuePaise)}
-            hint={t.dashboard.revenueHint(formatRupees(stats.passwalaRevenuePaise))}
+            tileKey="revenue" label={t.dashboard.nearbazRevenue}
+            value={formatRupeesCompact(stats.nearbazRevenuePaise)}
+            hint={t.dashboard.revenueHint(formatRupees(stats.nearbazRevenuePaise))}
             accentColor={theme.color.accent} wide
             selected={expanded === 'revenue'} onPress={() => toggle('revenue')}
           />

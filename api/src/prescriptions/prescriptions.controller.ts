@@ -4,7 +4,7 @@ import {
   CreatePrescription,
   QuotePrescription,
   RejectPrescription,
-} from '@passwaala/shared';
+} from '@nearbaz/shared';
 import { Roles } from '../common/roles.decorator';
 import { CurrentUser, ShopId } from '../common/current-user.decorator';
 import { AuthPayload } from '../auth/auth-payload';

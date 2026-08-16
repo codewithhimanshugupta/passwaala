@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Generate per-app PWA home-screen icons in each app's own brand colour, so the
-four PassWaala apps are visually distinct once installed on a phone.
+four NearBaz apps are visually distinct once installed on a phone.
 
 Each icon = a solid brand-colour square + a bold white "P" + a small accent dot.
 Renders real PNGs (manifest points to PNGs) at the sizes the manifest/index use:
@@ -13,7 +13,7 @@ Uses only Pillow (PIL) + a system font — no external SVG rasterizer needed.
 import os
 from PIL import Image, ImageDraw, ImageFont
 
-ROOT = "/Users/c5354358/passwala/apps"
+ROOT = "/Users/c5354358/nearbaz/apps"
 FONT_PATH = "/System/Library/Fonts/HelveticaNeue.ttc"
 
 # app dir -> (background hex, accent-dot hex, label for logs)

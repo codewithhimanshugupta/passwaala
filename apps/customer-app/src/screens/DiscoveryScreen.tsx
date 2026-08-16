@@ -14,8 +14,8 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import type { Banner, NearbyShop } from '@passwaala/api-client';
-import type { ProductSearchHit } from '@passwaala/shared';
+import type { Banner, NearbyShop } from '@nearbaz/api-client';
+import type { ProductSearchHit } from '@nearbaz/shared';
 import { api } from '../api';
 import { prefetchCheckout, getPrefetchedCheckout } from '../checkoutPrefetch';
 import { prefetchShop } from './StorefrontScreen';
@@ -184,7 +184,7 @@ export function DiscoveryScreen({
   useEffect(() => {
     if (!detectedCity || typeof localStorage === 'undefined') return;
     try {
-      const raw = localStorage.getItem('passwaala.notifiedCities');
+      const raw = localStorage.getItem('nearbaz.notifiedCities');
       const list: string[] = raw ? JSON.parse(raw) : [];
       setNotified(list.includes(detectedCity.toLowerCase()));
     } catch { /* ignore */ }
@@ -194,12 +194,12 @@ export function DiscoveryScreen({
     setNotified(true);
     if (!detectedCity || typeof localStorage === 'undefined') return;
     try {
-      const raw = localStorage.getItem('passwaala.notifiedCities');
+      const raw = localStorage.getItem('nearbaz.notifiedCities');
       const list: string[] = raw ? JSON.parse(raw) : [];
       const key = detectedCity.toLowerCase();
       if (!list.includes(key)) {
         list.push(key);
-        localStorage.setItem('passwaala.notifiedCities', JSON.stringify(list));
+        localStorage.setItem('nearbaz.notifiedCities', JSON.stringify(list));
       }
     } catch { /* ignore */ }
   }, [detectedCity]);

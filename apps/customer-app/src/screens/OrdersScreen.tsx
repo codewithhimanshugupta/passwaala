@@ -9,7 +9,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import { OrderStatus } from '@passwaala/shared';
+import { OrderStatus } from '@nearbaz/shared';
 import { api } from '../api';
 import { getPrefetchedOrders } from '../ordersPrefetch';
 import { loadFromServer } from '../cart';

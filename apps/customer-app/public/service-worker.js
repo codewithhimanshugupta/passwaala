@@ -26,7 +26,7 @@ self.addEventListener('push', (event) => {
   const title = data.title || 'NearBaz';
   const options = {
     body: data.body || 'You have a new update.',
-    tag: data.tag || 'passwaala',
+    tag: data.tag || 'nearbaz',
     renotify: true,
     icon: '/icons/icon-192.png',
     badge: '/icons/icon-192.png',

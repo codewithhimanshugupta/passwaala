@@ -8,7 +8,7 @@ import { dict, type Lang, type Strings } from './strings';
  * async, so we default to English and hydrate the saved language in a mount
  * effect.
  */
-const STORAGE_KEY = 'passwala.shopkeeper.lang';
+const STORAGE_KEY = 'nearbaz.shopkeeper.lang';
 
 interface LanguageValue {
   lang: Lang;

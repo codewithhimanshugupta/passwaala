@@ -1,11 +1,11 @@
 import { Test } from '@nestjs/testing';
 import { HealthController } from './health.controller';
 import { PrismaService } from '../prisma/prisma.service';
-import { OrderStatus, canTransition, computeGst } from '@passwaala/shared';
+import { OrderStatus, canTransition, computeGst } from '@nearbaz/shared';
 
 /**
  * Added by the Phase 0 verifier. This spec has NO database dependency — it
- * proves the API can instantiate a Nest controller and consume @passwaala/shared
+ * proves the API can instantiate a Nest controller and consume @nearbaz/shared
  * at runtime (not just at type level). DB-backed integration tests are PENDING
  * (Docker/Postgres unavailable in Phase 0).
  */

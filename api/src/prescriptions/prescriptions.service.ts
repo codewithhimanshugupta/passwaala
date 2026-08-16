@@ -19,7 +19,7 @@ import {
   computeGst,
   haversineMeters,
   platformDeliveryFeePaise,
-} from '@passwaala/shared';
+} from '@nearbaz/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { WebPushService } from '../notifications/web-push.service';

@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// PassWala — Prisma schema (Phase 0 foundation)
+// NearBaz — Prisma schema (Phase 0 foundation)
 //
 // Mirrors the plan's Data Model, Revenue/Ledger, KYC, Referral, and Order
 // Exceptions sections. Enums are kept IN SYNC (identical values) with the
@@ -95,7 +95,7 @@ enum OrderStatus {
   REFUNDED
 }
 
-/// How the customer pays the shop DIRECTLY (PassWala is never in the money flow).
+/// How the customer pays the shop DIRECTLY (NearBaz is never in the money flow).
 enum PaymentMethod {
   UPI_DIRECT
   COD
@@ -128,19 +128,19 @@ enum LedgerEntryType {
   REFERRAL_CREDIT
   REFUND_REVERSAL
   PAYMENT
-  COD_REMITTANCE // credit (neg): PassWala holds COD cash owed to the shop
+  COD_REMITTANCE // credit (neg): NearBaz holds COD cash owed to the shop
   RIDER_DELIVERY_FEE // debit (pos): shop owes the delivery fee it collected (passed to rider)
   DISCOUNT_GIVEN // informational (total 0): "you gave ₹X discount"
-  SHOP_PAYOUT // debit (pos): PassWala pays a shop its negative balance toward 0
+  SHOP_PAYOUT // debit (pos): NearBaz pays a shop its negative balance toward 0
   AD_SPEND // debit (pos): shop owes CPC ad spend for sponsored placement (day-end billed)
 }
 
 /// Rider ledger entry type — mirrors LedgerEntryType for the rider side.
 enum RiderLedgerType {
   DELIVERY_EARNING // +earnings: rider earned the delivery fee
-  EARNING_PAYOUT // -earnings: PassWala paid the rider
+  EARNING_PAYOUT // -earnings: NearBaz paid the rider
   COD_COLLECTED // +dues: rider collected COD cash owed onward
-  COD_DEPOSIT // -dues: rider deposited COD cash to PassWala
+  COD_DEPOSIT // -dues: rider deposited COD cash to NearBaz
 }
 
 /// Tax invoice lifecycle.
@@ -238,19 +238,19 @@ enum PrescriptionStatus {
 // CORE ENTITIES
 // ===========================================================================
 
-/// Owner-controlled list of cities PassWala operates in. A shop can only
+/// Owner-controlled list of cities NearBaz operates in. A shop can only
 /// register in an `enabled` serviceable city; customers outside one see a
 /// "not available in your city yet" state. Managed by the OWNER.
 model ServiceableCity {
   id                      String  @id @default(uuid())
   name                    String  @unique // canonical city name (matches Shop.city)
   enabled                 Boolean @default(true)
-  /// PassWala's own UPI VPA for collecting shopkeeper dues in this city
+  /// NearBaz's own UPI VPA for collecting shopkeeper dues in this city
   /// (owner-configured in the admin panel). Shopkeepers in this city pay their
   /// dues to this VPA. Null until the owner sets it; never exposed on the public
   /// serviceable-city list (only surfaced to a scoped shopkeeper's ledger).
   collectionUpiVpa        String?
-  /// Payee display name shown in the UPI app (e.g. "PassWala"). Optional.
+  /// Payee display name shown in the UPI app (e.g. "NearBaz"). Optional.
   collectionUpiName       String?
   /// Maximum delivery radius for orders in this city (metres). Default 15 km.
   deliveryRadiusMeters    Int     @default(15000)
@@ -358,8 +358,8 @@ model User {
   /// Admin can reveal it (server decrypts) so a locked-out user can be helped.
   loginOtpEnc  String?
 
-  /// PassWala Coins voucher balance (a discount voucher, NOT real money / not a
-  /// wallet — keeps PassWala clear of RBI PPI regulation). Integer coin count.
+  /// NearBaz Coins voucher balance (a discount voucher, NOT real money / not a
+  /// wallet — keeps NearBaz clear of RBI PPI regulation). Integer coin count.
   coinBalance            Int     @default(0)
   /// Pending cancel fee from a COD order cancellation — added to next order's total.
   /// Customer cannot place another COD order until this is cleared.
@@ -461,7 +461,7 @@ model Shop {
   upiVpa String?
   upiQr  String?
 
-  // GST identity (for tax invoices PassWala issues to the shop). Nullable (rule #7).
+  // GST identity (for tax invoices NearBaz issues to the shop). Nullable (rule #7).
   gstin     String? // shop's 15-char GSTIN
   stateCode String? // 2-digit GST state code (derived from GSTIN or set manually)
   legalName String? // registered legal/business name for the invoice
@@ -480,7 +480,7 @@ model Shop {
 
   // Credit limit / ledger enforcement (all money in integer paise, rule #4)
   creditLimitPaise     Int // default ₹500 = 50000 paise (set at creation)
-  outstandingDuesPaise Int @default(0) // GST-inclusive dues owed to PassWala
+  outstandingDuesPaise Int @default(0) // GST-inclusive dues owed to NearBaz
 
   // Per-shop cart/checkout economics (paise)
   minOrderValuePaise      Int       @default(0) // enforced on item subtotal, before ₹10 fee
@@ -494,14 +494,14 @@ model Shop {
   /// Shopkeeper's appeal message after rejection/suspension. Cleared on re-approval.
   appealMessage           String?
   appealSubmittedAt       DateTime?
-  /// Whether this shop uses the PassWala rider network. When true, customers may
+  /// Whether this shop uses the NearBaz rider network. When true, customers may
   /// choose PLATFORM_RIDER and READY orders auto-post to the rider job board.
   platformDeliveryEnabled Boolean   @default(false)
   /// Whether the shop allows customers to pick up their order in person (no delivery fee).
   selfPickupEnabled       Boolean   @default(true)
 
   /// Optional short promo shown on the customer home card (e.g. "20% OFF on
-  /// select items"). Display-only; PassWala doesn't apply it to the bill.
+  /// select items"). Display-only; NearBaz doesn't apply it to the bill.
   offerText String?
 
   /// Active structured offer template selected by the shopkeeper.
@@ -736,7 +736,7 @@ model Order {
 
   status OrderStatus @default(PLACED)
 
-  // Payment (direct customer -> shop; PassWala records only)
+  // Payment (direct customer -> shop; NearBaz records only)
   paymentMethod     PaymentMethod
   paymentConfirmed  Boolean       @default(false) // set by the SHOP when it verifies receipt
   // UPI payment claim handshake: the customer taps "I've paid" (a claim), the
@@ -782,7 +782,7 @@ model Order {
   // total, so the delta is collected at the door by the rider/shop.
   addedItemsDuePaise    Int     @default(0)
   // Cancel fee carried over from a previous COD cancellation. Collected via UPI
-  // on this order; split 50% shop / 50% PassWala on DELIVERED.
+  // on this order; split 50% shop / 50% NearBaz on DELIVERED.
   cancelFeeLinePaise    Int     @default(0)
   // Which shop gets 50% of cancelFeeLinePaise (the original cancelled order's shop).
   cancelFeeShopId       String?
@@ -826,7 +826,7 @@ model Order {
   // customer handoff pickupOtp above. Set on every order (only used by riders).
   riderPickupOtp String?
 
-  // PassWala Coins redeemed on this order (1 coin = ₹1 = 100 paise), discounting
+  // NearBaz Coins redeemed on this order (1 coin = ₹1 = 100 paise), discounting
   // the item subtotal. 0 when no coins used. Deducted from the customer balance.
   coinsRedeemedPaise Int @default(0)
 
@@ -988,7 +988,7 @@ model LedgerEntry {
 
   // Money components (paise, rule #4). GST-inclusive total used for dues/limit.
   basePaise  Int // base amount before GST
-  gstPaise   Int // 18% GST on PassWala's earnings
+  gstPaise   Int // 18% GST on NearBaz's earnings
   totalPaise Int // SIGNED: base + gst; negative for credits/reversals
 
   status LedgerEntryStatus @default(ACCRUED)
@@ -1024,14 +1024,14 @@ model RiderLedger {
   @@index([type])
 }
 
-/// PassWala's own tax identity + invoice counter (single owner-managed row).
+/// NearBaz's own tax identity + invoice counter (single owner-managed row).
 /// Drives the intra/inter-state GST split (compare shop stateCode to stateCode
 /// here) and issues sequential tax-invoice numbers.
 model PlatformGstConfig {
   id            String   @id @default(uuid())
   legalName     String
   gstin         String
-  stateCode     String // PassWala's home state code — intra-state when shop matches
+  stateCode     String // NearBaz's home state code — intra-state when shop matches
   address       String?
   invoicePrefix String   @default("PW")
   invoiceSeq    Int      @default(0) // running counter; atomically incremented on issue
@@ -1039,7 +1039,7 @@ model PlatformGstConfig {
   updatedAt     DateTime @updatedAt
 }
 
-/// A tax invoice PassWala issues to a shop (monthly consolidated), for GST
+/// A tax invoice NearBaz issues to a shop (monthly consolidated), for GST
 /// filing. taxableValue = COMMISSION + PLATFORM_FEE base; GST split by state.
 model TaxInvoice {
   id            String @id @default(uuid())
@@ -1096,8 +1096,8 @@ model TaxInvoiceLine {
 // REFERRAL
 // ===========================================================================
 
-/// A referral (PassWala Coins voucher program). Coins unlock only after the
-/// qualifying 1st order is DELIVERED (status QUALIFIED). Funded by PassWala via
+/// A referral (NearBaz Coins voucher program). Coins unlock only after the
+/// qualifying 1st order is DELIVERED (status QUALIFIED). Funded by NearBaz via
 /// a REFERRAL_CREDIT LedgerEntry against the shop's dues at redemption.
 model Referral {
   id String @id @default(uuid())

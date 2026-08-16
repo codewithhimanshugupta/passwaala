@@ -9,8 +9,8 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { PaymentMethod } from '@passwaala/shared';
-import type { POSSaleItem, POSCreateSale } from '@passwaala/shared';
+import { PaymentMethod } from '@nearbaz/shared';
+import type { POSSaleItem, POSCreateSale } from '@nearbaz/shared';
 import { api, posSaleWithOutbox, flushPosOutbox } from '../api';
 import {
   cacheCatalog,

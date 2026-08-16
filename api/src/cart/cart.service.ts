@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { DeliveryMode, computeBill, haversineMeters, platformDeliveryFeePaise } from '@passwaala/shared';
+import { DeliveryMode, computeBill, haversineMeters, platformDeliveryFeePaise } from '@nearbaz/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { AddToCartDto } from './dto/add-to-cart.dto';
 
@@ -334,7 +334,7 @@ export class CartService {
       subtotalPaise,
       deliveryFeePaise,
       freeDeliveryAbovePaise,
-      offerType: offer?.type as import('@passwaala/shared').OfferType | null ?? null,
+      offerType: offer?.type as import('@nearbaz/shared').OfferType | null ?? null,
       offerValue: offer?.value ?? null,
       offerMinOrderPaise: offer?.minOrderPaise ?? null,
       offerMaxDiscountPaise: (offer as { maxDiscountPaise?: number | null } | null)?.maxDiscountPaise ?? null,

@@ -19,20 +19,20 @@ jobs:
       db:
         image: postgis/postgis:16-3.4
         env:
-          POSTGRES_USER: passwaala
+          POSTGRES_USER: nearbaz
           POSTGRES_PASSWORD: dev
-          POSTGRES_DB: passwaala_test
+          POSTGRES_DB: nearbaz_test
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U passwala -d passwala_test"
+          --health-cmd "pg_isready -U nearbaz -d nearbaz_test"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
 
     env:
       # Point the API + Prisma at the service container above.
-      DATABASE_URL: postgresql://passwaala:dev@localhost:5432/passwaala_test?schema=public
+      DATABASE_URL: postgresql://nearbaz:dev@localhost:5432/nearbaz_test?schema=public
 
     steps:
       - name: Checkout
@@ -59,7 +59,7 @@ jobs:
         run: npm run prisma:migrate:deploy
 
       - name: Build API
-        run: npm run build --workspace @passwaala/api
+        run: npm run build --workspace @nearbaz/api
 
       - name: Run API tests
         run: npm run api:test

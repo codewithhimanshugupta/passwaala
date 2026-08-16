@@ -1,4 +1,4 @@
-# PassWaala — Performance & Scale Plan
+# NearBaz — Performance & Scale Plan
 
 Current stack: Vercel (4 web apps) + Render free (API) + Supabase (Postgres+PostGIS).
 This doc covers what's done for speed, and what to do as traffic grows.
@@ -20,7 +20,7 @@ This doc covers what's done for speed, and what to do as traffic grows.
 ## Permanent keep-alive (free, do this)
 
 The session cron dies when Claude exits. For always-on, use an external uptime pinger:
-- **cron-job.org** or **UptimeRobot** (free) → ping `https://passwaala.onrender.com/health` every 10 min.
+- **cron-job.org** or **UptimeRobot** (free) → ping `https://api.nearbaz.in/health` every 10 min.
 - Note: this keeps it warm but does NOT add CPU — cold starts shrink, but heavy-load slowness still needs the $7 tier.
 
 ## When you scale (later, in order of impact)

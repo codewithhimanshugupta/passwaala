@@ -11,7 +11,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { ApiError, type AdminBanner } from '@passwaala/api-client';
+import { ApiError, type AdminBanner } from '@nearbaz/api-client';
 import { api } from '../api';
 import { theme } from '../theme';
 import { DeleteIcon } from '../EditDeleteIcons';

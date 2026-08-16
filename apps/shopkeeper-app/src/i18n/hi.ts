@@ -364,7 +364,7 @@ export const hi: Strings = {
     payTitle: 'NearBaz को बकाया चुकाएं',
     currentDues: 'वर्तमान बकाया',
     amountToPay: 'चुकाने की राशि',
-    passwalaUpi: 'NearBaz UPI',
+    nearbazUpi: 'NearBaz UPI',
     payFieldLabel: 'राशि (₹) — अग्रिम क्रेडिट बनाने के लिए अतिरिक्त चुकाएं',
     payNow: (amount: string) => `अभी UPI से ₹${amount} चुकाएं`,
     enterAmount: 'एक राशि दर्ज करें',

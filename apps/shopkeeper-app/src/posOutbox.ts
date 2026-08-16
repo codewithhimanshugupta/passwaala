@@ -12,11 +12,11 @@
  * takes a poster callback — to avoid an import cycle with src/api.ts.
  */
 import { kvGet, kvSet } from './kv';
-import type { POSCreateSale } from '@passwaala/shared';
+import type { POSCreateSale } from '@nearbaz/shared';
 
 /** Storage keys. Namespaced so multiple shops on one device don't collide. */
-const OUTBOX_KEY = 'passwaala.shopkeeper.pos.outbox.v1';
-const CATALOG_KEY = 'passwaala.shopkeeper.pos.catalog.v1';
+const OUTBOX_KEY = 'nearbaz.shopkeeper.pos.outbox.v1';
+const CATALOG_KEY = 'nearbaz.shopkeeper.pos.catalog.v1';
 
 /** One queued sale: the exact request body plus local bookkeeping. */
 export interface OutboxEntry {

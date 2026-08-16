@@ -1,6 +1,6 @@
 import { IsArray, IsEnum, IsOptional, IsString, ValidateNested, ArrayMinSize, ArrayMaxSize, IsInt, Min } from 'class-validator';
 import { Type } from 'class-transformer';
-import { DeliveryMode, PaymentMethod } from '@passwaala/shared';
+import { DeliveryMode, PaymentMethod } from '@nearbaz/shared';
 
 class BulkOrderItemDto {
   @IsString()

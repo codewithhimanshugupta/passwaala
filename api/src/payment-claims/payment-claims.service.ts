@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { LedgerEntryType, RiderLedgerType } from '@passwaala/shared';
+import { LedgerEntryType, RiderLedgerType } from '@nearbaz/shared';
 
 @Injectable()
 export class PaymentClaimsService {

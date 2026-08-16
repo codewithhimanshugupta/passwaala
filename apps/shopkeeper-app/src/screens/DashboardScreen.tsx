@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
-import { VerificationStatus } from '@passwaala/shared';
+import { VerificationStatus } from '@nearbaz/shared';
 import { api } from '../api';
 import { getShopkeeperPrefetch } from '../shopkeeperPrefetch';
 import { formatRupees, placeholderImage, theme } from '../theme';

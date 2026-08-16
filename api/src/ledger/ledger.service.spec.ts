@@ -1,5 +1,5 @@
 import { Test } from '@nestjs/testing';
-import { LedgerEntryType } from '@passwaala/shared';
+import { LedgerEntryType } from '@nearbaz/shared';
 import { LedgerService } from './ledger.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CitiesService } from '../cities/cities.service';

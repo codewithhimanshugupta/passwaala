@@ -1,18 +1,18 @@
-# PassWaala — Privacy Policy
+# NearBaz — Privacy Policy
 
 **Effective date: 14 August 2026**
 
-This Privacy Policy explains how PassWaala ("we", "us", "the app") collects, uses,
-and protects your information across our three mobile apps — **PassWaala** (customer),
-**PassWaala Partner** (shopkeeper), and **PassWaala Rider** (delivery rider) — and our website.
+This Privacy Policy explains how NearBaz ("we", "us", "the app") collects, uses,
+and protects your information across our three mobile apps — **NearBaz** (customer),
+**NearBaz Partner** (shopkeeper), and **NearBaz Rider** (delivery rider) — and our website.
 
-This Privacy Policy is published by **PassWaala** (the operator of the apps and website).
+This Privacy Policy is published by **NearBaz** (the operator of the apps and website).
 
 > **[FILL IN before publishing — legal entity only]** If you operate as a registered
-> company/firm, replace "PassWaala" above with your **registered legal entity name** and add
-> your **registered address** here. Sole proprietors may keep "PassWaala". All other fields
+> company/firm, replace "NearBaz" above with your **registered legal entity name** and add
+> your **registered address** here. Sole proprietors may keep "NearBaz". All other fields
 > below (support email, deletion URL) are already filled — change them only if yours differ.
-> Then host this page at `https://passwaala.in/privacy` and link it in each app's settings and
+> Then host this page at `https://nearbaz.in/privacy` and link it in each app's settings and
 > in the Play Console / App Store listing.
 
 ## 1. Information we collect
@@ -65,9 +65,9 @@ and ledger records where required for legal, tax, and accounting purposes, in de
 where possible.
 
 > **Play Store account-deletion URL:** Google requires a public web URL that explains how to
-> request deletion. Host `https://passwaala.in/delete-account` (a ready-to-host page is provided
+> request deletion. Host `https://nearbaz.in/delete-account` (a ready-to-host page is provided
 > at `docs/delete-account.html`) stating: users delete in-app via Profile/Settings → Delete
-> account, or email `support@passwaala.in`.
+> account, or email `support@nearbaz.in`.
 
 ## 6. Security
 
@@ -84,4 +84,4 @@ We may update this policy; the "Effective date" above reflects the latest versio
 
 ## 9. Contact
 
-Questions or data requests: **support@passwaala.in**.
+Questions or data requests: **support@nearbaz.in**.

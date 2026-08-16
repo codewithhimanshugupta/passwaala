@@ -1,5 +1,5 @@
 // Metro config for the NearBaz monorepo (npm workspaces).
-// Enables Metro to resolve the hoisted @passwaala/shared + @passwaala/api-client
+// Enables Metro to resolve the hoisted @nearbaz/shared + @nearbaz/api-client
 // packages from the repo root and to watch them for changes during native builds.
 const { getDefaultConfig } = require('expo/metro-config');
 const path = require('path');

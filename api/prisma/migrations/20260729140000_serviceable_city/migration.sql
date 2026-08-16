@@ -1,4 +1,4 @@
--- Owner-controlled serviceable cities (PassWaala operates only in enabled cities).
+-- Owner-controlled serviceable cities (NearBaz operates only in enabled cities).
 CREATE TABLE "ServiceableCity" (
     "id" TEXT NOT NULL,
     "name" TEXT NOT NULL,

@@ -170,7 +170,7 @@ export const hi: Strings = {
     liveMessage: 'अपने पास उपलब्ध डिलीवरी देखने के लिए Jobs टैब पर जाएं।',
     goOnlineTitle: 'डिलीवरी काम देखने के लिए ऑनलाइन जाएं',
     goOnlineMessage: 'आप उपलब्ध काम केवल तभी देखेंगे जब आप ऑनलाइन होंगे।',
-    passwala: 'NearBaz',
+    nearbaz: 'NearBaz',
   },
   dues: {
     clearTitle: 'कोई बकाया नहीं',

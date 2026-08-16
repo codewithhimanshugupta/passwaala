@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { haversineMeters, isWithinDeliveryRange, platformDeliveryFeePaise } from '@passwaala/shared';
+import { haversineMeters, isWithinDeliveryRange, platformDeliveryFeePaise } from '@nearbaz/shared';
 import { api } from '../api';
 import type { Address } from '../types';
 import { theme } from '../theme';

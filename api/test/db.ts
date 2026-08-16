@@ -5,7 +5,7 @@ import {
   PaymentMethod,
   UserRole,
   VerificationStatus,
-} from '@passwaala/shared';
+} from '@nearbaz/shared';
 
 /**
  * Shared Prisma client for integration tests, plus a truncation helper to reset

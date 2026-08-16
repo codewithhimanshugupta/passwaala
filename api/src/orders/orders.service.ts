@@ -17,7 +17,7 @@ import {
   haversineMeters,
   isWithinDeliveryRange,
   platformDeliveryFeePaise,
-} from '@passwaala/shared';
+} from '@nearbaz/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { assertOwnedByShop, requireShopScope } from '../common/shop-scope';
 import { PaginationQuery, cursorArgs, toPage } from '../common/pagination';
@@ -433,7 +433,7 @@ export class OrdersService {
       subtotalPaise,
       deliveryFeePaise,
       freeDeliveryAbovePaise,
-      offerType: (offer?.type ?? coupon?.type) as import('@passwaala/shared').OfferType | null ?? null,
+      offerType: (offer?.type ?? coupon?.type) as import('@nearbaz/shared').OfferType | null ?? null,
       offerValue: offer?.value ?? coupon?.value ?? null,
       offerMinOrderPaise: offer?.minOrderPaise ?? coupon?.minOrderPaise ?? null,
       offerMaxDiscountPaise: coupon?.maxDiscountPaise ?? null,
@@ -468,7 +468,7 @@ export class OrdersService {
     );
 
     // Cancel fee: check if customer has a pending cancel fee from a prior COD cancellation.
-    // If so, block COD and add the fee to this order total (collected via UPI to PassWala).
+    // If so, block COD and add the fee to this order total (collected via UPI to NearBaz).
     const customerRecord = await this.prisma.user.findUnique({
       where: { id: customerId },
       select: { pendingCancelFeePaise: true, pendingCancelFeeShopId: true },
@@ -1367,7 +1367,7 @@ export class OrdersService {
   /**
    * Shop approves customer's cancel request. The cancel fee (if any) is:
    * - 50% credited to the shop's ledger (compensation for prep work)
-   * - 50% retained by PassWala
+   * - 50% retained by NearBaz
    * If the order was prepaid, it moves to REFUND_PENDING (net of fee).
    */
   async approveCancelRequest(shopId: string | undefined, orderId: string) {
@@ -1419,7 +1419,7 @@ export class OrdersService {
           });
         } else {
           // COD order: shop gets 0% (no money ever changed hands — shop loses nothing).
-          // Full fee goes to PassWala. Customer carries it as pending balance.
+          // Full fee goes to NearBaz. Customer carries it as pending balance.
           await tx.user.update({
             where: { id: order.customerId },
             data: {
@@ -1784,15 +1784,15 @@ export class OrdersService {
         data: { orderCount: { increment: 1 }, lastOrderAt: new Date() },
       }).catch(() => undefined);
       // Cancel fee split: if this order carried a cancel fee line, credit 50%
-      // to the original shop and PassWala keeps the other 50%.
+      // to the original shop and NearBaz keeps the other 50%.
       const cancelOrder = await this.prisma.order.findUnique({
         where: { id: orderId },
         select: { cancelFeeLinePaise: true, cancelFeeShopId: true },
       });
-      // COD cancel fee: full amount goes to PassWala (shop gets 0%).
+      // COD cancel fee: full amount goes to NearBaz (shop gets 0%).
       if ((cancelOrder?.cancelFeeLinePaise ?? 0) > 0) {
         // Nothing to write — fee was already collected via UPI in the order total.
-        // PassWala keeps 100%. The audit trail is on Order.cancelFeeLinePaise.
+        // NearBaz keeps 100%. The audit trail is on Order.cancelFeeLinePaise.
       }
     }
 

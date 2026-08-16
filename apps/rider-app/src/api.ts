@@ -1,4 +1,4 @@
-import { PasswaalaApiClient, friendlyMessage } from '@passwaala/api-client';
+import { NearBazApiClient, friendlyMessage } from '@nearbaz/api-client';
 import { notifyError } from './toast';
 
 /**
@@ -7,7 +7,7 @@ import { notifyError } from './toast';
  * out.
  */
 const baseUrl = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
-const TOKEN_KEY = 'passwaala.rider.token';
+const TOKEN_KEY = 'nearbaz.rider.token';
 
 function loadToken(): string | undefined {
   try {
@@ -45,7 +45,7 @@ export function onAuthExpired(fn: AuthExpiredListener): () => void {
   return () => authExpiredListeners.delete(fn);
 }
 
-export const api = new PasswaalaApiClient({
+export const api = new NearBazApiClient({
   baseUrl,
   token: loadToken(),
   onTokenChange: saveToken,

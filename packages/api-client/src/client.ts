@@ -18,7 +18,7 @@ import type {
   QuotePrescription,
   RejectPrescription,
   PrescriptionView,
-} from '@passwaala/shared';
+} from '@nearbaz/shared';
 
 /** A discovered nearby shop (public view + distance). */
 export interface NearbyShop extends ShopPublic {
@@ -148,14 +148,14 @@ export function friendlyMessage(err: unknown): string {
 }
 
 /**
- * PasswaalaApiClient — a single typed client for the NearBaz API, shared by the
+ * NearBazApiClient — a single typed client for the NearBaz API, shared by the
  * customer + shopkeeper Expo apps (and any web/admin surface). Pure fetch, no
  * framework deps, so it runs on React Native, RN Web, and Node alike.
  *
  * The auth token is held in memory; the apps persist it (SecureStore /
  * localStorage) and call setToken() on startup.
  */
-export class PasswaalaApiClient {
+export class NearBazApiClient {
   private baseUrl: string;
   private token?: string;
   private fetchImpl: typeof fetch;
@@ -517,7 +517,7 @@ export class PasswaalaApiClient {
     totalOrders: number;
     deliveredOrders: number;
     gmvPaise: number;
-    passwalaRevenuePaise: number;
+    nearbazRevenuePaise: number;
     refundPendingCount: number;
     statusCounts: {
       pending: number;
@@ -1253,7 +1253,7 @@ export class PasswaalaApiClient {
     deliveryFeesPaise: number;
     commissionPaise: number;
     platformFeePaise: number;
-    codCollectedByPasswalaPaise: number;
+    codCollectedByNearBazPaise: number;
     netPositionPaise: number;
   }> {
     return this.get(`/ledger/pnl${since ? `?since=${encodeURIComponent(since)}` : ''}`);

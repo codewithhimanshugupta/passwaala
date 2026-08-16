@@ -1,4 +1,4 @@
-import { OrderStatus, VerificationStatus } from '@passwaala/shared';
+import { OrderStatus, VerificationStatus } from '@nearbaz/shared';
 import type { BadgeTone } from './ui';
 import type { Strings } from './i18n/strings';
 

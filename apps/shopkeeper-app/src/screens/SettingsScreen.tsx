@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
-import { VerificationStatus } from '@passwaala/shared';
+import { VerificationStatus } from '@nearbaz/shared';
 import { api, updateName, type MyAccount } from '../api';
 import { getShopkeeperPrefetch } from '../shopkeeperPrefetch';
 import { paiseToRupeeInput, placeholderImage, rupeeInputToPaise, theme } from '../theme';

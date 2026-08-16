@@ -13,7 +13,7 @@ export class UpsertCityDto {
 
   @IsOptional()
   @IsString()
-  @Matches(/^$|^[\w.\-]{2,}@[\w.\-]{2,}$/, { message: 'collectionUpiVpa must be a valid UPI id (e.g. passwala@upi)' })
+  @Matches(/^$|^[\w.\-]{2,}@[\w.\-]{2,}$/, { message: 'collectionUpiVpa must be a valid UPI id (e.g. nearbaz@upi)' })
   @MaxLength(120)
   collectionUpiVpa?: string;
 

@@ -1,4 +1,4 @@
-import { ApiError, AuthExpiredError, PasswaalaApiClient, friendlyMessage } from '@passwaala/api-client';
+import { ApiError, AuthExpiredError, NearBazApiClient, friendlyMessage } from '@nearbaz/api-client';
 import { notifyError } from './toast';
 
 /**
@@ -7,7 +7,7 @@ import { notifyError } from './toast';
  * out. Mirrors the customer/shopkeeper apps but uses an admin-scoped storage key.
  */
 const baseUrl = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
-const TOKEN_KEY = 'passwala.admin.token';
+const TOKEN_KEY = 'nearbaz.admin.token';
 
 function loadToken(): string | undefined {
   try {
@@ -57,7 +57,7 @@ function emitAuthExpired(): void {
   }
 }
 
-export const api = new PasswaalaApiClient({
+export const api = new NearBazApiClient({
   baseUrl,
   token: loadToken(),
   onTokenChange: saveToken,

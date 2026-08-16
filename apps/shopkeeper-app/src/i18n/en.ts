@@ -368,7 +368,7 @@ export const en = {
     payTitle: 'Pay dues to NearBaz',
     currentDues: 'Current dues',
     amountToPay: 'Amount to pay',
-    passwalaUpi: 'NearBaz UPI',
+    nearbazUpi: 'NearBaz UPI',
     payFieldLabel: 'Amount (₹) — pay extra to build advance credit',
     payNow: (amount: string) => `Pay ₹${amount} now with UPI`,
     enterAmount: 'Enter an amount',

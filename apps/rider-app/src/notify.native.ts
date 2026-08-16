@@ -65,7 +65,7 @@ export function notifyNewJob(title: string, body: string): void {
   if (AppState.currentState === 'active') return; // foreground — banner + sound cover it
   try {
     void Notifications.scheduleNotificationAsync({
-      content: { title, body, data: { tag: 'passwaala-job' }, sound: 'default' },
+      content: { title, body, data: { tag: 'nearbaz-job' }, sound: 'default' },
       trigger: null,
     });
   } catch {
@@ -82,7 +82,7 @@ export function notifyAlert(title: string, body: string): void {
   if (!granted) return;
   try {
     void Notifications.scheduleNotificationAsync({
-      content: { title, body, data: { tag: 'passwaala-alert' }, sound: 'default' },
+      content: { title, body, data: { tag: 'nearbaz-alert' }, sound: 'default' },
       trigger: null,
     });
   } catch {

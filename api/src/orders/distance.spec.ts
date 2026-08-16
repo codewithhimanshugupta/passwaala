@@ -2,7 +2,7 @@ import {
   PLATFORM_DELIVERY_TIERS,
   haversineMeters,
   platformDeliveryFeePaise,
-} from '@passwaala/shared';
+} from '@nearbaz/shared';
 
 /**
  * Distance-tiered platform-rider delivery fee + Haversine helper (shared money

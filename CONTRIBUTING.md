@@ -1,6 +1,6 @@
-# Contributing to PassWaala
+# Contributing to NearBaz
 
-A few hard rules keep PassWaala shippable and safe. Read these before opening a PR.
+A few hard rules keep NearBaz shippable and safe. Read these before opening a PR.
 
 ## Tests ship with every feature
 

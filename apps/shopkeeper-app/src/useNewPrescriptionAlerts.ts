@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { PrescriptionView } from '@passwaala/shared';
+import type { PrescriptionView } from '@nearbaz/shared';
 import { api } from './api';
 import { startAlert, stopAlert } from './sound';
 import { canNotify, notifyNewOrder, requestNotifyPermission, vibrate } from './notify';

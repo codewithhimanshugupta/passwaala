@@ -1,6 +1,6 @@
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import { UserRole, VerificationStatus } from '@passwaala/shared';
+import { UserRole, VerificationStatus } from '@nearbaz/shared';
 import { createTestApp } from './create-test-app';
 import { closeDb, createShop, prisma, resetDb } from './db';
 import { bearer, createUser } from './auth';

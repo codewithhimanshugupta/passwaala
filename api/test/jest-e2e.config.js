@@ -2,7 +2,7 @@
  * Jest E2E / integration config (plan → Testing Standard: integration tests hit
  * a REAL Postgres test DB, not mocks). Runs *.e2e-spec.ts files under test/.
  *
- * These require the Docker Postgres+PostGIS container up and the passwala_test
+ * These require the Docker Postgres+PostGIS container up and the nearbaz_test
  * database migrated (npm run test:e2e handles setup). Kept separate from the
  * unit jest config in package.json (which runs src/ *.spec.ts, DB-free).
  */

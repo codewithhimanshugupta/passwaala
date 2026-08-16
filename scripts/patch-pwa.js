@@ -10,7 +10,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const tokenKey = process.argv[2] || 'passwaala.shopkeeper.token';
+const tokenKey = process.argv[2] || 'nearbaz.shopkeeper.token';
 
 const indexPath = path.resolve('dist/index.html');
 if (!fs.existsSync(indexPath)) {
@@ -53,7 +53,7 @@ const fitStyle = `  <style id="pwa-fit">
 const swScript = `  <script>
   (function () {
     if (!('serviceWorker' in navigator)) return;
-    var API = ${JSON.stringify(process.env.EXPO_PUBLIC_API_URL || 'https://passwaala.onrender.com')};
+    var API = ${JSON.stringify(process.env.EXPO_PUBLIC_API_URL || 'https://api.nearbaz.in')};
     var TOKEN_KEY = ${JSON.stringify(tokenKey)};
     function urlB64ToUint8Array(b64) {
       var pad = '='.repeat((4 - (b64.length % 4)) % 4);
@@ -118,7 +118,7 @@ const installScript = `  <script>
     // only fires beforeinstallprompt when the app isn't installed, so this is
     // naturally install-gated. To avoid nagging, a dismissal snoozes the invite
     // for a week; after that a non-installer sees it again.
-    var SNOOZE_KEY = 'passwaala.pwa.installSnoozeUntil';
+    var SNOOZE_KEY = 'nearbaz.pwa.installSnoozeUntil';
     var SNOOZE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
     try {
       var until = parseInt(localStorage.getItem(SNOOZE_KEY) || '0', 10);

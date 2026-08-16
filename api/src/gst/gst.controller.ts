@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Patch, Post, Query } from '@nestjs/common';
-import { UserRole } from '@passwaala/shared';
+import { UserRole } from '@nearbaz/shared';
 import { Roles } from '../common/roles.decorator';
 import { GstService } from './gst.service';
 import { UpsertGstConfigDto } from './dto/upsert-gst-config.dto';

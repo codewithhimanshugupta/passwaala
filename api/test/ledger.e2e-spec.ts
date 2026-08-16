@@ -1,7 +1,7 @@
 import { INestApplication } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import request from 'supertest';
-import { LedgerEntryType, OrderStatus, UserRole } from '@passwaala/shared';
+import { LedgerEntryType, OrderStatus, UserRole } from '@nearbaz/shared';
 import { createTestApp } from './create-test-app';
 import { closeDb, createOrder, createShop, prisma, resetDb } from './db';
 import { bearer } from './auth';
@@ -170,8 +170,8 @@ describe('Ledger + credit limit (e2e)', () => {
     const { ownerId, shopId } = await createShop();
     await prisma.serviceableCity.upsert({
       where: { name: 'Jhansi' },
-      create: { name: 'Jhansi', enabled: true, collectionUpiVpa: 'passwala@upi', collectionUpiName: 'NearBaz' },
-      update: { collectionUpiVpa: 'passwala@upi', collectionUpiName: 'NearBaz', enabled: true },
+      create: { name: 'Jhansi', enabled: true, collectionUpiVpa: 'nearbaz@upi', collectionUpiName: 'NearBaz' },
+      update: { collectionUpiVpa: 'nearbaz@upi', collectionUpiName: 'NearBaz', enabled: true },
     });
     const token = await shopkeeperToken(app, ownerId, shopId);
 
@@ -179,7 +179,7 @@ describe('Ledger + credit limit (e2e)', () => {
       .get('/ledger')
       .set(...bearer(token))
       .expect(200);
-    expect(res.body.collectionUpi).toEqual({ vpa: 'passwala@upi', name: 'NearBaz' });
+    expect(res.body.collectionUpi).toEqual({ vpa: 'nearbaz@upi', name: 'NearBaz' });
   });
 
   it('shopkeeper pays exact dues → dues cleared, PAID + PAYMENT entries, reactivated', async () => {

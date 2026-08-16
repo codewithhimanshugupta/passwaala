@@ -1,7 +1,7 @@
 import { INestApplication } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import request from 'supertest';
-import { UserRole } from '@passwaala/shared';
+import { UserRole } from '@nearbaz/shared';
 import { createTestApp } from './create-test-app';
 import { closeDb, createShop, prisma, resetDb } from './db';
 import { bearer } from './auth';

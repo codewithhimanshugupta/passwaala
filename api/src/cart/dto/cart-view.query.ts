@@ -1,5 +1,5 @@
 import { IsEnum, IsOptional, IsString, MaxLength } from 'class-validator';
-import { DeliveryMode } from '@passwaala/shared';
+import { DeliveryMode } from '@nearbaz/shared';
 
 /**
  * CartViewQuery — optional query params for GET /cart so the checkout can

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { ApiError } from '@passwaala/api-client';
+import { ApiError } from '@nearbaz/api-client';
 import { api } from '../api';
 import { theme } from '../theme';
 import { useLang } from '../i18n/LanguageContext';

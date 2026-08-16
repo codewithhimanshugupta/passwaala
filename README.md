@@ -1,11 +1,11 @@
-# PassWaala — Your Local Business Network
+# NearBaz — Your Local Business Network
 
-PassWaala is a hyperlocal, **multi-shop** marketplace connecting a locality's
+NearBaz is a hyperlocal, **multi-shop** marketplace connecting a locality's
 product businesses (kirana, dairy, medical, fruits & veg, electronics, clothing,
 hardware…) with nearby customers. A customer near a shop can browse that shop's
 catalogue, place an order, and the shopkeeper receives and fulfills it — with
 WhatsApp/FCM as the notification backbone and self-delivery to start. Money flows
-**directly from customer to shopkeeper** (UPI or Cash on Delivery); PassWaala never
+**directly from customer to shopkeeper** (UPI or Cash on Delivery); NearBaz never
 holds, splits, or settles money.
 
 Positioning: Customer — *"Jo chahiye, paas mein mil jayega."* · Shop owner —
@@ -92,7 +92,7 @@ Useful root scripts: `npm run db:up` / `npm run db:down` / `npm run db:logs`
 npm-workspaces monorepo (`packages/*`, `api`, `apps/*`):
 
 ```
-passwala/
+nearbaz/
 ├── api/                    # NestJS service — modules: auth, shops, products,
 │                           #   orders, notifications, realtime, dispatch (stub);
 │                           #   api/prisma/schema.prisma holds the Postgres schema
@@ -101,7 +101,7 @@ passwala/
 │   ├── shopkeeper-app/     # React Native (Expo) — same triple target
 │   └── admin/              # Retool-hosted or thin React admin
 ├── packages/
-│   └── shared/             # @passwaala/shared — shared TS types & DTOs (order
+│   └── shared/             # @nearbaz/shared — shared TS types & DTOs (order
 │                           #   status enum, etc.) used across apps + api
 ├── docker-compose.yml      # Postgres+PostGIS + Redis for local dev
 ├── .github/workflows/ci.yml

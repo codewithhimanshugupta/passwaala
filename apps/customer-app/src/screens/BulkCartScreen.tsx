@@ -8,7 +8,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import { PaymentMethod } from '@passwaala/shared';
+import { PaymentMethod } from '@nearbaz/shared';
 import { api } from '../api';
 import { resetBulkCartStore, useBulkCart, bulkCartSetQty, bulkCartRemoveShop } from '../bulkCart';
 import { prefetchShop } from './StorefrontScreen';
@@ -20,7 +20,7 @@ import { Button, Divider, EmptyState, Loading } from '../ui';
 import { getPrefetchedCheckout, clearCheckoutPrefetch } from '../checkoutPrefetch';
 import { StripedProgressBar } from '../StripedProgressBar';
 import { useLang } from '../i18n/LanguageContext';
-import { MULTI_SHOP_SURCHARGE_PAISE, platformDeliveryFeePaise, computeGst, PLATFORM_FEE_PAISE } from '@passwaala/shared';
+import { MULTI_SHOP_SURCHARGE_PAISE, platformDeliveryFeePaise, computeGst, PLATFORM_FEE_PAISE } from '@nearbaz/shared';
 
 interface NearbyShop {
   id: string;

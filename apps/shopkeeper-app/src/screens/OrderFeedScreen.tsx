@@ -11,7 +11,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { OrderStatus, PaymentMethod, DeliveryMode, nextStatuses } from '@passwaala/shared';
+import { OrderStatus, PaymentMethod, DeliveryMode, nextStatuses } from '@nearbaz/shared';
 import { api } from '../api';
 import { onSocket } from '../socket';
 import { getShopkeeperPrefetch } from '../shopkeeperPrefetch';

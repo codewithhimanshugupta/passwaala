@@ -27,7 +27,7 @@ CREATE INDEX "RiderLedger_riderUserId_idx" ON "RiderLedger"("riderUserId");
 CREATE INDEX "RiderLedger_orderId_idx" ON "RiderLedger"("orderId");
 CREATE INDEX "RiderLedger_type_idx" ON "RiderLedger"("type");
 
--- PlatformGstConfig: PassWaala's own tax identity + invoice counter (single row).
+-- PlatformGstConfig: NearBaz's own tax identity + invoice counter (single row).
 CREATE TABLE "PlatformGstConfig" (
   "id"            TEXT NOT NULL,
   "legalName"     TEXT NOT NULL,

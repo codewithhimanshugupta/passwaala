@@ -4,7 +4,7 @@ import {
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
-import { DeliveryMode, OrderStatus, PaymentMethod, RiderLedgerType, UserRole, BulkOrderStatus, haversineMeters } from '@passwaala/shared';
+import { DeliveryMode, OrderStatus, PaymentMethod, RiderLedgerType, UserRole, BulkOrderStatus, haversineMeters } from '@nearbaz/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
 import { DispatchService } from '../dispatch/dispatch.service';

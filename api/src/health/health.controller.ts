@@ -1,12 +1,12 @@
 import { Controller, Get } from '@nestjs/common';
-import { OrderStatus, canTransition } from '@passwaala/shared';
+import { OrderStatus, canTransition } from '@nearbaz/shared';
 import { Public } from '../common/public.decorator';
 import { PrismaService } from '../prisma/prisma.service';
 
 /**
  * HealthController — liveness endpoint that also warms the DB connection.
  *
- * Added by the Phase 0 verifier. It imports from @passwaala/shared on purpose so
+ * Added by the Phase 0 verifier. It imports from @nearbaz/shared on purpose so
  * the API build genuinely exercises the cross-package workspace dependency.
  *
  * @Public() so the global JwtAuthGuard lets liveness checks through without a

@@ -1,4 +1,4 @@
-import { PasswaalaApiClient, friendlyMessage } from '@passwaala/api-client';
+import { NearBazApiClient, friendlyMessage } from '@nearbaz/api-client';
 import { notifyError } from './toast';
 
 /**
@@ -11,7 +11,7 @@ import { notifyError } from './toast';
  * whenever the token is set/cleared, so persistence stays in one place.
  */
 const baseUrl = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
-const TOKEN_KEY = 'passwaala.customer.token';
+const TOKEN_KEY = 'nearbaz.customer.token';
 
 function loadToken(): string | undefined {
   try {
@@ -59,7 +59,7 @@ export function onAuthExpired(fn: () => void): () => void {
 // can't use loadToken() inside onUnauthorized to know if they were logged in.
 let hadToken = !!loadToken();
 
-export const api = new PasswaalaApiClient({
+export const api = new NearBazApiClient({
   baseUrl,
   token: loadToken(),
   onTokenChange: (token) => {

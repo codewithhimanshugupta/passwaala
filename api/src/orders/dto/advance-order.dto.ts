@@ -1,5 +1,5 @@
 import { IsEnum, IsOptional, IsString, MaxLength } from 'class-validator';
-import { OrderStatus } from '@passwaala/shared';
+import { OrderStatus } from '@nearbaz/shared';
 
 /**
  * AdvanceOrderDto — body for PATCH /orders/:id/status (shopkeeper advances an

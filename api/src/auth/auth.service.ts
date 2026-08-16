@@ -1,6 +1,6 @@
 import { Injectable, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { UserRole } from '@passwaala/shared';
+import { UserRole } from '@nearbaz/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthPayload } from './auth-payload';
 import {

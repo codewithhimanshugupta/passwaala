@@ -1,5 +1,5 @@
 {
-  "name": "@passwaala/api-client",
+  "name": "@nearbaz/api-client",
   "version": "0.1.0",
   "private": true,
   "main": "dist/index.js",
@@ -9,7 +9,7 @@
     "dev": "tsc -p tsconfig.json --watch"
   },
   "dependencies": {
-    "@passwaala/shared": "*"
+    "@nearbaz/shared": "*"
   },
   "devDependencies": {
     "typescript": "^5.5.0"

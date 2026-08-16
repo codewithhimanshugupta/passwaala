@@ -10,7 +10,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { ApiError } from '@passwaala/api-client';
+import { ApiError } from '@nearbaz/api-client';
 import type {
   AdShopCard,
   AdShopDrilldown,
@@ -18,7 +18,7 @@ import type {
   AdSeriesPoint,
   CreateAdCampaign,
   UpdateAdCampaign,
-} from '@passwaala/shared';
+} from '@nearbaz/shared';
 import { api } from '../api';
 import { theme } from '../theme';
 import { EditIcon, DeleteIcon } from '../EditDeleteIcons';

@@ -87,7 +87,7 @@ export const en = {
     deliveredOrders: 'Delivered orders',
     deliveryRateHint: (pct: number) => `${pct}% delivery rate`,
     gmv: 'GMV',
-    passwalaRevenue: 'NearBaz revenue',
+    nearbazRevenue: 'NearBaz revenue',
     revenueHint: (amount: string) => `${amount} · GST incl.`,
     refundsPending: 'Refunds pending',
     needsAttention: 'needs attention',

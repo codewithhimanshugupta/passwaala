@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { ReferralStatus, ReferralType } from '@passwaala/shared';
+import { ReferralStatus, ReferralType } from '@nearbaz/shared';
 import { PrismaService } from '../prisma/prisma.service';
 
 /**

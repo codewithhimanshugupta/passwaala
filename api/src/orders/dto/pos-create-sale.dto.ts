@@ -1,6 +1,6 @@
 import { IsArray, IsEnum, IsInt, IsOptional, IsString, MaxLength, Min, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
-import { PaymentMethod } from '@passwaala/shared';
+import { PaymentMethod } from '@nearbaz/shared';
 
 /**
  * One line of an in-store POS (counter) sale. EITHER a catalog product

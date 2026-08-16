@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Linking, Modal, Platform, Pressable, RefreshControl, StyleSheet, Text, TextInput, View } from 'react-native';
-import { LedgerEntryStatus, buildUpiDeepLink, UPI_APPS, toIntentLink } from '@passwaala/shared';
+import { LedgerEntryStatus, buildUpiDeepLink, UPI_APPS, toIntentLink } from '@nearbaz/shared';
 import { api } from '../api';
 import { getShopkeeperPrefetch } from '../shopkeeperPrefetch';
 import { formatRupees, theme } from '../theme';
@@ -20,7 +20,7 @@ interface Pnl {
   deliveryFeesPaise: number;
   commissionPaise: number;
   platformFeePaise: number;
-  codCollectedByPasswalaPaise: number;
+  codCollectedByNearBazPaise: number;
   netPositionPaise: number;
 }
 
@@ -339,7 +339,7 @@ function PnlCard({ pnl, error }: { pnl: Pnl | null; error: string | null }) {
         />
         <PnlRow
           label="COD collected by NearBaz"
-          value={formatRupees(pnl.codCollectedByPasswalaPaise)}
+          value={formatRupees(pnl.codCollectedByNearBazPaise)}
           muted
         />
       </View>
@@ -448,7 +448,7 @@ function PayDuesCard({
       {collectionUpi ? (
         <>
           <View style={styles.upiRow}>
-            <Text style={styles.upiRowLabel}>{t.ledger.passwalaUpi}</Text>
+            <Text style={styles.upiRowLabel}>{t.ledger.nearbazUpi}</Text>
             <Text style={styles.upiRowValue}>{collectionUpi.vpa}</Text>
           </View>
 

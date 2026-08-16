@@ -1,4 +1,4 @@
-import { PasswaalaApiClient, friendlyMessage } from '@passwaala/api-client';
+import { NearBazApiClient, friendlyMessage } from '@nearbaz/api-client';
 import { notifyError } from './toast';
 import * as SecureStore from 'expo-secure-store';
 
@@ -12,7 +12,7 @@ import * as SecureStore from 'expo-secure-store';
  * needed. Deletion uses deleteItemAsync (fire-and-forget; logout need not block).
  */
 const baseUrl = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
-const TOKEN_KEY = 'passwaala_customer_token'; // SecureStore keys: [A-Za-z0-9._-]
+const TOKEN_KEY = 'nearbaz_customer_token'; // SecureStore keys: [A-Za-z0-9._-]
 
 function loadToken(): string | undefined {
   try {
@@ -51,7 +51,7 @@ export function onAuthExpired(fn: () => void): () => void {
 
 let hadToken = !!loadToken();
 
-export const api = new PasswaalaApiClient({
+export const api = new NearBazApiClient({
   baseUrl,
   token: loadToken(),
   onTokenChange: (token) => {

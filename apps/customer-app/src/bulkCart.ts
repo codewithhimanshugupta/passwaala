@@ -1,12 +1,12 @@
 /**
  * Multi-shop cart store. Holds one LocalCart per shopId in memory +
- * IndexedDB (key: passwaala.customer.bulkcart). Automatically cleared
+ * IndexedDB (key: nearbaz.customer.bulkcart). Automatically cleared
  * once a BulkOrder is placed.
  */
 import { useSyncExternalStore } from 'react';
 import { idbGet, idbSet } from './idbKv';
 
-const STORAGE_KEY = 'passwaala.customer.bulkcart';
+const STORAGE_KEY = 'nearbaz.customer.bulkcart';
 
 export interface BulkLine {
   productId: string;

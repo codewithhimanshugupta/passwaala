@@ -12,7 +12,7 @@
 import { useMemo, useRef } from 'react';
 import { StyleSheet, View } from 'react-native';
 import MapView, { Circle, Marker, type Region } from 'react-native-maps';
-import type { NearbyShop } from '@passwaala/api-client';
+import type { NearbyShop } from '@nearbaz/api-client';
 import type { ShopContactFields } from '../types';
 import { haversineMeters, theme } from '../theme';
 

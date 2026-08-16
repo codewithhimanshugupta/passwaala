@@ -1,8 +1,8 @@
 {
   "expo": {
     "name": "NearBaz",
-    "slug": "passwala-customer",
-    "scheme": "passwala",
+    "slug": "nearbaz-customer",
+    "scheme": "nearbaz",
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
@@ -31,7 +31,7 @@
       "startUrl": "/"
     },
     "ios": {
-      "bundleIdentifier": "com.passwala.customer",
+      "bundleIdentifier": "com.nearbaz.customer",
       "buildNumber": "1",
       "supportsTablet": false,
       "infoPlist": {
@@ -41,7 +41,7 @@
       }
     },
     "android": {
-      "package": "com.passwala.customer",
+      "package": "com.nearbaz.customer",
       "versionCode": 1,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",

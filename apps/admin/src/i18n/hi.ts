@@ -82,7 +82,7 @@ export const hi: Strings = {
     deliveredOrders: 'डिलीवर किए गए ऑर्डर',
     deliveryRateHint: (pct: number) => `${pct}% डिलीवरी दर`,
     gmv: 'GMV',
-    passwalaRevenue: 'NearBaz राजस्व',
+    nearbazRevenue: 'NearBaz राजस्व',
     revenueHint: (amount: string) => `${amount} · GST सहित`,
     refundsPending: 'रिफंड लंबित',
     needsAttention: 'ध्यान देने की आवश्यकता',

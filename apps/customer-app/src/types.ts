@@ -4,7 +4,7 @@
  * API shapes verified against the dev server. Kept here so screens stay typed
  * without touching the shared package.
  */
-import type { DeliveryMode, OrderStatus, PaymentMethod, ShopPublic } from '@passwaala/shared';
+import type { DeliveryMode, OrderStatus, PaymentMethod, ShopPublic } from '@nearbaz/shared';
 
 /**
  * Public shop view + the newer contact fields the API now returns on

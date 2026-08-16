@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { LedgerEntryType, TaxInvoiceStatus, computeGst } from '@passwaala/shared';
+import { LedgerEntryType, TaxInvoiceStatus, computeGst } from '@nearbaz/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpsertGstConfigDto } from './dto/upsert-gst-config.dto';
 

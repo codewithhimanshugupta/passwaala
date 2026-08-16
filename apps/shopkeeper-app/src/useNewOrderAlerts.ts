@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { OrderStatus } from '@passwaala/shared';
+import { OrderStatus } from '@nearbaz/shared';
 import { api } from './api';
 import { formatRupees } from './theme';
 import { startAlert, stopAlert } from './sound';
