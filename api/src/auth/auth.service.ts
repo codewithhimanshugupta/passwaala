@@ -46,6 +46,14 @@ export class AuthService {
 
   /** Verify a MSG91 widget access token server-side. Returns true on success. */
   private async verifyMsg91Token(token: string): Promise<boolean> {
+    if (!process.env.MSG91_AUTH_KEY) {
+      // Misconfiguration: the account-level Auth Key (distinct from the widget's
+      // client-side tokenAuth) is not set. Every verify would fail — surface it.
+      this.logger.error(
+        'MSG91_AUTH_KEY is not set — phone verification cannot succeed. Set the MSG91 account Auth Key in the server environment (Render → Environment).',
+      );
+      return false;
+    }
     try {
       const res = await fetch('https://control.msg91.com/api/v5/widget/verifyAccessToken', {
         method: 'POST',
@@ -55,9 +63,16 @@ export class AuthService {
           'access-token': token,
         }),
       });
-      const data = (await res.json()) as { type?: string };
-      return data?.type === 'success';
-    } catch {
+      const data = (await res.json()) as { type?: string; message?: unknown; code?: unknown };
+      if (data?.type === 'success') return true;
+      // Log the real reason so failures are diagnosable (e.g. "AuthenticationFailure"
+      // = wrong Auth Key; token expired/reused = client took too long or double-verified).
+      this.logger.warn(
+        `MSG91 verifyAccessToken failed: type=${data?.type} code=${String(data?.code)} message=${String(data?.message)}`,
+      );
+      return false;
+    } catch (e) {
+      this.logger.error(`MSG91 verifyAccessToken request error: ${(e as Error).message}`);
       return false;
     }
   }
