@@ -32,6 +32,7 @@ import { GstModule } from './gst/gst.module';
 import { BulkOrdersModule } from './bulk-orders/bulk-orders.module';
 import { AdsModule } from './ads/ads.module';
 import { PrescriptionsModule } from './prescriptions/prescriptions.module';
+import { BannersModule } from './banners/banners.module';
 
 /**
  * AppModule — root module.
@@ -79,6 +80,7 @@ import { PrescriptionsModule } from './prescriptions/prescriptions.module';
     BulkOrdersModule,
     AdsModule,
     PrescriptionsModule,
+    BannersModule,
   ],
   controllers: [HealthController],
   providers: [

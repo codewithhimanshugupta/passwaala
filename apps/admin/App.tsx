@@ -12,6 +12,7 @@ import { PaymentClaimsScreen } from './src/screens/PaymentClaimsScreen';
 import { OrdersScreen } from './src/screens/OrdersScreen';
 import { DisputesScreen } from './src/screens/DisputesScreen';
 import { CouponsScreen } from './src/screens/CouponsScreen';
+import { BannersScreen } from './src/screens/BannersScreen';
 import { CitiesScreen } from './src/screens/CitiesScreen';
 import { TaskboardScreen } from './src/screens/TaskboardScreen';
 import { GstScreen } from './src/screens/GstScreen';
@@ -35,7 +36,7 @@ import { NavIcon, type NavIconName } from './src/NavIcon';
  * which each screen surfaces as a friendly "not an admin" message. On any 401
  * (expired token) the client fires onAuthExpired → we drop to login with a note.
  */
-type Nav = 'dashboard' | 'approvals' | 'shops' | 'riders' | 'customers' | 'orders' | 'bulk-orders' | 'settlements' | 'disputes' | 'coupons' | 'ads' | 'cities' | 'taskboard' | 'gst';
+type Nav = 'dashboard' | 'approvals' | 'shops' | 'riders' | 'customers' | 'orders' | 'bulk-orders' | 'settlements' | 'disputes' | 'coupons' | 'ads' | 'banners' | 'cities' | 'taskboard' | 'gst';
 
 export default function App() {
   const [splashDone, setSplashDone] = useState(false);
@@ -125,6 +126,7 @@ function AppRoot() {
           {nav === 'disputes' && <DisputesScreen />}
           {nav === 'coupons' && <CouponsScreen />}
           {nav === 'ads' && <AdsScreen />}
+          {nav === 'banners' && <BannersScreen />}
           {nav === 'cities' && isOwner && <CitiesScreen />}
           {nav === 'gst' && <GstScreen />}
           {nav === 'taskboard' && <TaskboardScreen />}
@@ -229,6 +231,12 @@ function Sidebar({
           label="Ads"
           active={nav === 'ads'}
           onPress={() => onNavigate('ads')}
+        />
+        <NavItem
+          icon="coupons"
+          label="Banners"
+          active={nav === 'banners'}
+          onPress={() => onNavigate('banners')}
         />
         <NavItem
           icon="taskboard"

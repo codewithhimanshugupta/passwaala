@@ -25,6 +25,24 @@ export interface NearbyShop extends ShopPublic {
   distanceMeters: number;
 }
 
+/** A home-carousel banner image shown to the customer (public feed shape). */
+export interface Banner {
+  id: string;
+  imageUrl: string;
+  sortOrder: number;
+}
+
+/** A banner as the admin manages it (includes targeting + status). */
+export interface AdminBanner {
+  id: string;
+  imageUrl: string;
+  cities: string[];
+  sortOrder: number;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 /**
  * A page of keyset-paginated results: the rows plus the cursor to fetch the
  * next page (null when there are no more). Mirrors the API's Paginated<T>.
@@ -750,6 +768,29 @@ export class PasswaalaApiClient {
     return this.delete(`/admin/coupons/${id}`);
   }
 
+  // ---- Home banners ----
+  /** Public: active home-carousel banners for a city (empty-city banners always show). */
+  homeBanners(city?: string): Promise<Banner[]> {
+    const q = city ? `?city=${encodeURIComponent(city)}` : '';
+    return this.get(`/banners${q}`);
+  }
+  /** Admin: list banners (all = include inactive). */
+  adminListBanners(all = false): Promise<AdminBanner[]> {
+    return this.get(`/admin/banners${all ? '?all=true' : ''}`);
+  }
+  /** Admin: create a banner (image already uploaded via uploadImage). */
+  adminCreateBanner(body: { imageUrl: string; cities?: string[]; sortOrder?: number; active?: boolean }): Promise<AdminBanner> {
+    return this.post('/admin/banners', body);
+  }
+  /** Admin: update a banner. */
+  adminUpdateBanner(id: string, body: Partial<{ imageUrl: string; cities: string[]; sortOrder: number; active: boolean }>): Promise<AdminBanner> {
+    return this.patch(`/admin/banners/${id}`, body);
+  }
+  /** Admin: delete (soft) a banner. */
+  adminDeleteBanner(id: string): Promise<{ ok: true }> {
+    return this.delete(`/admin/banners/${id}`);
+  }
+
   // ---- Serviceable cities ----
   /** Public: enabled cities with their active offer templates. */
   serviceableCities(): Promise<Array<{ name: string; deliveryRadiusMeters: number; offers: Array<{ id: string; title: string; type: string; value: number; minOrderPaise: number }> }>> {
@@ -1216,7 +1257,7 @@ export class PasswaalaApiClient {
    */
   async uploadImage(
     file: Blob | { uri: string; name: string; type: string },
-    opts: { type?: 'shop' | 'product' | 'kyc' | 'prescription'; scopeId?: string } = {},
+    opts: { type?: 'shop' | 'product' | 'kyc' | 'prescription' | 'banner'; scopeId?: string } = {},
   ): Promise<{ url: string; filename: string }> {
     const form = new FormData();
     // Both Blob (web) and the RN {uri,name,type} shape are accepted by FormData.

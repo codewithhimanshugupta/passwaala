@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Dimensions,
   FlatList,
   Image,
   Modal,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -12,7 +15,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import type { NearbyShop } from '@passwaala/api-client';
+import type { Banner, NearbyShop } from '@passwaala/api-client';
 import type { ProductSearchHit } from '@passwaala/shared';
 import { api } from '../api';
 import { prefetchCheckout, getPrefetchedCheckout } from '../checkoutPrefetch';
@@ -136,6 +139,7 @@ export function DiscoveryScreen({
   // Promo banner text — the top offer for the detected city (from serviceable
   // cities config), else a friendly fallback. Display-only.
   const [promoText, setPromoText] = useState<string | null>(null);
+  const [banners, setBanners] = useState<Banner[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   // Cross-shop product search — matching products with their owning shop,
   // ranked nearest-first. Paginated: a few (PRODUCT_PAGE) shown first, more on
@@ -242,6 +246,17 @@ export function DiscoveryScreen({
         if (!cancelled) setServiceableCities(null);
       }
     })();
+    return () => { cancelled = true; };
+  }, [detectedCity]);
+
+  // Home banner carousel — admin-uploaded promo images targeted to the
+  // customer's city. Silent on failure (the carousel simply doesn't render).
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .homeBanners(detectedCity ?? undefined)
+      .then((r) => { if (!cancelled) setBanners(r); })
+      .catch(() => { if (!cancelled) setBanners([]); });
     return () => { cancelled = true; };
   }, [detectedCity]);
 
@@ -741,6 +756,7 @@ export function DiscoveryScreen({
             ) : (
               <DiscoveryHeader
                 promoText={promoText ?? t.discovery.promoFallback}
+                banners={banners}
                 premiumShops={premiumShops}
                 onOpenShop={handleOpenShop}
                 t={t}
@@ -930,24 +946,138 @@ function ProductHitsSection({
 }
 
 /**
+ * BannerCarousel — full-width, auto-scrolling hero-image carousel (Zomato/Swiggy
+ * style). Admin-uploaded landscape promo images for the customer's city.
+ *
+ * Loops seamlessly (…3 → 1 → 2 → 3 → 1…) by cloning the first/last slides at the
+ * edges and jumping without animation when the user (or the timer) reaches a
+ * clone. Auto-advances every ~4s; a manual swipe pauses the timer briefly so it
+ * doesn't fight the user. Page dots track the real slide index.
+ */
+function BannerCarousel({ banners }: { banners: Banner[] }) {
+  const CARD_W = Dimensions.get('window').width - theme.space.md * 2;
+  const CARD_H = Math.round(CARD_W * 0.5); // ~2:1 landscape
+  const n = banners.length;
+  const scrollRef = useRef<ScrollView>(null);
+  const [index, setIndex] = useState(0); // real slide index (0..n-1), for dots
+  const pageRef = useRef(1); // position in the extended (cloned) list
+  const pausedUntilRef = useRef(0);
+  const tickRef = useRef(0);
+
+  // Single banner → static, no loop/dots/timer.
+  if (n === 1) {
+    return (
+      <View style={styles.heroBannerWrap}>
+        <Image
+          source={{ uri: banners[0].imageUrl }}
+          style={{ width: CARD_W, height: CARD_H, borderRadius: theme.radius.lg }}
+          resizeMode="cover"
+        />
+      </View>
+    );
+  }
+
+  // Extended list with clones: [lastClone, 0..n-1, firstClone].
+  const slides = [banners[n - 1], ...banners, banners[0]];
+
+  const scrollToPage = useCallback((page: number, animated: boolean) => {
+    scrollRef.current?.scrollTo({ x: page * CARD_W, animated });
+  }, [CARD_W]);
+
+  // Start on the first real slide (offset by the leading clone).
+  useEffect(() => {
+    pageRef.current = 1;
+    const id = setTimeout(() => scrollToPage(1, false), 0);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [n, CARD_W]);
+
+  // Auto-advance timer — advances one page every 4s unless recently paused.
+  useEffect(() => {
+    tickRef.current = 0;
+    const timer = setInterval(() => {
+      // Respect a short pause after a manual swipe (use a counter, not Date.now).
+      if (pausedUntilRef.current > 0) { pausedUntilRef.current -= 1; return; }
+      const next = pageRef.current + 1;
+      pageRef.current = next;
+      scrollToPage(next, true);
+    }, 4000);
+    return () => clearInterval(timer);
+  }, [n, scrollToPage]);
+
+  const onMomentumEnd = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const page = Math.round(e.nativeEvent.contentOffset.x / CARD_W);
+    pageRef.current = page;
+    if (page === 0) {
+      // Reached leading clone (of last) → jump to the real last slide.
+      pageRef.current = n;
+      scrollToPage(n, false);
+      setIndex(n - 1);
+    } else if (page === n + 1) {
+      // Reached trailing clone (of first) → jump to the real first slide.
+      pageRef.current = 1;
+      scrollToPage(1, false);
+      setIndex(0);
+    } else {
+      setIndex(page - 1);
+    }
+  }, [CARD_W, n, scrollToPage]);
+
+  return (
+    <View style={styles.heroBannerWrap}>
+      <ScrollView
+        ref={scrollRef}
+        horizontal
+        pagingEnabled
+        showsHorizontalScrollIndicator={false}
+        onScrollBeginDrag={() => { pausedUntilRef.current = 2; }}
+        onMomentumScrollEnd={onMomentumEnd}
+        scrollEventThrottle={16}
+      >
+        {slides.map((b, i) => (
+          <Image
+            key={`${b.id}-${i}`}
+            source={{ uri: b.imageUrl }}
+            style={{ width: CARD_W, height: CARD_H, borderRadius: theme.radius.lg }}
+            resizeMode="cover"
+          />
+        ))}
+      </ScrollView>
+      <View style={styles.bannerDots}>
+        {banners.map((b, i) => (
+          <View
+            key={b.id}
+            style={[styles.bannerDot, i === index && styles.bannerDotActive]}
+          />
+        ))}
+      </View>
+    </View>
+  );
+}
+
+/**
  * DiscoveryHeader — the non-search list header: a promo banner, an admin-curated
  * "Featured shops" horizontal strip (Premium; not a paid ad), and a
  * "Recommended for you" label above the ranked shop list.
  */
 function DiscoveryHeader({
   promoText,
+  banners,
   premiumShops,
   onOpenShop,
   t,
 }: {
   promoText: string;
+  banners: Banner[];
   premiumShops: NearbyShop[];
   onOpenShop: (shop: NearbyShop) => void;
   t: Strings;
 }) {
   return (
     <View>
-      {promoText ? (
+      {banners.length > 0 ? (
+        <BannerCarousel banners={banners} />
+      ) : promoText ? (
         <View style={styles.promoBanner}>
           <Text style={styles.promoEmoji}>🎉</Text>
           <Text style={styles.promoText} numberOfLines={2}>{promoText}</Text>
@@ -1405,6 +1535,26 @@ const styles = StyleSheet.create({
   },
   promoEmoji: { fontSize: 22 },
   promoText: { flex: 1, fontSize: theme.font.small, fontWeight: '700', color: theme.color.primaryDark },
+
+  // Home banner carousel (admin-uploaded hero images).
+  heroBannerWrap: { marginBottom: theme.space.md },
+  bannerDots: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: theme.space.sm,
+  },
+  bannerDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: theme.color.border,
+  },
+  bannerDotActive: {
+    width: 18,
+    backgroundColor: theme.color.primary,
+  },
 
   // Featured (Premium) horizontal strip.
   featuredSection: { marginBottom: theme.space.lg },

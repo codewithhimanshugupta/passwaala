@@ -1268,6 +1268,26 @@ model CouponUsage {
   @@index([userId, couponId])
 }
 
+/// Home-screen promo banner image, uploaded by admin and shown to customers as
+/// an auto-scrolling carousel on the discovery/home screen. Targeted by city:
+/// `cities` holds canonical city names (matching ServiceableCity.name /
+/// Shop.city); an EMPTY array means the banner shows in ALL cities.
+model Banner {
+  id        String    @id @default(uuid())
+  /// Public URL of the uploaded banner image.
+  imageUrl  String
+  /// Canonical city names this banner targets. Empty = all cities.
+  cities    String[]
+  /// Ascending display order within the carousel (lower shows first).
+  sortOrder Int       @default(0)
+  active    Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([active])
+}
+
 /// Every action taken automatically by the system (cron jobs). Displayed in the
 /// admin taskboard under "Done by Automation" so admins have full visibility.
 /// Can be reverted by an admin (revertedAt set); the revert undoes the side-effect.

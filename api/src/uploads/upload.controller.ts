@@ -33,6 +33,7 @@ const CATEGORY_DIRS: Record<string, string> = {
   product: 'products',
   kyc: 'kyc',
   prescription: 'prescriptions',
+  banner: 'banners',
   misc: 'misc',
 };
 
