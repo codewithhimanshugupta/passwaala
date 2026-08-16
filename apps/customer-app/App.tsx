@@ -201,6 +201,7 @@ function AppRoot() {
   const { t } = useLang();
   const [loggedIn, setLoggedIn] = useState(hasSavedToken());
   const [authScreen, setAuthScreen] = useState<'login' | 'signup' | 'forgot'>('login');
+  const [signupPhone, setSignupPhone] = useState('');
   const [tab, setTab] = useState<Tab>('home');
   const [stack, setStack] = useState<Stack>({ name: 'tabs' });
   const [sessionExpired, setSessionExpired] = useState(false);
@@ -339,6 +340,7 @@ function AppRoot() {
         <View style={styles.content}>
           {authScreen === 'signup' ? (
             <SignupScreen
+              initialPhone={signupPhone}
               onSignedUp={() => {
                 setSessionExpired(false);
                 setAuthScreen('login');
@@ -354,7 +356,7 @@ function AppRoot() {
           ) : (
             <LoginScreen
               notice={sessionExpired ? t.login.sessionExpired : undefined}
-              onSignUp={() => setAuthScreen('signup')}
+              onSignUp={(phone) => { setSignupPhone(phone ?? ''); setAuthScreen('signup'); }}
               onForgot={() => setAuthScreen('forgot')}
               onLoggedIn={() => {
                 setSessionExpired(false);

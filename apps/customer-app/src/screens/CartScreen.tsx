@@ -592,8 +592,10 @@ export function CartScreen({
           </View>
         </View>
 
-        {/* Nearby shops bulk banner — always show when cart has a shop */}
-        {(nearbyShops.length > 0 || nearbyLoading || nearbyShopIdRef.current) ? (() => {
+        {/* Nearby shops bulk banner — only for platform-delivery shops. A
+            self-delivery shop delivers its own orders, so a multi-shop (rider)
+            basket can't be fulfilled — don't suggest it. */}
+        {platformDelivery && (nearbyShops.length > 0 || nearbyLoading || nearbyShopIdRef.current) ? (() => {
           const bulkShopCount = currentBulkCartShops().length;
           if (bulkShopCount >= 3) return null;
           const shopsToShow = nearbyShops.filter((s) => !currentBulkCartShops().includes(s.id)).slice(0, 2);

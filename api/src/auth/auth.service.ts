@@ -1,4 +1,4 @@
-import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { UserRole } from '@passwaala/shared';
 import { PrismaService } from '../prisma/prisma.service';
@@ -127,6 +127,7 @@ export class AuthService {
     appType = 'CUSTOMER',
     msg91Token?: string,
     code?: string,
+    createIfMissing = true,
   ): Promise<{ accessToken: string; role: UserRole }> {
     const normalized = AuthService.normalizePhone(phone);
     const otpKey = `${normalized}:${appType}`;
@@ -162,13 +163,28 @@ export class AuthService {
     }
 
     // Find-or-create using composite key (phone + appType) — same phone is
-    // independent in each app namespace.
-    const user = await this.prisma.user.upsert({
-      where: { phone_appType: { phone: normalized, appType: effectiveAppType } },
-      update: {},
-      create: { phone: normalized, role: roleForCreate, appType: effectiveAppType },
-      include: { ownedShops: { where: { deletedAt: null }, select: { id: true } } },
-    });
+    // independent in each app namespace. When createIfMissing is false (OTP
+    // *login*, as opposed to signup), an unknown phone is rejected with a 404
+    // so the client can route the user to the signup flow where they set a
+    // name + password + PIN, rather than silently minting a bare account.
+    const user = createIfMissing
+      ? await this.prisma.user.upsert({
+          where: { phone_appType: { phone: normalized, appType: effectiveAppType } },
+          update: {},
+          create: { phone: normalized, role: roleForCreate, appType: effectiveAppType },
+          include: { ownedShops: { where: { deletedAt: null }, select: { id: true } } },
+        })
+      : await this.prisma.user
+          .findUnique({
+            where: { phone_appType: { phone: normalized, appType: effectiveAppType } },
+            include: { ownedShops: { where: { deletedAt: null }, select: { id: true } } },
+          })
+          .then((found) => {
+            if (!found) {
+              throw new NotFoundException('No account found for this number. Please sign up.');
+            }
+            return found;
+          });
 
     // Backfill referral code
     if (!user.referralCode) {

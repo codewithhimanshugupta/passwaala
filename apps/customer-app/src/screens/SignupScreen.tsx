@@ -21,10 +21,10 @@ import { resendOtp, sendOtp, verifyOtp } from '../msg91';
  * The MSG91 access token from step 2 is sent to the backend, which re-verifies
  * it server-side before creating the account.
  */
-export function SignupScreen({ onSignedUp, onBackToLogin }: { onSignedUp: () => void; onBackToLogin: () => void }) {
+export function SignupScreen({ onSignedUp, onBackToLogin, initialPhone }: { onSignedUp: () => void; onBackToLogin: () => void; initialPhone?: string }) {
   const { t } = useLang();
   const [step, setStep] = useState<'phone' | 'otp' | 'details'>('phone');
-  const [phone, setPhone] = useState('');
+  const [phone, setPhone] = useState(initialPhone ?? '');
   const [otp, setOtp] = useState('');
   const [reqId, setReqId] = useState('');
   const [msg91Token, setMsg91Token] = useState('');

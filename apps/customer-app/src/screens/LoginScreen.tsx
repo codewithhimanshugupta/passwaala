@@ -9,13 +9,14 @@ import {
   View,
 } from 'react-native';
 import { api, APP_TYPE } from '../api';
+import { ApiError } from '@passwaala/api-client';
 import { theme } from '../theme';
 import { Button } from '../ui';
 import { PinBoxes } from '../PinBoxes';
 import { useLang } from '../i18n/LanguageContext';
 import { resendOtp, sendOtp, verifyOtp } from '../msg91';
 
-export function LoginScreen({ onLoggedIn, notice, onSignUp, onForgot }: { onLoggedIn: () => void; notice?: string; onSignUp?: () => void; onForgot?: () => void }) {
+export function LoginScreen({ onLoggedIn, notice, onSignUp, onForgot }: { onLoggedIn: () => void; notice?: string; onSignUp?: (phone?: string) => void; onForgot?: () => void }) {
   const { t } = useLang();
   const [phone, setPhone] = useState('');
   const [credential, setCredential] = useState('');
@@ -73,10 +74,17 @@ export function LoginScreen({ onLoggedIn, notice, onSignUp, onForgot }: { onLogg
     setBusy(true); setError(null);
     try {
       const token = await verifyOtp(otpReqId, code);
-      const { accessToken } = await api.verifyOtp(`+91${phone10}`, APP_TYPE, token, code);
+      // createIfMissing=false: OTP is a *login*, not signup. An unknown number
+      // is rejected (404) and routed to the signup flow (name + password + PIN)
+      // instead of silently creating a name-only account.
+      const { accessToken } = await api.verifyOtp(`+91${phone10}`, APP_TYPE, token, code, false);
       api.setToken(accessToken);
       onLoggedIn();
     } catch (e) {
+      if (e instanceof ApiError && e.status === 404 && onSignUp) {
+        onSignUp(phone10);
+        return;
+      }
       setError((e as Error).message);
     } finally { setBusy(false); }
   }

@@ -675,6 +675,9 @@ export class AdminService {
       where: {
         appType: 'CUSTOMER',
         deletedAt: null,
+        // Exclude synthetic POS "Walk-in Customer" accounts (phone `pos:<shopId>`),
+        // created per-shop for in-store cash sales — not real platform customers.
+        NOT: { phone: { startsWith: 'pos:' } },
         ...(q
           ? {
               OR: [

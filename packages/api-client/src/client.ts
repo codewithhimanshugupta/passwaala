@@ -222,12 +222,13 @@ export class PasswaalaApiClient {
       ...(appType && { appType }),
     });
   }
-  verifyOtp(phone: string, appType?: string, msg91Token?: string, code?: string): Promise<{ accessToken: string; role: string }> {
+  verifyOtp(phone: string, appType?: string, msg91Token?: string, code?: string, createIfMissing?: boolean): Promise<{ accessToken: string; role: string }> {
     return this.post('/auth/verify-otp', {
       phone,
       ...(appType && { appType }),
       ...(msg91Token && { msg91Token }),
       ...(code && { code }),
+      ...(createIfMissing === false && { createIfMissing: false }),
     });
   }
 

@@ -81,3 +81,22 @@ export function computeGst(basePaise: number): GstBreakdown {
     totalPaise: basePaise + gstPaise,
   };
 }
+
+/**
+ * Split a GST-INCLUSIVE total (integer paise) back into its base + 18% GST
+ * components — the inverse of {@link computeGst}. Used for display when only the
+ * inclusive total is stored (e.g. Order.platformFeePaise = ₹11.80): base is the
+ * total divided by (1 + rate), GST is the remainder so the two always re-sum to
+ * the exact stored total (no rounding drift). Throws on non-integer input.
+ */
+export function splitGstInclusive(totalPaise: number): GstBreakdown {
+  if (!Number.isInteger(totalPaise)) {
+    throw new Error(`splitGstInclusive: expected an integer paise value, got ${totalPaise}`);
+  }
+  const basePaise = Math.round(totalPaise / (1 + GST_RATE));
+  return {
+    basePaise,
+    gstPaise: totalPaise - basePaise,
+    totalPaise,
+  };
+}

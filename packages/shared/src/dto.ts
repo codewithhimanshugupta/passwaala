@@ -452,8 +452,6 @@ export interface QuoteLineItem {
 export interface QuotePrescription {
   /** Free-text line items making up the bill. */
   items: QuoteLineItem[];
-  /** Optional delivery fee override in paise (defaults to the shop's fee). */
-  deliveryFeePaise?: number;
   /** Client idempotency key so a double-submit can't create two orders. */
   idempotencyKey: string;
 }

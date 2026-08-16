@@ -3,6 +3,7 @@ import { ActivityIndicator, Pressable, SafeAreaView, ScrollView, StyleSheet, Swi
 import { StatusBar } from 'expo-status-bar';
 import { AuthExpiredError } from '@passwaala/api-client';
 import type { VerificationStatus } from '@passwaala/shared';
+import type { PrescriptionView } from '@passwaala/shared';
 import { MEDICAL_CATEGORY } from '@passwaala/shared';
 import { LoginScreen } from './src/screens/LoginScreen';
 import { SignupScreen } from './src/screens/SignupScreen';
@@ -26,6 +27,7 @@ import { Badge } from './src/ui';
 import { TabIcon } from './src/TabIcon';
 import { verificationMeta } from './src/status';
 import { useNewOrderAlerts } from './src/useNewOrderAlerts';
+import { useNewPrescriptionAlerts } from './src/useNewPrescriptionAlerts';
 import { unlockAudio } from './src/sound';
 import { registerPushToken, unregisterPushToken } from './src/push';
 import { LanguageProvider, useLang } from './src/i18n/LanguageContext';
@@ -94,6 +96,12 @@ function AppRoot() {
   // Poll for new-order alerts app-wide, EXCEPT when the Orders screen is open —
   // that screen already polls the feed, so we'd be double-polling otherwise.
   const alerts = useNewOrderAlerts(stage === 'app' && shop != null && tab !== 'orders', viewContext === 'all');
+
+  // App-wide new-PRESCRIPTION alerts — same pattern as orders, for medical shops.
+  // Silenced on the Prescriptions tab (that screen already polls + socket-refreshes).
+  const rxAlerts = useNewPrescriptionAlerts(
+    stage === 'app' && shop != null && shop.shopCategory === MEDICAL_CATEGORY && tab !== 'prescriptions',
+  );
 
   /** Unlock audio on the first user interaction (idempotent). */
   const unlockAudioOnce = useCallback(() => {
@@ -360,6 +368,22 @@ function AppRoot() {
                 }}
               />
             ) : null}
+            {rxAlerts.alertRx ? (
+              <NewPrescriptionBanner
+                rx={rxAlerts.alertRx}
+                silent={rxAlerts.alertSilent}
+                t={t}
+                onView={() => {
+                  unlockAudioOnce();
+                  setTab('prescriptions');
+                  rxAlerts.acknowledge();
+                }}
+                onAcknowledge={() => {
+                  unlockAudioOnce();
+                  rxAlerts.acknowledge();
+                }}
+              />
+            ) : null}
             <View style={styles.tabContent}>
               {tab === 'home' && (
                 <>
@@ -508,6 +532,40 @@ function NewOrderBanner({
         <Text style={styles.alertTitle}>
           {t.app.newOrder(order.id.slice(0, 8).toUpperCase(), formatRupees(total))}
         </Text>
+        <Text style={styles.alertSub}>
+          {silent ? t.app.tapAcknowledge : t.app.tapToView}
+        </Text>
+      </View>
+      <Pressable onPress={onAcknowledge} style={styles.alertAck} hitSlop={8}>
+        <Text style={styles.alertAckText}>{t.app.acknowledge}</Text>
+      </Pressable>
+    </Pressable>
+  );
+}
+
+/**
+ * NewPrescriptionBanner — the app-wide loud alert for a fresh prescription (the
+ * medical-store mirror of NewOrderBanner). Tapping jumps to the Prescriptions
+ * tab; the sound loops + the device vibrates until acknowledged.
+ */
+function NewPrescriptionBanner({
+  rx,
+  silent,
+  t,
+  onView,
+  onAcknowledge,
+}: {
+  rx: PrescriptionView;
+  silent: boolean;
+  t: Strings;
+  onView: () => void;
+  onAcknowledge: () => void;
+}) {
+  const ref = (rx.shortId || rx.id.slice(0, 8)).toUpperCase();
+  return (
+    <Pressable onPress={onView} style={styles.alertBanner}>
+      <View style={styles.alertBody}>
+        <Text style={styles.alertTitle}>{t.app.newPrescription(ref)}</Text>
         <Text style={styles.alertSub}>
           {silent ? t.app.tapAcknowledge : t.app.tapToView}
         </Text>

@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import type { PrescriptionView, PrescriptionStatus } from '@passwaala/shared';
 import { api } from '../api';
+import { onSocket } from '../socket';
 import { formatRupees, resolveImage, rupeeInputToPaise, theme } from '../theme';
 import { Badge, Button, Card, ErrorText, Field } from '../ui';
 import type { BadgeTone } from '../ui';
@@ -58,6 +59,13 @@ export function PrescriptionsScreen() {
 
   useEffect(() => {
     load();
+  }, [load]);
+
+  // Live refresh: a new Rx (or a status change) for this shop pushes over the
+  // socket → reload the queue immediately (same pattern as the orders feed).
+  useEffect(() => {
+    const offCreated = onSocket('prescription.created', () => { void load(); });
+    return () => { offCreated(); };
   }, [load]);
 
   // SUBMITTED (pending) first, then newest-first within each group.
@@ -225,7 +233,6 @@ function PrescriptionDetail({
   onUpdated: (updated: PrescriptionView) => void;
 }) {
   const [rows, setRows] = useState<BillRow[]>([newRow()]);
-  const [deliveryFee, setDeliveryFee] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [rejectOpen, setRejectOpen] = useState(false);
@@ -276,10 +283,8 @@ function PrescriptionDetail({
     setSaving(true);
     setError(null);
     try {
-      const feePaise = deliveryFee.trim() ? rupeeInputToPaise(deliveryFee) : undefined;
       const updated = await api.quotePrescription(prescription.id, {
         items: parsed,
-        deliveryFeePaise: feePaise,
         idempotencyKey: makeIdempotencyKey(),
       });
       onUpdated(updated);
@@ -388,14 +393,7 @@ function PrescriptionDetail({
               <Text style={styles.addItemText}>{t.prescriptions.addItem}</Text>
             </Pressable>
 
-            <Field
-              label={t.prescriptions.deliveryFee}
-              placeholder={t.prescriptions.zeroPlaceholder}
-              keyboardType="decimal-pad"
-              value={deliveryFee}
-              onChangeText={setDeliveryFee}
-              hint={t.prescriptions.deliveryFeeHint}
-            />
+            <Text style={styles.autoFeeNote}>{t.prescriptions.deliveryAutoNote}</Text>
 
             <View style={styles.subtotalRow}>
               <Text style={styles.subtotalLabel}>{t.prescriptions.subtotal}</Text>
@@ -576,6 +574,13 @@ const styles = StyleSheet.create({
 
   addItemBtn: { paddingVertical: theme.space.sm, alignItems: 'center' },
   addItemText: { color: theme.color.accent, fontWeight: '800', fontSize: theme.font.small },
+
+  autoFeeNote: {
+    fontSize: theme.font.small,
+    color: theme.color.textMuted,
+    fontStyle: 'italic',
+    marginTop: theme.space.xs,
+  },
 
   subtotalRow: {
     flexDirection: 'row',

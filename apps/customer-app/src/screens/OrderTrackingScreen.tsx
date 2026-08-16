@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Image, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { OrderStatus, PaymentMethod, DeliveryMode, buildUpiDeepLink, UPI_APPS, toIntentLink } from '@passwaala/shared';
+import { OrderStatus, PaymentMethod, DeliveryMode, buildUpiDeepLink, UPI_APPS, toIntentLink, splitGstInclusive } from '@passwaala/shared';
 import type { PlaceOrderResult, ProductPublic } from '@passwaala/shared';
 import { api } from '../api';
 import type { OrderDetail } from '../types';
@@ -14,6 +14,15 @@ import { useLang } from '../i18n/LanguageContext';
 import type { Strings } from '../i18n/strings';
 import { canNotify, notifyOrderUpdate, requestNotifyPermission } from '../notify';
 import { onSocket } from '../socket';
+
+// Web-only platform sniff. UPI deep links only resolve on a phone with a UPI
+// app: Android Chrome handles app-specific `intent://` links; iOS/Android both
+// open the default UPI app via the plain `upi://` scheme. Desktop has neither —
+// there the scannable QR is the only path.
+const WEB_UA = typeof navigator !== 'undefined' ? navigator.userAgent || '' : '';
+const IS_ANDROID_WEB = /Android/i.test(WEB_UA);
+const IS_IOS_WEB = /iPad|iPhone|iPod/i.test(WEB_UA);
+const IS_MOBILE_WEB = IS_ANDROID_WEB || IS_IOS_WEB;
 
 type TimelineStep = { key: OrderStatus; label: string; caption: string };
 
@@ -309,6 +318,21 @@ export function OrderTrackingScreen({
       }
     } catch {
       setNotice(t.orderTracking.noticeUpiFailed);
+    }
+  }
+
+  // Copy the shop's UPI ID so the customer can pay manually from any UPI app —
+  // the fallback when no app can be deep-linked (desktop / iOS with no app).
+  async function copyUpiId() {
+    const vpa = order?.shop.upiVpa;
+    if (!vpa) return;
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard) {
+        await navigator.clipboard.writeText(vpa);
+        setNotice(t.orderTracking.upiIdCopied);
+      }
+    } catch {
+      // Clipboard may be blocked (insecure context); the QR/ID stay visible.
     }
   }
 
@@ -885,10 +909,21 @@ export function OrderTrackingScreen({
               : order.deliveryFeePaise > 0 ? formatRupees(order.deliveryFeePaise) : t.common.free}
           </Text>
         </View>
-        <View style={styles.recapRow}>
-          <Text style={styles.recapName}>Platform fee (incl. GST)</Text>
-          <Text style={styles.recapPrice}>{formatRupees(order.platformFeePaise)}</Text>
-        </View>
+        {(() => {
+          const fee = splitGstInclusive(order.platformFeePaise);
+          return (
+            <>
+              <View style={styles.recapRow}>
+                <Text style={styles.recapName}>Platform fee</Text>
+                <Text style={styles.recapPrice}>{formatRupees(fee.basePaise)}</Text>
+              </View>
+              <View style={styles.recapRow}>
+                <Text style={styles.recapName}>GST (18%)</Text>
+                <Text style={styles.recapPrice}>{formatRupees(fee.gstPaise)}</Text>
+              </View>
+            </>
+          );
+        })()}
         {(order.discountPaise ?? 0) > 0 ? (
           <View style={styles.recapRow}>
             <Text style={[styles.recapName, { color: theme.color.success }]}>Discount applied</Text>
@@ -1004,42 +1039,77 @@ export function OrderTrackingScreen({
         </View>
       </Modal>
 
-      {/* UPI app picker — web only; avoids the OS chooser defaulting to WhatsApp Pay */}
+      {/* UPI payment sheet — web only. A scannable QR (works on desktop AND any
+          phone) plus a copyable UPI ID is the universal path. App-specific deep
+          links are offered only where the URL scheme actually resolves:
+          Android → intent:// per-app; iOS → plain upi://. Desktop gets QR + copy
+          only (no UPI app to open), which fixes the "address is invalid" error. */}
       <Modal visible={showUpiPicker} transparent animationType="fade" onRequestClose={() => setShowUpiPicker(false)}>
         <View style={styles.modalBackdrop}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Pay with UPI</Text>
-            <Text style={styles.modalSub}>
-              {order ? formatRupees(order.adjustedTotalPaise ?? order.originalTotalPaise) : ''}
-            </Text>
-            {UPI_APPS.map(({ label, pkg, iconBg, iconText }) => (
-              <Pressable
-                key={pkg}
-                style={styles.upiAppBtn}
-                onPress={() => {
-                  setShowUpiPicker(false);
-                  const link = upiLink();
-                  if (link) window.location.href = toIntentLink(link, pkg);
-                }}
-              >
-                <View style={[styles.upiAppIcon, { backgroundColor: iconBg }]}>
-                  <Text style={styles.upiAppIconText}>{iconText}</Text>
-                </View>
-                <Text style={styles.upiAppBtnText}>{label}</Text>
-              </Pressable>
-            ))}
-            <Pressable
-              style={[styles.upiAppBtn, styles.upiAppBtnOutline]}
-              onPress={() => {
-                setShowUpiPicker(false);
-                const link = upiLink();
-                if (link) window.location.href = link;
-              }}
-            >
-              <Text style={[styles.upiAppBtnText, styles.upiAppBtnOutlineText]}>Other UPI app</Text>
-            </Pressable>
-            <Button label={t.common.cancel} onPress={() => setShowUpiPicker(false)} variant="ghost" />
-          </View>
+          <ScrollView style={{ width: '100%' }} contentContainerStyle={styles.upiSheetScroll}>
+            <View style={styles.modalCard}>
+              <Text style={styles.modalTitle}>{t.orderTracking.upiPayTitle}</Text>
+              <Text style={styles.payAmount}>
+                {order ? formatRupees(order.adjustedTotalPaise ?? order.originalTotalPaise) : ''}
+              </Text>
+
+              {/* Scannable QR — universal (desktop + mobile) */}
+              {upiLink() ? <UpiQr link={upiLink()!} size={200} /> : null}
+              <Text style={styles.modalSub}>{t.orderTracking.upiScanHint}</Text>
+
+              {/* Copyable UPI ID for manual payment */}
+              {order?.shop.upiVpa ? (
+                <Pressable style={styles.upiIdRow} onPress={copyUpiId}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.upiIdLabel}>{t.orderTracking.upiIdLabel}</Text>
+                    <Text style={styles.upiIdValue}>{order.shop.upiVpa}</Text>
+                  </View>
+                  <Text style={styles.upiIdCopy}>{t.orderTracking.copyUpiId}</Text>
+                </Pressable>
+              ) : null}
+
+              {/* Android web: per-app intent:// buttons (only Android Chrome resolves these) */}
+              {IS_ANDROID_WEB ? UPI_APPS.map(({ label, pkg, iconBg, iconText }) => (
+                <Pressable
+                  key={pkg}
+                  style={styles.upiAppBtn}
+                  onPress={() => {
+                    setShowUpiPicker(false);
+                    const link = upiLink();
+                    if (link) window.location.href = toIntentLink(link, pkg);
+                  }}
+                >
+                  <View style={[styles.upiAppIcon, { backgroundColor: iconBg }]}>
+                    <Text style={styles.upiAppIconText}>{iconText}</Text>
+                  </View>
+                  <Text style={styles.upiAppBtnText}>{label}</Text>
+                </Pressable>
+              )) : null}
+
+              {/* Mobile web: open the default UPI app via the plain upi:// scheme
+                  (Android + iOS). Hidden on desktop, where no UPI app exists. */}
+              {IS_MOBILE_WEB ? (
+                <Pressable
+                  style={[styles.upiAppBtn, styles.upiAppBtnOutline]}
+                  onPress={() => {
+                    setShowUpiPicker(false);
+                    const link = upiLink();
+                    if (link) window.location.href = link;
+                  }}
+                >
+                  <Text style={[styles.upiAppBtnText, styles.upiAppBtnOutlineText]}>{t.orderTracking.openUpiApp}</Text>
+                </Pressable>
+              ) : null}
+
+              <Button
+                label={t.orderTracking.ivePaid}
+                onPress={() => { setShowUpiPicker(false); void confirmPaid(); }}
+                variant="outline"
+                busy={confirming}
+              />
+              <Button label={t.common.cancel} onPress={() => setShowUpiPicker(false)} variant="ghost" />
+            </View>
+          </ScrollView>
         </View>
       </Modal>
 
@@ -1657,6 +1727,21 @@ const styles = StyleSheet.create({
     borderColor: theme.color.border,
   },
   upiAppBtnOutlineText: { color: theme.color.textMuted },
+  upiSheetScroll: { flexGrow: 1, alignItems: 'center', justifyContent: 'center', padding: theme.space.xl },
+  upiIdRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.space.md,
+    backgroundColor: theme.color.card,
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    borderColor: theme.color.border,
+    paddingVertical: theme.space.sm,
+    paddingHorizontal: theme.space.md,
+  },
+  upiIdLabel: { fontSize: theme.font.small, color: theme.color.textMuted, fontWeight: '600' },
+  upiIdValue: { fontSize: theme.font.body, color: theme.color.text, fontWeight: '700' },
+  upiIdCopy: { fontSize: theme.font.small, color: theme.color.primary, fontWeight: '700' },
   starRow: { flexDirection: 'row', justifyContent: 'center', gap: theme.space.xs, marginVertical: theme.space.sm },
   starPick: { fontSize: 36, color: theme.color.borderStrong },
   starPickActive: { color: theme.color.star },

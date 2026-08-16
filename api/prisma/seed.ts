@@ -8,9 +8,9 @@ import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
-const CENTER = { lat: 25.4484, lng: 78.5685 };
+export const CENTER = { lat: 25.4484, lng: 78.5685 };
 
-function offset(dLatM: number, dLngM: number) {
+export function offset(dLatM: number, dLngM: number) {
   const lat = CENTER.lat + dLatM / 111_111;
   const lng = CENTER.lng + dLngM / (111_111 * Math.cos((CENTER.lat * Math.PI) / 180));
   return { lat, lng };
@@ -24,7 +24,7 @@ async function setGeog(shopId: string, lng: number, lat: number) {
 }
 
 // Unsplash source URLs (free, no auth) — 400×200 banners, 96×96 logos
-const IMG = {
+export const IMG = {
   // Shop banners
   kirana_banner:    'https://images.unsplash.com/photo-1604719312566-8912e9227c6a?w=800&q=80',
   dairy_banner:     'https://images.unsplash.com/photo-1550583724-b2692b85b150?w=800&q=80',
@@ -49,7 +49,7 @@ const IMG = {
 };
 
 // Product images by category
-const PRODUCT_IMAGES: Record<string, string[]> = {
+export const PRODUCT_IMAGES: Record<string, string[]> = {
   kirana: [
     'https://images.unsplash.com/photo-1601493700631-2851bdbb7b46?w=400&q=80', // atta
     'https://images.unsplash.com/photo-1573910091977-f29c94d0f4b5?w=400&q=80', // salt
@@ -128,13 +128,13 @@ const PRODUCT_IMAGES: Record<string, string[]> = {
   ],
 };
 
-type ShopDef = {
+export type ShopDef = {
   name: string; cat: string; area: string; upi: string; off: { lat: number; lng: number };
   open: boolean; rating: number; rc: number; delivery: number; min: number;
   free: number | null; platform: boolean; self: boolean;
 };
 
-const SHOPS: ShopDef[] = [
+export const SHOPS: ShopDef[] = [
   { name: 'Sharma Kirana Store', cat: 'kirana', area: 'Sadar Bazaar', upi: 'sharma.kirana@upi', off: offset(0, 0), open: true, rating: 4.5, rc: 24, delivery: 2000, min: 0, free: 20000, platform: false, self: true },
   { name: 'Gupta Dairy & Sweets', cat: 'dairy', area: 'Sadar Bazaar', upi: 'gupta.dairy@upi', off: offset(100, 80), open: true, rating: 4.3, rc: 18, delivery: 1500, min: 5000, free: null, platform: false, self: true },
   { name: 'Jeevan Medical Hall', cat: 'medical', area: 'Sadar Bazaar', upi: 'jeevan.med@upi', off: offset(-80, 120), open: true, rating: 4.7, rc: 41, delivery: 0, min: 0, free: null, platform: false, self: false },
@@ -162,7 +162,7 @@ const SHOPS: ShopDef[] = [
   { name: 'Akash Stationery Books', cat: 'stationery', area: 'Rampur', upi: 'akash.stat@upi', off: offset(850, 550), open: true, rating: 4.2, rc: 11, delivery: 2500, min: 0, free: null, platform: false, self: true },
 ];
 
-const PRODUCTS: Record<string, Array<[string, number, number, number]>> = {
+export const PRODUCTS: Record<string, Array<[string, number, number, number]>> = {
   kirana: [
     ['Aashirvaad Atta 5kg', 25500, 28000, 40],
     ['Tata Salt 1kg', 2800, 3000, 100],
@@ -241,12 +241,12 @@ const PRODUCTS: Record<string, Array<[string, number, number, number]>> = {
   ],
 };
 
-function getBanner(cat: string): string {
+export function getBanner(cat: string): string {
   const key = (cat.replace('-', '') + '_banner') as keyof typeof IMG;
   const alt = (cat.split('-')[0] + '_banner') as keyof typeof IMG;
   return IMG[key] ?? IMG[alt] ?? IMG['kirana_banner'];
 }
-function getLogo(cat: string): string {
+export function getLogo(cat: string): string {
   const key = (cat.replace('-', '') + '_logo') as keyof typeof IMG;
   const alt = (cat.split('-')[0] + '_logo') as keyof typeof IMG;
   return IMG[key] ?? IMG[alt] ?? IMG['kirana_logo'];
@@ -369,6 +369,10 @@ async function main() {
   console.log(`  Admin: +919000000002 · Owner: +919000000001`);
 }
 
-main()
-  .catch(e => { console.error(e); process.exit(1); })
-  .finally(() => prisma.$disconnect());
+// Only run the (destructive, truncating) dev seed when executed directly —
+// NOT when imported for its data (e.g. prod-safe seed-jhansi-prod.ts).
+if (require.main === module) {
+  main()
+    .catch(e => { console.error(e); process.exit(1); })
+    .finally(() => prisma.$disconnect());
+}

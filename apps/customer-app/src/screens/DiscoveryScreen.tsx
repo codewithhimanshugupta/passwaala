@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Dimensions,
   FlatList,
   Image,
   Modal,
@@ -946,6 +945,40 @@ function ProductHitsSection({
 }
 
 /**
+ * useBannerRatio — measure the natural aspect ratio (height/width) of the
+ * admin-uploaded banners so we can size the hero box to the image instead of a
+ * hard-coded 2:1 crop. Uses the tallest banner's ratio (so no banner is cropped
+ * in a shared-height carousel), clamped to a sane range. Defaults to 2:1 until
+ * the first measurement lands.
+ */
+function useBannerRatio(banners: Banner[]): number {
+  const key = banners.map((b) => b.imageUrl).join(',');
+  const [ratio, setRatio] = useState(0.5); // height/width; 0.5 = 2:1 landscape
+  useEffect(() => {
+    if (banners.length === 0) return;
+    let cancelled = false;
+    let maxR = 0;
+    let pending = banners.length;
+    const done = () => {
+      pending -= 1;
+      if (pending === 0 && !cancelled && maxR > 0) {
+        setRatio(Math.min(1.1, Math.max(0.3, maxR)));
+      }
+    };
+    banners.forEach((b) => {
+      Image.getSize(
+        b.imageUrl,
+        (w, h) => { if (w > 0) maxR = Math.max(maxR, h / w); done(); },
+        () => done(),
+      );
+    });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+  return ratio;
+}
+
+/**
  * BannerCarousel — full-width, auto-scrolling hero-image carousel (Zomato/Swiggy
  * style). Admin-uploaded landscape promo images for the customer's city.
  *
@@ -955,8 +988,13 @@ function ProductHitsSection({
  * doesn't fight the user. Page dots track the real slide index.
  */
 function BannerCarousel({ banners }: { banners: Banner[] }) {
-  const CARD_W = Dimensions.get('window').width - theme.space.md * 2;
-  const CARD_H = Math.round(CARD_W * 0.5); // ~2:1 landscape
+  const ratio = useBannerRatio(banners); // natural height/width — show full banner, no crop
+  const aspectRatio = ratio > 0 ? 1 / ratio : 2; // width/height for the box (2 = 2:1)
+  // Measure the ACTUAL rendered width (onLayout) rather than Dimensions.window —
+  // on web the window is the whole browser, wider than the app's content column,
+  // which would make the image overflow and get clipped (the "cropped" bug).
+  const [cardW, setCardW] = useState(0);
+  const CARD_H = Math.round(cardW * ratio);
   const n = banners.length;
   const scrollRef = useRef<ScrollView>(null);
   const [index, setIndex] = useState(0); // real slide index (0..n-1), for dots
@@ -964,36 +1002,22 @@ function BannerCarousel({ banners }: { banners: Banner[] }) {
   const pausedUntilRef = useRef(0);
   const tickRef = useRef(0);
 
-  // Single banner → static, no loop/dots/timer.
-  if (n === 1) {
-    return (
-      <View style={styles.heroBannerWrap}>
-        <Image
-          source={{ uri: banners[0].imageUrl }}
-          style={{ width: CARD_W, height: CARD_H, borderRadius: theme.radius.lg }}
-          resizeMode="cover"
-        />
-      </View>
-    );
-  }
-
-  // Extended list with clones: [lastClone, 0..n-1, firstClone].
-  const slides = [banners[n - 1], ...banners, banners[0]];
-
   const scrollToPage = useCallback((page: number, animated: boolean) => {
-    scrollRef.current?.scrollTo({ x: page * CARD_W, animated });
-  }, [CARD_W]);
+    scrollRef.current?.scrollTo({ x: page * cardW, animated });
+  }, [cardW]);
 
   // Start on the first real slide (offset by the leading clone).
   useEffect(() => {
+    if (n <= 1 || cardW === 0) return;
     pageRef.current = 1;
     const id = setTimeout(() => scrollToPage(1, false), 0);
     return () => clearTimeout(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [n, CARD_W]);
+  }, [n, cardW]);
 
   // Auto-advance timer — advances one page every 4s unless recently paused.
   useEffect(() => {
+    if (n <= 1 || cardW === 0) return;
     tickRef.current = 0;
     const timer = setInterval(() => {
       // Respect a short pause after a manual swipe (use a counter, not Date.now).
@@ -1003,10 +1027,11 @@ function BannerCarousel({ banners }: { banners: Banner[] }) {
       scrollToPage(next, true);
     }, 4000);
     return () => clearInterval(timer);
-  }, [n, scrollToPage]);
+  }, [n, cardW, scrollToPage]);
 
   const onMomentumEnd = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const page = Math.round(e.nativeEvent.contentOffset.x / CARD_W);
+    if (cardW === 0) return;
+    const page = Math.round(e.nativeEvent.contentOffset.x / cardW);
     pageRef.current = page;
     if (page === 0) {
       // Reached leading clone (of last) → jump to the real last slide.
@@ -1021,28 +1046,62 @@ function BannerCarousel({ banners }: { banners: Banner[] }) {
     } else {
       setIndex(page - 1);
     }
-  }, [CARD_W, n, scrollToPage]);
+  }, [cardW, n, scrollToPage]);
+
+  // Keep the page dots in sync WHILE scrolling (auto-advance uses a programmatic
+  // scrollTo, whose momentum-end doesn't fire reliably on web — so without this
+  // the dots lag behind the visible banner). Maps the extended-list page (with
+  // its leading/trailing clones) back to the real 0..n-1 slide index.
+  const onScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    if (cardW === 0) return;
+    const page = Math.round(e.nativeEvent.contentOffset.x / cardW);
+    const real = page <= 0 ? n - 1 : page >= n + 1 ? 0 : page - 1;
+    setIndex((prev) => (prev === real ? prev : real));
+  }, [cardW, n]);
+
+  // Single banner → static, no loop/dots/timer. Full-width via '100%' +
+  // aspectRatio so it fills the real column width and shows the whole image.
+  if (n === 1) {
+    return (
+      <View style={styles.heroBannerWrap}>
+        <Image
+          source={{ uri: banners[0].imageUrl }}
+          style={{ width: '100%', aspectRatio }}
+          resizeMode="cover"
+        />
+      </View>
+    );
+  }
+
+  // Extended list with clones: [lastClone, 0..n-1, firstClone].
+  const slides = [banners[n - 1], ...banners, banners[0]];
 
   return (
-    <View style={styles.heroBannerWrap}>
-      <ScrollView
-        ref={scrollRef}
-        horizontal
-        pagingEnabled
-        showsHorizontalScrollIndicator={false}
-        onScrollBeginDrag={() => { pausedUntilRef.current = 2; }}
-        onMomentumScrollEnd={onMomentumEnd}
-        scrollEventThrottle={16}
-      >
-        {slides.map((b, i) => (
-          <Image
-            key={`${b.id}-${i}`}
-            source={{ uri: b.imageUrl }}
-            style={{ width: CARD_W, height: CARD_H, borderRadius: theme.radius.lg }}
-            resizeMode="cover"
-          />
-        ))}
-      </ScrollView>
+    <View
+      style={styles.heroBannerWrap}
+      onLayout={(e) => setCardW(e.nativeEvent.layout.width)}
+    >
+      {cardW > 0 ? (
+        <ScrollView
+          ref={scrollRef}
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          onScrollBeginDrag={() => { pausedUntilRef.current = 2; }}
+          onMomentumScrollEnd={onMomentumEnd}
+          onScroll={onScroll}
+          scrollEventThrottle={16}
+        >
+          {slides.map((b, i) => (
+            <Image
+              key={`${b.id}-${i}`}
+              source={{ uri: b.imageUrl }}
+              style={{ width: cardW, height: CARD_H }}
+              resizeMode="contain"
+            />
+          ))}
+        </ScrollView>
+      ) : null}
       <View style={styles.bannerDots}>
         {banners.map((b, i) => (
           <View
@@ -1077,11 +1136,6 @@ function DiscoveryHeader({
     <View>
       {banners.length > 0 ? (
         <BannerCarousel banners={banners} />
-      ) : promoText ? (
-        <View style={styles.promoBanner}>
-          <Text style={styles.promoEmoji}>🎉</Text>
-          <Text style={styles.promoText} numberOfLines={2}>{promoText}</Text>
-        </View>
       ) : null}
 
       {premiumShops.length > 0 ? (
@@ -1537,7 +1591,7 @@ const styles = StyleSheet.create({
   promoText: { flex: 1, fontSize: theme.font.small, fontWeight: '700', color: theme.color.primaryDark },
 
   // Home banner carousel (admin-uploaded hero images).
-  heroBannerWrap: { marginBottom: theme.space.md },
+  heroBannerWrap: { marginHorizontal: -theme.space.md, marginBottom: theme.space.md },
   bannerDots: {
     flexDirection: 'row',
     justifyContent: 'center',

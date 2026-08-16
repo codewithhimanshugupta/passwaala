@@ -16,6 +16,9 @@ import {
   DeliveryMode,
   VerificationStatus,
   MEDICAL_CATEGORY,
+  computeGst,
+  haversineMeters,
+  platformDeliveryFeePaise,
 } from '@passwaala/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
@@ -200,7 +203,21 @@ export class PrescriptionsService {
     const rx = await this.prisma.prescription.findFirst({
       where: { id: prescriptionId, deletedAt: null },
       include: {
-        shop: { select: { id: true, city: true, commissionRate: true, deliveryFeePaise: true, isOpen: true, verificationStatus: true } },
+        shop: {
+          select: {
+            id: true,
+            city: true,
+            commissionRate: true,
+            deliveryFeePaise: true,
+            freeDeliveryAbovePaise: true,
+            latitude: true,
+            longitude: true,
+            platformDeliveryEnabled: true,
+            isOpen: true,
+            verificationStatus: true,
+          },
+        },
+        address: { select: { latitude: true, longitude: true } },
         order: { select: { id: true } },
       },
     });
@@ -217,35 +234,55 @@ export class PrescriptionsService {
       throw new BadRequestException('Shop is not available');
     }
 
-    // Totals (integer paise). Delivery fee only for a delivery order; the shop may
-    // override it (e.g. bulky/urgent). Platform fee from the city config.
+    // Totals (integer paise). Delivery is auto-priced by distance (like normal
+    // platform-rider orders) — the shop no longer sets it manually.
     const subtotalPaise = dto.items.reduce((s, it) => s + it.pricePaise * it.quantity, 0);
     const isPickup = rx.deliveryMode === DeliveryMode.SELF_PICKUP;
-    const deliveryFeePaise = isPickup
-      ? 0
-      : dto.deliveryFeePaise != null && dto.deliveryFeePaise >= 0
-        ? dto.deliveryFeePaise
-        : rx.shop.deliveryFeePaise;
-    const cityCfg = rx.shop.city
-      ? await this.prisma.serviceableCity.findFirst({
-          where: { name: { equals: rx.shop.city, mode: 'insensitive' }, deletedAt: null },
-          select: { platformFeePaise: true },
-        })
-      : null;
-    const platformFeePaise = cityCfg?.platformFeePaise ?? PrescriptionsService.DEFAULT_PLATFORM_FEE_PAISE;
-    const totalPaise = subtotalPaise + deliveryFeePaise + platformFeePaise;
 
     // Delivery mode for the order: pickup stays pickup; a delivery follows the
     // shop's platform-delivery setting (rider vs self-deliver) like normal orders.
-    const shop = await this.prisma.shop.findUnique({
-      where: { id: sid },
-      select: { platformDeliveryEnabled: true },
-    });
     const orderDeliveryMode = isPickup
       ? DeliveryMode.SELF_PICKUP
-      : shop?.platformDeliveryEnabled
+      : rx.shop.platformDeliveryEnabled
         ? DeliveryMode.PLATFORM_RIDER
         : DeliveryMode.SELF_DELIVERY;
+
+    const cityCfg = rx.shop.city
+      ? await this.prisma.serviceableCity.findFirst({
+          where: { name: { equals: rx.shop.city, mode: 'insensitive' }, deletedAt: null },
+          select: { platformFeePaise: true, deliveryTiersJson: true },
+        })
+      : null;
+
+    // Delivery fee by mode (mirror orders.service):
+    //  - SELF_PICKUP    → ₹0.
+    //  - PLATFORM_RIDER → distance-tiered (shop→drop), auto-computed.
+    //  - SELF_DELIVERY  → the shop's own flat fee.
+    let deliveryFeePaise: number;
+    if (orderDeliveryMode === DeliveryMode.SELF_PICKUP) {
+      deliveryFeePaise = 0;
+    } else if (orderDeliveryMode === DeliveryMode.PLATFORM_RIDER) {
+      const distanceMeters = haversineMeters(
+        { latitude: rx.shop.latitude, longitude: rx.shop.longitude },
+        rx.address ?? { latitude: null, longitude: null },
+      );
+      if (cityCfg?.deliveryTiersJson) {
+        const tiers: Array<{ maxKm: number; feePaise: number }> = JSON.parse(cityCfg.deliveryTiersJson);
+        const distKm = distanceMeters / 1000;
+        const tier = tiers.find((t) => distKm <= t.maxKm) ?? tiers[tiers.length - 1];
+        deliveryFeePaise = tier.feePaise;
+      } else {
+        deliveryFeePaise = platformDeliveryFeePaise(distanceMeters);
+      }
+    } else {
+      deliveryFeePaise = rx.shop.deliveryFeePaise;
+    }
+
+    // Platform fee: ₹10 base + 18% GST = ₹11.80 (GST-inclusive), same as normal
+    // orders (computeBill). The customer bears the GST; it's shown as its own line.
+    const platformFeeBasePaise = cityCfg?.platformFeePaise ?? PrescriptionsService.DEFAULT_PLATFORM_FEE_PAISE;
+    const platformFeePaise = computeGst(platformFeeBasePaise).totalPaise;
+    const totalPaise = subtotalPaise + deliveryFeePaise + platformFeePaise;
 
     const pickupOtp = Math.floor(1000 + Math.random() * 9000).toString();
     const riderPickupOtp = Math.floor(1000 + Math.random() * 9000).toString();
@@ -292,6 +329,9 @@ export class PrescriptionsService {
       status: PrescriptionStatus.QUOTED,
       orderId,
     });
+    // Surface the freshly-created order in the shop's Orders tab live (a silent
+    // refresh — no new-order alarm, since the shop itself just created it).
+    this.realtime.emitOrderShopUpdate(sid, { orderId, status: OrderStatus.AWAITING_PAYMENT });
     void this.pushToUser(rx.customerId, {
       title: '🧾 Your prescription bill is ready',
       body: `Total ₹${(totalPaise / 100).toFixed(2)} — review and pay to confirm.`,

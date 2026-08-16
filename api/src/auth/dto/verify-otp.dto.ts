@@ -1,4 +1,4 @@
-import { IsIn, IsOptional, IsString, Matches } from 'class-validator';
+import { IsBoolean, IsIn, IsOptional, IsString, Matches } from 'class-validator';
 
 export class VerifyOtpDto {
   @IsString()
@@ -18,4 +18,14 @@ export class VerifyOtpDto {
   @IsOptional()
   @IsIn(['CUSTOMER', 'SHOPKEEPER', 'RIDER', 'ADMIN', 'OWNER'])
   appType?: string;
+
+  /**
+   * When false, OTP verification will NOT auto-create an account: an unknown
+   * phone is rejected so the client can route the user to signup (where they
+   * set a name + password + PIN). Defaults to true to preserve existing
+   * find-or-create behaviour for all other callers.
+   */
+  @IsOptional()
+  @IsBoolean()
+  createIfMissing?: boolean;
 }
