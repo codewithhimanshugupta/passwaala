@@ -262,6 +262,7 @@ export const en = {
     coinsLine: 'NearBaz Coins',
     toPay: 'To pay',
     applyOffer: 'Apply an offer',
+    viewCoupons: 'View offers & coupons',
     pickup: 'Pickup',
     collectFromShop: 'Collect from shop',
     pickupFromShop: (shop: string) => `Pick up your order from ${shop}.`,

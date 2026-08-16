@@ -17,6 +17,17 @@ export class CouponsController {
     return this.coupons.listForShop(shopId);
   }
 
+  /**
+   * Public: NearBaz-funded (platform) coupons for a city — shown DIRECTLY to the
+   * customer on the home screen, no shop involvement. `?city=` is the customer's
+   * (canonical serviceable) city name; omitted → only all-city platform coupons.
+   */
+  @Public()
+  @Get('platform')
+  listPlatform(@Query('city') city?: string) {
+    return this.coupons.listPlatformForCity(city);
+  }
+
   /** Public: validate a coupon code (customer preview before placing order). */
   @Post('validate')
   @Roles(UserRole.CUSTOMER)

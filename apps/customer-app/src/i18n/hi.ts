@@ -259,6 +259,7 @@ export const hi: Strings = {
     coinsLine: 'NearBaz कॉइन',
     toPay: 'चुकाना है',
     applyOffer: 'ऑफर लगाएं',
+    viewCoupons: 'ऑफर और कूपन देखें',
     pickup: 'पिकअप',
     collectFromShop: 'दुकान से लें',
     pickupFromShop: (shop: string) => `अपना ऑर्डर ${shop} से लें।`,

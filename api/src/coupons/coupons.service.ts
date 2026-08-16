@@ -237,6 +237,40 @@ export class CouponsService {
   }
 
   /**
+   * Public: NearBaz-funded (platform) coupons active for a city — surfaced
+   * DIRECTLY to the customer (e.g. on the home/discovery banner) with NO shop
+   * involvement. A platform coupon is city-wide: it applies at every shop in the
+   * city, so the customer should see it before entering any shop. Matched by
+   * canonical city name; a coupon shows when its cityIds is empty (all cities)
+   * OR contains the resolved city.
+   */
+  async listPlatformForCity(cityName?: string) {
+    const now = new Date();
+    let cityId: string | null = null;
+    const name = cityName?.trim();
+    if (name) {
+      const city = await this.prisma.serviceableCity.findFirst({
+        where: { name: { equals: name, mode: 'insensitive' }, deletedAt: null },
+        select: { id: true },
+      });
+      cityId = city?.id ?? null;
+    }
+    return this.prisma.coupon.findMany({
+      where: {
+        active: true, deletedAt: null, fundedBy: 'NEARBAZ',
+        AND: [
+          { OR: [{ validFrom: null }, { validFrom: { lte: now } }] },
+          { OR: [{ expiresAt: null }, { expiresAt: { gte: now } }] },
+          { OR: [{ cityIds: { isEmpty: true } }, ...(cityId ? [{ cityIds: { has: cityId } }] : [])] },
+        ],
+      },
+      select: { id: true, code: true, type: true, value: true, description: true, minOrderPaise: true, maxDiscountPaise: true, expiresAt: true, fundedBy: true },
+      orderBy: { createdAt: 'desc' },
+      take: 20,
+    });
+  }
+
+  /**
    * Admin: serviceable cities (id + name) for the coupon city multiselect.
    * ADMIN/OWNER only (wired on the admin coupons controller).
    */

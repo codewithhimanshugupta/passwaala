@@ -744,6 +744,15 @@ export class PasswaalaApiClient {
   shopCoupons(shopId: string): Promise<unknown[]> {
     return this.get(`/coupons/shop/${shopId}`) as Promise<unknown[]>;
   }
+  /**
+   * Public: NearBaz-funded (platform) coupons for a city — shown DIRECTLY to the
+   * customer on the home screen with no shop involvement. Pass the canonical
+   * serviceable city name; omit for all-city platform coupons only.
+   */
+  platformCoupons(city?: string): Promise<Array<{ id: string; code: string; type: string; value: number; description?: string | null; minOrderPaise: number; maxDiscountPaise?: number | null; expiresAt?: string | null; fundedBy?: string }>> {
+    const q = city ? `?city=${encodeURIComponent(city)}` : '';
+    return this.get(`/coupons/platform${q}`) as Promise<Array<{ id: string; code: string; type: string; value: number; description?: string | null; minOrderPaise: number; maxDiscountPaise?: number | null; expiresAt?: string | null; fundedBy?: string }>>;
+  }
   /** Customer: validate a coupon code before placing order. */
   validateCoupon(code: string, shopId: string, subtotalPaise: number): Promise<unknown> {
     return this.post('/coupons/validate', { code, shopId, subtotalPaise });

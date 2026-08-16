@@ -450,7 +450,13 @@ export function AdsScreen() {
                 <View style={s.shopStat}><Text style={s.shopStatVal}>{pct(card.ctr)}</Text><Text style={s.shopStatLbl}>CTR</Text></View>
                 <View style={s.shopStat}><Text style={s.shopStatVal}>{rupees(card.spentPaise)}</Text><Text style={s.shopStatLbl}>Spend</Text></View>
               </View>
-              <View style={s.premiumRow}>
+              <View
+                style={s.premiumRow}
+                // Capture the touch so toggling Premium never bubbles to the
+                // card's onPress (which would wrongly open the shop drill-down).
+                onStartShouldSetResponder={() => true}
+                onResponderRelease={(e) => e.stopPropagation()}
+              >
                 <Text style={s.premiumLabel}>⭐ Premium (curated, not billed)</Text>
                 <Switch
                   value={card.isPremium}

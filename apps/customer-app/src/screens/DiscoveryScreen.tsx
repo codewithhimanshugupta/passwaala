@@ -265,8 +265,18 @@ export function DiscoveryScreen({
           const radius = match?.deliveryRadiusMeters ?? Math.max(...cities.map(c => c.deliveryRadiusMeters), 10000);
           setCityRadius(radius);
           setMapRadius(radius);
-          // Promo banner: surface the city's top offer title (display-only).
-          setPromoText(match?.offers?.[0]?.title ?? null);
+          // Promo banner: prefer a NearBaz-funded (platform) coupon — a real,
+          // city-wide discount shown DIRECTLY to the customer with no shop
+          // involvement — else fall back to the city's top offer title.
+          let promo = match?.offers?.[0]?.title ?? null;
+          try {
+            const coupons = await api.platformCoupons(match?.name);
+            if (coupons.length) {
+              const c = coupons[0];
+              promo = `🎁 ${c.code}${c.description ? ` — ${c.description}` : ''}`;
+            }
+          } catch { /* ignore — keep the city offer / fallback */ }
+          if (!cancelled) setPromoText(promo);
         }
       } catch {
         if (!cancelled) setServiceableCities(null);

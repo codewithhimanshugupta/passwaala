@@ -159,6 +159,9 @@ export function BannersScreen() {
   const [saving, setSaving] = useState(false);
   const [banner, setBanner] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  // City-wise view: null = "All", else show only banners targeting that city
+  // (plus all-cities banners, which display in every city).
+  const [cityFilter, setCityFilter] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -223,6 +226,14 @@ export function BannersScreen() {
     <BannerForm cities={cities} saving={saving} onCancel={() => setCreating(false)} onSave={handleCreate} />
   );
 
+  // City-wise tabs: "All" + every city any banner targets. A city tab shows that
+  // city's banners AND all-cities banners (empty `cities`), since those display
+  // to that city's customers too.
+  const bannerCities = Array.from(new Set(banners.flatMap((b) => b.cities))).sort();
+  const visibleBanners = cityFilter
+    ? banners.filter((b) => b.cities.length === 0 || b.cities.includes(cityFilter))
+    : banners;
+
   return (
     <View style={s.wrap}>
       {banner ? <View style={s.banner}><Text style={s.bannerText}>{banner}</Text></View> : null}
@@ -240,9 +251,33 @@ export function BannersScreen() {
           </Pressable>
         </View>
 
+        {/* City-wise tabs — pick a city to see only its banners. */}
+        {bannerCities.length ? (
+          <View style={s.tabs}>
+            <Pressable
+              style={[s.tab, cityFilter === null && s.tabOn]}
+              onPress={() => setCityFilter(null)}
+            >
+              <Text style={[s.tabText, cityFilter === null && s.tabTextOn]}>All ({banners.length})</Text>
+            </Pressable>
+            {bannerCities.map((city) => {
+              const count = banners.filter((b) => b.cities.length === 0 || b.cities.includes(city)).length;
+              return (
+                <Pressable
+                  key={city}
+                  style={[s.tab, cityFilter === city && s.tabOn]}
+                  onPress={() => setCityFilter(city)}
+                >
+                  <Text style={[s.tabText, cityFilter === city && s.tabTextOn]}>{city} ({count})</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        ) : null}
+
         {loading ? <ActivityIndicator color={theme.color.accent} style={{ margin: 32 }} /> : null}
 
-        {banners.map((b) => (
+        {visibleBanners.map((b) => (
           <View key={b.id} style={[s.card, !b.active && s.cardInactive]}>
             <Image source={{ uri: b.imageUrl }} style={s.cardImg} resizeMode="cover" />
             <View style={s.cardBody}>
@@ -265,9 +300,13 @@ export function BannersScreen() {
           </View>
         ))}
 
-        {!loading && banners.length === 0 ? (
+        {!loading && visibleBanners.length === 0 ? (
           <View style={s.empty}>
-            <Text style={s.emptyText}>No banners yet. Add your first promo image!</Text>
+            <Text style={s.emptyText}>
+              {banners.length === 0
+                ? 'No banners yet. Add your first promo image!'
+                : `No banners for ${cityFilter}.`}
+            </Text>
           </View>
         ) : null}
       </ScrollView>
@@ -334,6 +373,11 @@ const s = StyleSheet.create({
   sub: { fontSize: theme.font.body, color: theme.color.textMuted, marginTop: 2 },
   createBtn: { backgroundColor: theme.color.primary, borderRadius: theme.radius.md, paddingVertical: theme.space.md, paddingHorizontal: theme.space.xl },
   createBtnText: { color: '#fff', fontWeight: '800', fontSize: theme.font.body },
+  tabs: { flexDirection: 'row', flexWrap: 'wrap', gap: theme.space.sm, marginTop: theme.space.xs },
+  tab: { paddingVertical: theme.space.sm, paddingHorizontal: theme.space.md, borderRadius: theme.radius.md, borderWidth: 1, borderColor: theme.color.border, backgroundColor: theme.color.surface },
+  tabOn: { backgroundColor: theme.color.primary, borderColor: theme.color.primary },
+  tabText: { fontSize: theme.font.small, color: theme.color.textMuted, fontWeight: '700' },
+  tabTextOn: { color: '#fff' },
   card: { flexDirection: 'row', alignItems: 'center', gap: theme.space.md, backgroundColor: theme.color.surface, borderRadius: theme.radius.lg, borderWidth: 1, borderColor: theme.color.border, padding: theme.space.md },
   cardInactive: { opacity: 0.55 },
   cardImg: { width: 160, height: 80, borderRadius: theme.radius.md, backgroundColor: theme.color.bg },

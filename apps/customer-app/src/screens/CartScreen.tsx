@@ -746,10 +746,13 @@ export function CartScreen({
         </View>
         ) : null}
 
-        {/* Offer / coupon picker — Swiggy-style entry row. Shown when the shop has
-            offers OR a coupon is already applied (NearBaz city coupons can exist
-            even with no shop offers, so the row lets the customer manage it). */}
-        {availableOffers.length || appliedCoupon ? (
+        {/* Offer / coupon picker — Swiggy-style entry row. ALWAYS shown: shop
+            offers, shop coupons AND NearBaz (platform-funded) city coupons all
+            live behind this row, listed together in one place with exactly one
+            applicable at a time. A NearBaz city coupon can exist even when the
+            shop has no offers of its own, so the row must never be gated on
+            availableOffers — otherwise the platform coupon is unreachable. */}
+        {shopData ? (
           <View style={styles.section}>
             <Pressable style={styles.couponRow} onPress={() => setShowCoupons(true)}>
               <View style={styles.couponMid}>
@@ -768,7 +771,9 @@ export function CartScreen({
                   <>
                     <Text style={styles.couponTitle}>{t.cart.applyOffer}</Text>
                     <Text style={styles.couponSub}>
-                      {availableOffers.length} offers available
+                      {availableOffers.length
+                        ? `${availableOffers.length} offers available`
+                        : t.cart.viewCoupons}
                     </Text>
                   </>
                 )}
