@@ -260,8 +260,9 @@ function AppRoot() {
 
   // Wake Render free-tier server immediately on app open + warm checkout prefetch
   useEffect(() => {
-    // Ping health endpoint silently — wakes the server before any user action
-    fetch('https://passwaala.onrender.com/health').catch(() => undefined);
+    // Ping health endpoint silently — wakes the server before any user action.
+    // Derive from the configured API URL so it follows the api.nearbaz.in cutover.
+    fetch(`${process.env.EXPO_PUBLIC_API_URL ?? 'https://api.nearbaz.in'}/health`).catch(() => undefined);
     // Warm every tab's data (addresses/coins/cancel fee/account/referral +
     // ongoing/history/bulk orders) in the background so tapping Cart/Orders/
     // Profile renders instantly instead of showing skeletons.

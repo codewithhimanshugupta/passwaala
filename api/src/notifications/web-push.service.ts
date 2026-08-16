@@ -23,7 +23,7 @@ export class WebPushService {
   ) {
     const pub = process.env.VAPID_PUBLIC;
     const priv = process.env.VAPID_PRIVATE;
-    const subject = process.env.VAPID_SUBJECT || 'mailto:support@passwaala.in';
+    const subject = process.env.VAPID_SUBJECT || 'mailto:support@nearbaz.in';
     if (pub && priv) {
       webpush.setVapidDetails(subject, pub, priv);
       this.enabled = true;

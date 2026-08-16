@@ -8,7 +8,7 @@
       "developmentClient": true,
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://passwaala.onrender.com"
+        "EXPO_PUBLIC_API_URL": "https://api.nearbaz.in"
       }
     },
     "preview": {
@@ -20,13 +20,13 @@
         "simulator": true
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://passwaala.onrender.com"
+        "EXPO_PUBLIC_API_URL": "https://api.nearbaz.in"
       }
     },
     "production": {
       "autoIncrement": true,
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://passwaala.onrender.com"
+        "EXPO_PUBLIC_API_URL": "https://api.nearbaz.in"
       }
     }
   },
