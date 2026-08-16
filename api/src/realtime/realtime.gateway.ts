@@ -16,9 +16,9 @@ export const customerRoom = (customerId: string): string => `customer:${customer
 export const riderRoom = (userId: string): string => `rider:${userId}`;
 
 /**
- * Socket CORS: mirror the HTTP allowlist (main.ts) — any *.vercel.app or
- * *.passwaala.in origin, plus localhost dev. A function origin check lets us
- * accept the same set without hard-coding every deploy URL.
+ * Socket CORS: mirror the HTTP allowlist (main.ts) — any *.vercel.app,
+ * *.passwaala.in or *.nearbaz.in origin, plus localhost dev. A function origin
+ * check lets us accept the same set without hard-coding every deploy URL.
  */
 function socketCorsOrigin(origin: string | undefined, cb: (err: Error | null, allow?: boolean) => void): void {
   if (!origin) return cb(null, true);
@@ -28,8 +28,10 @@ function socketCorsOrigin(origin: string | undefined, cb: (err: Error | null, al
       host === 'localhost' ||
       host === '127.0.0.1' ||
       host === 'passwaala.in' ||
+      host === 'nearbaz.in' ||
       host.endsWith('.vercel.app') ||
-      host.endsWith('.passwaala.in')
+      host.endsWith('.passwaala.in') ||
+      host.endsWith('.nearbaz.in')
     ) {
       return cb(null, true);
     }
