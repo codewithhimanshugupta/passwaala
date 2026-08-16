@@ -25,6 +25,20 @@ import { WebPushService } from '../notifications/web-push.service';
 import { DispatchService } from '../dispatch/dispatch.service';
 import { PlaceBulkOrderDto } from './dto/place-bulk-order.dto';
 
+/**
+ * Child statuses that mean the sub-order has LEFT the bulk fulfilment flow —
+ * cancelled/rejected outright, or paid-then-cancelled and awaiting refund. Per
+ * product policy, a bulk order CONTINUES with the surviving shops when one shop
+ * bows out, so these children are excluded from the "are we all there yet?"
+ * progression gates below (accepted-all / ready-all / picked-up / delivered).
+ */
+const EXITED_CHILD_STATUSES: OrderStatus[] = [
+  OrderStatus.CANCELLED,
+  OrderStatus.REJECTED,
+  OrderStatus.REFUND_PENDING,
+  OrderStatus.REFUNDED,
+];
+
 /** Fields fetched for each shop during bulk placement. */
 const SHOP_SELECT = {
   id: true,
@@ -470,7 +484,10 @@ export class BulkOrdersService {
       select: { id: true, status: true, orders: { select: { status: true } } },
     });
     if (!bulk) return;
-    const allReady = bulk.orders.every((o) => o.status === OrderStatus.READY);
+    const survivors = bulk.orders.filter(
+      (o) => !EXITED_CHILD_STATUSES.includes(o.status as OrderStatus),
+    );
+    const allReady = survivors.length > 0 && survivors.every((o) => o.status === OrderStatus.READY);
     if (allReady && bulk.status === BulkOrderStatus.ACCEPTED_ALL) {
       await this.prisma.bulkOrder.update({
         where: { id: bulkOrderId },
@@ -489,7 +506,10 @@ export class BulkOrdersService {
       select: { id: true, status: true, orders: { select: { status: true } } },
     });
     if (!bulk || bulk.status !== BulkOrderStatus.PLACED) return;
-    const allAccepted = bulk.orders.every(
+    const survivors = bulk.orders.filter(
+      (o) => !EXITED_CHILD_STATUSES.includes(o.status as OrderStatus),
+    );
+    const allAccepted = survivors.length > 0 && survivors.every(
       (o) => o.status === OrderStatus.ACCEPTED ||
              o.status === OrderStatus.AWAITING_PAYMENT ||
              o.status === OrderStatus.PREPARING ||
@@ -518,7 +538,10 @@ export class BulkOrdersService {
     if (!bulk) return;
 
     const seq: string[] = bulk.pickupSequenceJson ? JSON.parse(bulk.pickupSequenceJson) : [];
-    const allPickedUp = bulk.orders.every((o) => o.status === OrderStatus.OUT_FOR_DELIVERY);
+    const survivors = bulk.orders.filter(
+      (o) => !EXITED_CHILD_STATUSES.includes(o.status as OrderStatus),
+    );
+    const allPickedUp = survivors.length > 0 && survivors.every((o) => o.status === OrderStatus.OUT_FOR_DELIVERY);
 
     if (allPickedUp) {
       await this.prisma.bulkOrder.update({
@@ -540,7 +563,10 @@ export class BulkOrdersService {
       select: { id: true, status: true, orders: { select: { status: true } } },
     });
     if (!bulk) return;
-    const allDelivered = bulk.orders.every((o) => o.status === OrderStatus.DELIVERED);
+    const survivors = bulk.orders.filter(
+      (o) => !EXITED_CHILD_STATUSES.includes(o.status as OrderStatus),
+    );
+    const allDelivered = survivors.length > 0 && survivors.every((o) => o.status === OrderStatus.DELIVERED);
     if (allDelivered) {
       await this.prisma.bulkOrder.update({
         where: { id: bulkOrderId },

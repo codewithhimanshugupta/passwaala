@@ -132,20 +132,24 @@ export class AuthService {
     const normalized = AuthService.normalizePhone(phone);
     const otpKey = `${normalized}:${appType}`;
 
-    if (process.env.NODE_ENV === 'production') {
-      if (!msg91Token) throw new UnauthorizedException('Phone verification token required.');
-      const ok = await this.verifyMsg91Token(msg91Token);
-      if (!ok) throw new UnauthorizedException('Phone verification failed or expired.');
-    } else {
-      // Dev: accept any code against the in-memory store, or bypass entirely
-      if (code) {
+    // Prove phone ownership: verify the single-use MSG91 widget token (prod) or
+    // match the dev OTP store. Extracted so the OTP-*login* path can defer it
+    // until AFTER the account-existence check — an unknown number must 404 with
+    // the token still UNSPENT, so the client can hand it to signup (no 2nd SMS).
+    const proveOwnership = async () => {
+      if (process.env.NODE_ENV === 'production') {
+        if (!msg91Token) throw new UnauthorizedException('Phone verification token required.');
+        const ok = await this.verifyMsg91Token(msg91Token);
+        if (!ok) throw new UnauthorizedException('Phone verification failed or expired.');
+      } else if (code) {
+        // Dev: accept any code against the in-memory store, or bypass entirely
         const entry = this.otpStore.get(otpKey);
         if (entry && entry.code === code && Date.now() <= entry.expiresAt) {
           this.otpStore.delete(otpKey);
         }
         // else: dev bypass — proceed anyway
       }
-    }
+    };
 
     const roleForCreate = AuthService.appTypeToRole(appType);
 
@@ -167,24 +171,28 @@ export class AuthService {
     // *login*, as opposed to signup), an unknown phone is rejected with a 404
     // so the client can route the user to the signup flow where they set a
     // name + password + PIN, rather than silently minting a bare account.
-    const user = createIfMissing
-      ? await this.prisma.user.upsert({
-          where: { phone_appType: { phone: normalized, appType: effectiveAppType } },
-          update: {},
-          create: { phone: normalized, role: roleForCreate, appType: effectiveAppType },
-          include: { ownedShops: { where: { deletedAt: null }, select: { id: true } } },
-        })
-      : await this.prisma.user
-          .findUnique({
-            where: { phone_appType: { phone: normalized, appType: effectiveAppType } },
-            include: { ownedShops: { where: { deletedAt: null }, select: { id: true } } },
-          })
-          .then((found) => {
-            if (!found) {
-              throw new NotFoundException('No account found for this number. Please sign up.');
-            }
-            return found;
-          });
+    let user;
+    if (createIfMissing) {
+      await proveOwnership();
+      user = await this.prisma.user.upsert({
+        where: { phone_appType: { phone: normalized, appType: effectiveAppType } },
+        update: {},
+        create: { phone: normalized, role: roleForCreate, appType: effectiveAppType },
+        include: { ownedShops: { where: { deletedAt: null }, select: { id: true } } },
+      });
+    } else {
+      // OTP login: check existence BEFORE spending the token. An unknown number
+      // throws 404 with the MSG91 token untouched, so the client can pass it
+      // straight into signup and avoid sending a second OTP.
+      user = await this.prisma.user.findUnique({
+        where: { phone_appType: { phone: normalized, appType: effectiveAppType } },
+        include: { ownedShops: { where: { deletedAt: null }, select: { id: true } } },
+      });
+      if (!user) {
+        throw new NotFoundException('No account found for this number. Please sign up.');
+      }
+      await proveOwnership();
+    }
 
     // Backfill referral code
     if (!user.referralCode) {

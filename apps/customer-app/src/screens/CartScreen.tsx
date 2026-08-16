@@ -12,8 +12,9 @@ import {
 } from 'react-native';
 import { PaymentMethod, DeliveryMode, OfferType, computeBill, platformDeliveryFeePaise } from '@passwaala/shared';
 import type { PlaceOrderResult } from '@passwaala/shared';
+import { friendlyMessage } from '@passwaala/api-client';
 import { api } from '../api';
-import { clearCart, setQty, useCart, resetCartStore } from '../cart';
+import { clearCart, decOne, addOne, useCart, resetCartStore, reconcileWithCatalog } from '../cart';
 import type { Address, ShopView } from '../types';
 import { AddressForm } from '../components/AddressForm';
 import { CouponScreen, type AppliedCoupon } from './CouponScreen';
@@ -97,6 +98,10 @@ export function CartScreen({
   const [placingStep, setPlacingStep] = useState(0);
   const [placingCancelHandle, setPlacingCancelHandle] = useState<{ cancel: () => void } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Stable idempotency key for placement — generated once and reused across
+  // retries so a transient/timed-out placement that actually succeeded is
+  // de-duplicated instead of creating a duplicate order. Cleared on success.
+  const idempotencyRef = useRef<string | null>(null);
   const [showAddrForm, setShowAddrForm] = useState(false);
   // Modal to switch between saved addresses (the cart shows only one at a time).
   const [showAddrPicker, setShowAddrPicker] = useState(false);
@@ -198,7 +203,20 @@ export function CartScreen({
     return () => { alive = false; };
   }, [shopId]);
 
-  // Nearby shops — module-level cache survives remounts (back from BulkCartScreen)
+  // Self-heal the cart when it opens: drop any product that was deleted / made
+  // unavailable since it was added (the server rejects placement otherwise with
+  // "A product in your cart is no longer available", leaving the item un-clearable)
+  // and refresh stale unit prices. Runs once per shop.
+  useEffect(() => {
+    if (!shopId) return;
+    let alive = true;
+    void reconcileWithCatalog().then(({ removed }) => {
+      if (alive && removed.length > 0) {
+        setError(t.cart.itemsRemovedUnavailable(removed.join(', ')));
+      }
+    });
+    return () => { alive = false; };
+  }, [shopId]);
   const bulkCart = useBulkCart();
   const [nearbyShops, setNearbyShops] = useState(() => {
     const pre = getPrefetchedCheckout();
@@ -298,11 +316,17 @@ export function CartScreen({
     }
   }, [platformDelivery, riderAvailableFromCart, shopData?.selfPickupEnabled]);
 
-  async function changeQty(productId: string, qty: number) {
+  // The +/- steppers must NEVER compute from a render-time `item.qty` (that value
+  // goes stale the moment another line changes or on a rapid double-tap, which is
+  // what made "-" misbehave once a different product had been decremented). Both
+  // delegate to the store, which reads the CURRENT stored qty and steps from it.
+  async function incQty(productId: string) {
     setError(null);
-    // Instant, local-only update — the line list AND the bill both render from
-    // the local cart, so +/- reflects immediately with no server round-trip.
-    await setQty(productId, qty);
+    await addOne(productId);
+  }
+  async function decQty(productId: string) {
+    setError(null);
+    await decOne(productId);
   }
 
   async function onClearCart() {
@@ -346,10 +370,12 @@ export function CartScreen({
     // Expose cancel handle so the overlay button can dismiss + auto-cancel
     setPlacingCancelHandle(cancelHandle);
     try {
-      const idempotencyKey = `pw-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      // Reuse the stable per-attempt key across retries (see idempotencyRef).
+      if (!idempotencyRef.current) {
+        idempotencyRef.current = `pw-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      }
+      const idempotencyKey = idempotencyRef.current;
       const userNote = notes.trim();
-      const subtotalRupees = Math.floor(localCart.totalPaise / 100);
-      const appliedCoins = useCoins ? Math.min(coinBalance, subtotalRupees) : 0;
       const result = await api.placeOrder({
         deliveryMode: fulfilment,
         addressId: isPickupMode ? undefined : selectedAddress ?? undefined,
@@ -370,9 +396,24 @@ export function CartScreen({
         return;
       }
       resetCartStore();
+      idempotencyRef.current = null;
       onPlaced(result);
     } catch (e) {
-      if (!wasCancelled) setError((e as Error).message);
+      if (!wasCancelled) {
+        const msg = (e as Error).message ?? '';
+        // A deleted/unavailable product blocks the whole order. Prune it from the
+        // cart so the user can retry, and tell them exactly what was removed.
+        if (/no longer available|unavailable/i.test(msg)) {
+          const { removed } = await reconcileWithCatalog();
+          setError(
+            removed.length > 0
+              ? t.cart.itemsRemovedUnavailable(removed.join(', '))
+              : friendlyMessage(e),
+          );
+        } else {
+          setError(friendlyMessage(e));
+        }
+      }
     } finally {
       if (!wasCancelled) setPlacing(false);
       setPlacingCancelHandle(null);
@@ -476,10 +517,15 @@ export function CartScreen({
   // Coins redeem against the item subtotal only (1 coin = ₹1). Cap the applied
   // amount client-side to min(balance, subtotal) so the preview matches the
   // server, which re-caps on placement.
-  const subtotalRupees = Math.floor((bill?.subtotalPaise ?? 0) / 100);
-  const appliedCoins = useCoins ? Math.min(coinBalance, subtotalRupees) : 0;
+  // Coins redeem 1:1 (₹) against the POST-discount payable — matching the server,
+  // which caps redemption at subtotal − discount. Capping against the raw subtotal
+  // over-counts coins when an offer/coupon is applied and can drive "To pay"
+  // negative and the coins-deducted line wrong.
+  const payableBeforeCoinsPaise = bill ? Math.max(0, bill.subtotalPaise - bill.discountPaise) : 0;
+  const redeemableRupees = Math.floor(payableBeforeCoinsPaise / 100);
+  const appliedCoins = useCoins ? Math.min(coinBalance, redeemableRupees) : 0;
   const coinDiscountPaise = appliedCoins * 100;
-  const shownTotalPaise = bill ? bill.totalPaise - coinDiscountPaise : 0;
+  const shownTotalPaise = bill ? Math.max(0, bill.totalPaise - coinDiscountPaise) : 0;
 
   // Checkout time estimate: prep (scales with qty) + travel (shop → drop) for
   // delivery, or prep-only "Ready in ~" for pickup.
@@ -563,14 +609,14 @@ export function CartScreen({
                   <View style={styles.stepper}>
                     <Pressable
                       style={styles.stepBtn}
-                      onPress={() => changeQty(item.productId, item.qty - 1)}
+                      onPress={() => decQty(item.productId)}
                     >
                       <Text style={styles.stepText}>−</Text>
                     </Pressable>
                     <Text style={styles.qty}>{item.qty}</Text>
                     <Pressable
                       style={styles.stepBtn}
-                      onPress={() => changeQty(item.productId, item.qty + 1)}
+                      onPress={() => incQty(item.productId)}
                     >
                       <Text style={styles.stepText}>+</Text>
                     </Pressable>

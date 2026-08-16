@@ -82,6 +82,18 @@ export function bulkCartSetQty(shopId: string, productId: string, qty: number): 
   persist();
 }
 
+/**
+ * Decrement one unit, reading the CURRENT stored qty (not a render-captured
+ * value). Race-safe: a stale captured qty or rapid double-tap can never wrap
+ * back up or re-add a removed line. Removes the line (and empty shop) at 0.
+ */
+export function bulkCartDecOne(shopId: string, productId: string): void {
+  const shop = state.find((s) => s.shopId === shopId);
+  const line = shop?.lines.find((l) => l.productId === productId);
+  const nextQty = line ? line.qty - 1 : 0;
+  bulkCartSetQty(shopId, productId, nextQty);
+}
+
 export function bulkCartRemoveShop(shopId: string): void {
   state = state.filter((s) => s.shopId !== shopId);
   persist();

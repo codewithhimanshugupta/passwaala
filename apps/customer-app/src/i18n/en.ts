@@ -240,6 +240,8 @@ export const en = {
     addMoreItems: 'Add more items',
     each: (amount: string) => `${amount} each`,
     unavailable: 'Unavailable',
+    itemsRemovedUnavailable: (names: string) =>
+      `Removed ${names} — no longer available at this shop. Please review your cart and place the order again.`,
     minGate: (amount: string) => `Add ${amount} more to meet the minimum order value.`,
     howWouldYouLikeIt: 'How would you like it?',
     delivery: 'Delivery',

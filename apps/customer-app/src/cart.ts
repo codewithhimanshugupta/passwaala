@@ -127,11 +127,10 @@ export async function setQty(productId: string, qty: number): Promise<void> {
   // clear BOTH server cart and IndexedDB so a page reload never restores the old items.
   if (local.lines.length === 0) {
     local = { ...EMPTY };
-    // Clear IDB immediately so hydrateFromIdb() on next load finds nothing
+    // Clear IDB + the localStorage mirror immediately so hydrateFromIdb()/the
+    // sync startup read on the next load finds nothing, and drop the server cart.
     void idbSet(STORAGE_KEY, null);
     if (typeof localStorage !== 'undefined') localStorage.removeItem(STORAGE_KEY);
-    void api.clearCart().catch(() => undefined);
-    local = { ...EMPTY };
     void api.clearCart().catch(() => undefined);
   }
   persist();
@@ -262,5 +261,55 @@ export function useCart(): CartSnapshot {
 /** Reset local cart (e.g. on logout). */
 export function resetCartStore(): void {
   local = { ...EMPTY, lines: [] };
+  // Also drop the SERVER cart. The explicit-items placement path never consumes
+  // the server cart, so a stale server cart would otherwise resurface via
+  // reorder/loadFromServer and show items from an already-placed order.
+  void api.clearCart().catch(() => undefined);
   persist();
+}
+
+/**
+ * Reconcile the local cart against the shop's CURRENT catalog:
+ *  - drop lines whose product was deleted / made unavailable (this is exactly
+ *    what the server rejects with "A product in your cart is no longer
+ *    available", blocking placement with no way to clear the offending item),
+ *  - refresh surviving lines to the live unit price so the on-device bill can't
+ *    drift from what the server actually charges.
+ * Returns the display names of removed items (for a user notice). Network-safe:
+ * on any fetch error it leaves the cart untouched.
+ */
+export async function reconcileWithCatalog(): Promise<{ removed: string[]; repriced: boolean }> {
+  if (!local.shopId || local.lines.length === 0) return { removed: [], repriced: false };
+  let catalog: Array<{ id: string; pricePaise: number }>;
+  try {
+    catalog = await api.searchProducts(local.shopId);
+  } catch {
+    return { removed: [], repriced: false };
+  }
+  const byId = new Map(catalog.map((p) => [p.id, p]));
+  const removed: string[] = [];
+  const kept: LocalLine[] = [];
+  let repriced = false;
+  for (const l of local.lines) {
+    const p = byId.get(l.productId);
+    if (!p) {
+      removed.push(l.name);
+      continue;
+    }
+    if (p.pricePaise !== l.unitPricePaise) {
+      l.unitPricePaise = p.pricePaise;
+      repriced = true;
+    }
+    kept.push(l);
+  }
+  if (removed.length === 0 && !repriced) return { removed: [], repriced: false };
+  local.lines = kept;
+  if (local.lines.length === 0) {
+    local = { ...EMPTY };
+    void idbSet(STORAGE_KEY, null);
+    if (typeof localStorage !== 'undefined') localStorage.removeItem(STORAGE_KEY);
+    void api.clearCart().catch(() => undefined);
+  }
+  persist();
+  return { removed, repriced };
 }

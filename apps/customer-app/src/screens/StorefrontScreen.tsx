@@ -37,7 +37,7 @@ import {
 import { Badge, Button, ErrorState, Loading, StorefrontSkeleton, Stars } from '../ui';
 import { ImageOrInitial } from '../ImageOrInitial';
 import { prefetchCheckout } from '../checkoutPrefetch';
-import { bulkCartAddOne, bulkCartSetQty, useBulkCart } from '../bulkCart';
+import { bulkCartAddOne, bulkCartDecOne, useBulkCart } from '../bulkCart';
 import { useLang } from '../i18n/LanguageContext';
 import { openMapsDirections } from '../geo';
 
@@ -245,8 +245,7 @@ export function StorefrontScreen({
   };
   const onSub = (productId: string) => {
     if (fromBulk) {
-      const current = bulkQtyByProduct[productId] ?? 0;
-      bulkCartSetQty(shopId, productId, Math.max(0, current - 1));
+      bulkCartDecOne(shopId, productId);
       return Promise.resolve();
     }
     return runMutation(productId, () => decOne(productId));
@@ -668,27 +667,34 @@ function ProductRow({
 
         {/* Add / stepper — independent controls (not inside the toggle area). */}
         <View style={styles.productActions}>
-          {!orderable ? (
+          {qty > 0 ? (
+            // Always allow adjusting an item already in the cart — even if it
+            // just went out of stock — so it can be decremented/removed. Only
+            // the "+" is disabled when the product is no longer orderable.
+            <View style={styles.stepper}>
+              <Pressable style={styles.stepBtn} onPress={onSub}>
+                <Text style={styles.stepText}>−</Text>
+              </Pressable>
+              <Text style={styles.qty}>{qty}</Text>
+              <Pressable
+                style={[styles.stepBtn, !orderable && { opacity: 0.4 }]}
+                onPress={orderable ? onAdd : undefined}
+                disabled={!orderable}
+              >
+                <Text style={styles.stepText}>+</Text>
+              </Pressable>
+            </View>
+          ) : !orderable ? (
             <View style={styles.outOfStockBadge}>
               <Text style={styles.outOfStockText}>{t.storefront.outOfStock}</Text>
             </View>
-          ) : qty === 0 ? (
+          ) : (
             <Pressable
               style={styles.addBtn}
               onPress={onAdd}
             >
               <Text style={styles.addBtnText}>{t.storefront.add}</Text>
             </Pressable>
-          ) : (
-            <View style={styles.stepper}>
-              <Pressable style={styles.stepBtn} onPress={onSub}>
-                <Text style={styles.stepText}>−</Text>
-              </Pressable>
-              <Text style={styles.qty}>{qty}</Text>
-              <Pressable style={styles.stepBtn} onPress={onAdd}>
-                <Text style={styles.stepText}>+</Text>
-              </Pressable>
-            </View>
           )}
         </View>
       </View>

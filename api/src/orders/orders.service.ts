@@ -38,6 +38,19 @@ import {
 } from './order-select';
 
 /**
+ * Bulk sub-order statuses that mean the child has LEFT the fulfilment flow.
+ * A bulk order continues with the surviving shops when one bows out, so these
+ * children are excluded from the envelope's progression gates and from the
+ * "does anyone survive?" check in reconcileBulkOrderAfterChildExit.
+ */
+const BULK_EXITED_CHILD_STATUSES: OrderStatus[] = [
+  OrderStatus.CANCELLED,
+  OrderStatus.REJECTED,
+  OrderStatus.REFUND_PENDING,
+  OrderStatus.REFUNDED,
+];
+
+/**
  * OrdersService — order placement (Phase 3) + the shopkeeper's incoming order
  * feed and lifecycle transitions (Phase 1, plan → Shopkeeper App, Order
  * Exceptions, accept-before-pay).
@@ -737,7 +750,7 @@ export class OrdersService {
   async cancelAsSystem(orderId: string, reason = 'No response from shop within 15 minutes'): Promise<void> {
     const order = await this.prisma.order.findFirst({
       where: { id: orderId, status: OrderStatus.PLACED, deletedAt: null },
-      select: { id: true, shortId: true, customerId: true, shopId: true, coinsRedeemedPaise: true, items: { select: { productId: true, qty: true } } },
+      select: { id: true, shortId: true, customerId: true, shopId: true, bulkOrderId: true, coinsRedeemedPaise: true, items: { select: { productId: true, qty: true } } },
     });
     if (!order) return; // already accepted, cancelled, or delivered — nothing to do
 
@@ -758,6 +771,11 @@ export class OrdersService {
 
     this.realtime.emitOrderStatusChanged(order.customerId, { orderId: order.id, status: OrderStatus.CANCELLED });
     await this.disputes.openSystemDispute(order.id, `${reason} — auto-cancelled by system.`, { onlyIfRefundOwed: true });
+    // If this was a bulk sub-order, reconcile the envelope (continue with any
+    // surviving shops, or cancel the bulk if this was the last one).
+    if (order.bulkOrderId) {
+      await this.reconcileBulkOrderAfterChildExit(order.bulkOrderId, order.customerId).catch(() => undefined);
+    }
   }
 
   /**
@@ -1272,7 +1290,7 @@ export class OrdersService {
         id: true, status: true, shopId: true,
         originalTotalPaise: true, adjustedTotalPaise: true,
         paymentMethod: true, paymentConfirmed: true,
-        cancelRequestedAt: true,
+        cancelRequestedAt: true, bulkOrderId: true,
       },
     });
     if (!order) throw new NotFoundException('Order not found');
@@ -1311,6 +1329,11 @@ export class OrdersService {
       this.realtime.emitOrderShopUpdate(order.shopId, { orderId, status: newStatus });
       if (isPrepaid) {
         await this.disputes.openSystemDispute(orderId, `Customer cancelled before preparation — refund required`);
+      }
+      // Bulk sub-order: reconcile the envelope (continue with survivors, or
+      // cancel the bulk if this was the last one).
+      if (order.bulkOrderId) {
+        await this.reconcileBulkOrderAfterChildExit(order.bulkOrderId, customerId).catch(() => undefined);
       }
       return { cancelled: true, requiresShopApproval: false, feePaise: 0 };
     }
@@ -1355,7 +1378,7 @@ export class OrdersService {
         id: true, status: true, shopId: true, customerId: true,
         paymentMethod: true, paymentConfirmed: true,
         cancelFeePaise: true, cancelRequestedAt: true,
-        originalTotalPaise: true, adjustedTotalPaise: true,
+        originalTotalPaise: true, adjustedTotalPaise: true, bulkOrderId: true,
       },
     });
     assertOwnedByShop(order, id);
@@ -1415,6 +1438,11 @@ export class OrdersService {
         orderId,
         `Customer cancel approved by shop. Refund required${feePaise > 0 ? ` (net of ₹${feePaise / 100} cancel fee)` : ''}.`,
       );
+    }
+    // Bulk sub-order: reconcile the envelope (continue with survivors, or cancel
+    // the bulk if this was the last one).
+    if (order.bulkOrderId) {
+      await this.reconcileBulkOrderAfterChildExit(order.bulkOrderId, order.customerId).catch(() => undefined);
     }
     return { approved: true, feePaise };
   }
@@ -1655,7 +1683,7 @@ export class OrdersService {
     const id = requireShopScope(shopId);
     const order = await this.prisma.order.findFirst({
       where: { id: orderId, deletedAt: null },
-      select: { id: true, shopId: true, status: true, customerId: true, pickupOtp: true, deliveryMode: true, paymentConfirmed: true, paymentMethod: true, bulkOrderId: true, shop: { select: { city: true } } },
+      select: { id: true, shopId: true, status: true, customerId: true, pickupOtp: true, deliveryMode: true, paymentConfirmed: true, paymentMethod: true, bulkOrderId: true, riderId: true, shortId: true, shop: { select: { city: true } } },
     });
     // 404 if missing OR another shop's order (no existence leak).
     const owned = assertOwnedByShop(order, id);
@@ -1790,13 +1818,39 @@ export class OrdersService {
       await this.maybeAdvanceBulkToAcceptedAll(owned.bulkOrderId).catch(() => undefined);
     }
 
-    // When a bulk sub-order is REJECTED or CANCELLED, cancel the whole BulkOrder
-    // (cancel all other pending sub-orders too) and notify the customer.
+    // When a bulk sub-order leaves the flow (REJECTED / CANCELLED / forced to
+    // REFUND_PENDING because it was paid), reconcile the envelope: the bulk
+    // CONTINUES with the surviving shops; the whole bulk is cancelled only if
+    // no shop survives. The departing shop's refund is handled by the dispute
+    // opened above (onlyIfRefundOwed).
     if (
-      (dto.status === OrderStatus.REJECTED || dto.status === OrderStatus.CANCELLED) &&
+      (data.status === OrderStatus.REJECTED ||
+        data.status === OrderStatus.CANCELLED ||
+        data.status === OrderStatus.REFUND_PENDING) &&
       owned.bulkOrderId
     ) {
-      await this.maybeCancelBulkOrder(owned.bulkOrderId, owned.customerId, dto.status).catch(() => undefined);
+      await this.reconcileBulkOrderAfterChildExit(owned.bulkOrderId, owned.customerId).catch(() => undefined);
+    }
+
+    // If a rider was already assigned to THIS sub-order (or single order) and it
+    // is now being pulled from the flow, actively tell that rider and detach the
+    // order from them so it leaves their board. (The bulk envelope's rider stays
+    // on the route for the surviving shops; only the full-cancel path in
+    // reconcileBulkOrderAfterChildExit releases the envelope rider.)
+    if (
+      (data.status === OrderStatus.REJECTED ||
+        data.status === OrderStatus.CANCELLED ||
+        data.status === OrderStatus.REFUND_PENDING) &&
+      owned.riderId
+    ) {
+      await this.prisma.order.update({
+        where: { id: orderId },
+        data: { riderId: null },
+      }).catch(() => undefined);
+      await this.notifyRiderJobRemoved(
+        owned.riderId,
+        `Order #${(owned.shortId ?? orderId).slice(0, 10)} was cancelled by the shop — removed from your deliveries.`,
+      ).catch(() => undefined);
     }
 
     // Re-fetch the BulkOrder status after any hooks have run and emit it to the
@@ -1874,7 +1928,10 @@ export class OrdersService {
       select: { id: true, status: true, orders: { select: { status: true } } },
     });
     if (!bulk || bulk.status !== BulkOrderStatus.PLACED) return;
-    const allAccepted = bulk.orders.every(
+    const survivors = bulk.orders.filter(
+      (o) => !BULK_EXITED_CHILD_STATUSES.includes(o.status as OrderStatus),
+    );
+    const allAccepted = survivors.length > 0 && survivors.every(
       (o) => [
         OrderStatus.ACCEPTED, OrderStatus.AWAITING_PAYMENT,
         OrderStatus.PREPARING, OrderStatus.READY,
@@ -1889,82 +1946,88 @@ export class OrdersService {
   }
 
   /**
-   * When any sub-order in a BulkOrder is REJECTED or CANCELLED, cancel the
-   * entire BulkOrder envelope and all remaining in-flight sub-orders. Sub-orders
-   * that were already paid via UPI_DIRECT (paymentConfirmed = true) are moved to
-   * REFUND_PENDING instead of CANCELLED so admin can action them. Emits a
-   * BULK_CANCELLED socket event to the customer.
+   * Reconcile a BulkOrder after one of its sub-orders LEAVES the fulfilment flow
+   * (rejected / cancelled / paid-then-cancelled). Product policy: the bulk order
+   * CONTINUES with the surviving shops — the departing shop's part is refunded
+   * (a per-child refund dispute is opened by the caller when money is owed).
+   *
+   *  - If shops still survive: re-run the accepted-all / ready-all gates (the
+   *    departing shop may have been the last blocker) and push the refreshed
+   *    envelope status to the customer. The bulk is NOT cancelled.
+   *  - If NO shops survive (every sub-order has exited): cancel the envelope and
+   *    emit BULK_CANCELLED.
    */
-  private async maybeCancelBulkOrder(
+  private async reconcileBulkOrderAfterChildExit(
     bulkOrderId: string,
     customerId: string,
-    reason: OrderStatus,
   ): Promise<void> {
-    const TERMINAL: string[] = [
-      OrderStatus.DELIVERED,
-      OrderStatus.CANCELLED,
-      OrderStatus.REJECTED,
-      OrderStatus.REFUNDED,
-    ];
-
-    // Fetch all sub-orders so we can handle the UPI_DIRECT paid ones separately.
     const subOrders = await this.prisma.order.findMany({
       where: { bulkOrderId, deletedAt: null },
-      select: {
-        id: true,
-        status: true,
-        paymentMethod: true,
-        paymentConfirmed: true,
-      },
+      select: { id: true, status: true },
     });
 
-    const upiPaidIds = subOrders
-      .filter(
-        (o) =>
-          !TERMINAL.includes(o.status) &&
-          o.paymentMethod === PaymentMethod.UPI_DIRECT &&
-          o.paymentConfirmed === true,
-      )
-      .map((o) => o.id);
+    const survivors = subOrders.filter(
+      (o) => !BULK_EXITED_CHILD_STATUSES.includes(o.status as OrderStatus),
+    );
 
-    const plainCancelIds = subOrders
-      .filter(
-        (o) => !TERMINAL.includes(o.status) && !upiPaidIds.includes(o.id),
-      )
-      .map((o) => o.id);
-
-    // Cancel plain non-paid pending sub-orders.
-    if (plainCancelIds.length > 0) {
-      await this.prisma.order.updateMany({
-        where: { id: { in: plainCancelIds } },
-        data: {
-          status: OrderStatus.CANCELLED,
-          cancelledBy: CancelledBy.SHOP,
-          cancellationReason: `Bulk order cancelled — sibling shop ${reason.toLowerCase()} the order`,
-          cancelledAt: new Date(),
-        },
+    if (survivors.length === 0) {
+      // Every shop has bowed out — nothing left to fulfil. Cancel the envelope
+      // and release any assigned rider (the whole route is gone).
+      const bulk = await this.prisma.bulkOrder.findUnique({
+        where: { id: bulkOrderId },
+        select: { riderId: true, shortId: true },
       });
+      await this.prisma.bulkOrder.update({
+        where: { id: bulkOrderId },
+        data: { status: BulkOrderStatus.CANCELLED, riderId: null },
+      });
+      if (bulk?.riderId) {
+        await this.notifyRiderJobRemoved(
+          bulk.riderId,
+          `Bulk order #${(bulk.shortId ?? bulkOrderId).slice(0, 10)} was cancelled — removed from your deliveries.`,
+        );
+      }
+      this.realtime.emitOrderStatusChanged(customerId, {
+        orderId: bulkOrderId,
+        status: 'BULK_CANCELLED' as unknown as OrderStatus,
+      });
+      return;
     }
 
-    // Move UPI-paid sub-orders to REFUND_PENDING so admin sees them for refund.
-    if (upiPaidIds.length > 0) {
-      await this.prisma.order.updateMany({
-        where: { id: { in: upiPaidIds } },
-        data: { status: OrderStatus.REFUND_PENDING },
-      });
-    }
+    // Survivors remain → the bulk continues. A departing shop may have been the
+    // last blocker on a progression gate, so re-run the accepted / ready checks.
+    await this.maybeAdvanceBulkToAcceptedAll(bulkOrderId).catch(() => undefined);
+    await this.maybeTriggerBulkDispatch(bulkOrderId).catch(() => undefined);
 
-    // Mark the BulkOrder itself as CANCELLED.
-    await this.prisma.bulkOrder.update({
+    // Push the refreshed envelope status to the customer's tracking screen.
+    const bulk = await this.prisma.bulkOrder.findUnique({
       where: { id: bulkOrderId },
-      data: { status: BulkOrderStatus.CANCELLED },
-    });
+      select: { status: true },
+    }).catch(() => null);
+    if (bulk) {
+      this.realtime.emitOrderStatusChanged(customerId, {
+        orderId: bulkOrderId,
+        status: bulk.status as unknown as OrderStatus,
+      });
+    }
+  }
 
-    // Notify the customer that their entire bulk order is cancelled.
-    this.realtime.emitOrderStatusChanged(customerId, {
-      orderId: bulkOrderId,
-      status: 'BULK_CANCELLED' as unknown as OrderStatus,
-    });
+  /**
+   * Notify a rider that a job was pulled out from under them (shop cancelled a
+   * paid order after assignment, etc.) and refresh their board. Best-effort:
+   * a system.alert socket event (the rider app reloads on it) + a push.
+   */
+  private async notifyRiderJobRemoved(riderId: string, message: string): Promise<void> {
+    try {
+      this.realtime.emitSystemAlert(riderId, { message });
+    } catch { /* best-effort */ }
+    try {
+      await this.webPush.sendToUser(riderId, {
+        title: 'Delivery cancelled',
+        body: message,
+        tag: `job-removed-${riderId}`,
+      });
+    } catch { /* best-effort */ }
   }
 
   /** When a bulk sub-order becomes READY, check if all siblings are READY → dispatch. */
@@ -1974,7 +2037,10 @@ export class OrdersService {
       select: { id: true, status: true, orders: { select: { status: true } } },
     });
     if (!bulk) return;
-    const allReady = bulk.orders.every((o) => o.status === OrderStatus.READY);
+    const survivors = bulk.orders.filter(
+      (o) => !BULK_EXITED_CHILD_STATUSES.includes(o.status as OrderStatus),
+    );
+    const allReady = survivors.length > 0 && survivors.every((o) => o.status === OrderStatus.READY);
     if (allReady && (bulk.status === BulkOrderStatus.ACCEPTED_ALL || bulk.status === BulkOrderStatus.PLACED)) {
       await this.prisma.bulkOrder.update({
         where: { id: bulkOrderId },

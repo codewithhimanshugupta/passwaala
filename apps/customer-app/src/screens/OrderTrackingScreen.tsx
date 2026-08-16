@@ -204,13 +204,17 @@ export function OrderTrackingScreen({
     if (!order) return;
     const done = order.status === OrderStatus.DELIVERED || TERMINAL_BAD.has(order.status);
     if (done) return;
-    // Socket order.statusChanged is the primary trigger; the interval is a slow
-    // fallback (60s) for when the socket is disconnected.
+    // Socket order.statusChanged is the primary (instant) trigger. The interval
+    // is a fallback for when the socket is disconnected (Render's free tier drops
+    // idle sockets) — 15s so a missed event still surfaces quickly. We ALSO
+    // re-sync immediately whenever the socket (re)connects, catching any status
+    // change that happened while it was down.
     const t = setInterval(() => {
       void load();
-    }, 60000);
+    }, 15000);
     const off = onSocket('order.statusChanged', () => { void load(); });
-    return () => { clearInterval(t); off(); };
+    const offConnect = onSocket('connect', () => { void load(); });
+    return () => { clearInterval(t); off(); offConnect(); };
   }, [order, load]);
 
   // Payment prompt: only on the FRESH placement flow (placeResult present) do we

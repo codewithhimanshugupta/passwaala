@@ -202,6 +202,7 @@ function AppRoot() {
   const [loggedIn, setLoggedIn] = useState(hasSavedToken());
   const [authScreen, setAuthScreen] = useState<'login' | 'signup' | 'forgot'>('login');
   const [signupPhone, setSignupPhone] = useState('');
+  const [signupToken, setSignupToken] = useState('');
   const [tab, setTab] = useState<Tab>('home');
   const [stack, setStack] = useState<Stack>({ name: 'tabs' });
   const [sessionExpired, setSessionExpired] = useState(false);
@@ -341,12 +342,14 @@ function AppRoot() {
           {authScreen === 'signup' ? (
             <SignupScreen
               initialPhone={signupPhone}
+              initialToken={signupToken || undefined}
               onSignedUp={() => {
                 setSessionExpired(false);
                 setAuthScreen('login');
+                setSignupToken('');
                 setLoggedIn(true);
               }}
-              onBackToLogin={() => setAuthScreen('login')}
+              onBackToLogin={() => { setSignupToken(''); setAuthScreen('login'); }}
             />
           ) : authScreen === 'forgot' ? (
             <ForgotScreen
@@ -356,7 +359,7 @@ function AppRoot() {
           ) : (
             <LoginScreen
               notice={sessionExpired ? t.login.sessionExpired : undefined}
-              onSignUp={(phone) => { setSignupPhone(phone ?? ''); setAuthScreen('signup'); }}
+              onSignUp={(phone, verifiedToken) => { setSignupPhone(phone ?? ''); setSignupToken(verifiedToken ?? ''); setAuthScreen('signup'); }}
               onForgot={() => setAuthScreen('forgot')}
               onLoggedIn={() => {
                 setSessionExpired(false);

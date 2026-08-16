@@ -20,9 +20,12 @@ export function LocationPermissionScreen({ onGranted, name }: Props) {
       setDenied(true);
       return;
     }
-    const coords = await getCurrentCoords({ timeoutMs: 12000 });
-    if (coords) onGranted();
-    else setDenied(true);
+    // Permission granted. Try to get a fix, but do NOT dead-end if the GPS read
+    // times out — permission is what gates entry; downstream falls back to a
+    // default/last-known location. A slow or failed fix must not trap the user
+    // on this screen forever.
+    void getCurrentCoords({ timeoutMs: 12000 });
+    onGranted();
   }
 
   return (

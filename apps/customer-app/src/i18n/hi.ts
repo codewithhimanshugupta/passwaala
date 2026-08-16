@@ -237,6 +237,8 @@ export const hi: Strings = {
     addMoreItems: 'और आइटम जोड़ें',
     each: (amount: string) => `${amount} प्रति`,
     unavailable: 'अनुपलब्ध',
+    itemsRemovedUnavailable: (names: string) =>
+      `${names} हटा दिया गया — यह इस दुकान पर अब उपलब्ध नहीं है। कृपया अपनी कार्ट जांचें और फिर से ऑर्डर करें।`,
     minGate: (amount: string) => `न्यूनतम ऑर्डर मूल्य पूरा करने के लिए ${amount} और जोड़ें।`,
     howWouldYouLikeIt: 'आप इसे कैसे चाहेंगे?',
     delivery: 'डिलीवरी',

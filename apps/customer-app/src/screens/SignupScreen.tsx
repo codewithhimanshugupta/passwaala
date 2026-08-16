@@ -8,6 +8,7 @@ import {
   View,
 } from 'react-native';
 import { api, APP_TYPE } from '../api';
+import { friendlyMessage } from '@passwaala/api-client';
 import { theme } from '../theme';
 import { Button } from '../ui';
 import { PinBoxes } from '../PinBoxes';
@@ -21,13 +22,16 @@ import { resendOtp, sendOtp, verifyOtp } from '../msg91';
  * The MSG91 access token from step 2 is sent to the backend, which re-verifies
  * it server-side before creating the account.
  */
-export function SignupScreen({ onSignedUp, onBackToLogin, initialPhone }: { onSignedUp: () => void; onBackToLogin: () => void; initialPhone?: string }) {
+export function SignupScreen({ onSignedUp, onBackToLogin, initialPhone, initialToken }: { onSignedUp: () => void; onBackToLogin: () => void; initialPhone?: string; initialToken?: string }) {
   const { t } = useLang();
-  const [step, setStep] = useState<'phone' | 'otp' | 'details'>('phone');
+  // If we arrived here from an OTP *login* of an unknown number, the phone is
+  // already verified and we carry the (still-unspent) MSG91 token — jump
+  // straight to the details step so the user isn't sent a second OTP.
+  const [step, setStep] = useState<'phone' | 'otp' | 'details'>(initialToken ? 'details' : 'phone');
   const [phone, setPhone] = useState(initialPhone ?? '');
   const [otp, setOtp] = useState('');
   const [reqId, setReqId] = useState('');
-  const [msg91Token, setMsg91Token] = useState('');
+  const [msg91Token, setMsg91Token] = useState(initialToken ?? '');
   const [name, setName] = useState('');
   const [password, setPassword] = useState('');
   const [pin, setPin] = useState('');
@@ -97,7 +101,7 @@ export function SignupScreen({ onSignedUp, onBackToLogin, initialPhone }: { onSi
       api.setToken(accessToken);
       onSignedUp();
     } catch (e) {
-      setError((e as Error).message);
+      setError(friendlyMessage(e));
     } finally { setBusy(false); }
   }
 

@@ -9,6 +9,7 @@ import { ReferralsService } from '../referrals/referrals.service';
 import { DispatchService } from '../dispatch/dispatch.service';
 import { DisputesService } from '../disputes/disputes.service';
 import { WebPushService } from '../notifications/web-push.service';
+import { CouponsService } from '../coupons/coupons.service';
 
 /**
  * OrdersService unit tests — DB-free. Exercises the REAL transition guard
@@ -29,6 +30,7 @@ describe('OrdersService', () => {
         { provide: DispatchService, useValue: { startForOrder: jest.fn(), offerNext: jest.fn(), tick: jest.fn() } },
         { provide: DisputesService, useValue: { openSystemDispute: jest.fn() } },
         { provide: WebPushService, useValue: { sendToUser: jest.fn() } },
+        { provide: CouponsService, useValue: { validateForOrder: jest.fn(), redeem: jest.fn() } },
       ],
     }).compile();
 

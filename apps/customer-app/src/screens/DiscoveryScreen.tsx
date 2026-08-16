@@ -42,11 +42,12 @@ const _reportedImpressions = new Set<string>();
 /** Module-level shop cache — survives tab switches and back navigation.
  *  Shops are shown instantly from cache; a background refresh updates silently. */
 let _cachedShops: NearbyShop[] = [];
-let _cacheKey = ''; // lat:lng:sort:category:openNow
+let _cacheKey = ''; // lat:lng:sort:category:openNow:hasOffers
 let _nextPagePrefetched: NearbyShop[] = []; // next page ready before user scrolls
+let _nextPagePrefetchedKey = ''; // filter key the prefetched page was fetched for
 
-function makeCacheKey(lat: number, lng: number, sort: string, category: string, openNow: boolean) {
-  return `${lat.toFixed(3)}:${lng.toFixed(3)}:${sort}:${category}:${openNow}`;
+function makeCacheKey(lat: number, lng: number, sort: string, category: string, openNow: boolean, hasOffers: boolean) {
+  return `${lat.toFixed(3)}:${lng.toFixed(3)}:${sort}:${category}:${openNow}:${hasOffers}`;
 }
 
 /**
@@ -174,8 +175,34 @@ export function DiscoveryScreen({
   // and never show the "not available" state (fail open).
   const [serviceableCities, setServiceableCities] = useState<string[] | null>(null);
 
-  // "Notify me" acknowledgement for the not-available empty state.
+  // "Notify me" acknowledgement for the not-available empty state. Persisted
+  // per-city in localStorage so the confirmation survives a reload and the user
+  // isn't re-prompted for a city they already registered interest in.
+  // TODO(server): capture city interest server-side so we can actually notify.
   const [notified, setNotified] = useState(false);
+
+  useEffect(() => {
+    if (!detectedCity || typeof localStorage === 'undefined') return;
+    try {
+      const raw = localStorage.getItem('passwaala.notifiedCities');
+      const list: string[] = raw ? JSON.parse(raw) : [];
+      setNotified(list.includes(detectedCity.toLowerCase()));
+    } catch { /* ignore */ }
+  }, [detectedCity]);
+
+  const registerCityInterest = useCallback(() => {
+    setNotified(true);
+    if (!detectedCity || typeof localStorage === 'undefined') return;
+    try {
+      const raw = localStorage.getItem('passwaala.notifiedCities');
+      const list: string[] = raw ? JSON.parse(raw) : [];
+      const key = detectedCity.toLowerCase();
+      if (!list.includes(key)) {
+        list.push(key);
+        localStorage.setItem('passwaala.notifiedCities', JSON.stringify(list));
+      }
+    } catch { /* ignore */ }
+  }, [detectedCity]);
 
   // Saved addresses for the delivery location picker. Seed instantly from the
   // checkout prefetch cache (shared with the cart) if it's warm, so opening
@@ -287,7 +314,7 @@ export function DiscoveryScreen({
       setCanLoadMore(!isMap && result.length === PAGE_SIZE);
       if (!isMap) {
         _cachedShops = result;
-        _cacheKey = makeCacheKey(coords.lat, coords.lng, sort, category ?? '', openNow);
+        _cacheKey = makeCacheKey(coords.lat, coords.lng, sort, category ?? '', openNow, hasOffers);
         // Prefetch products for first 5 visible shops in background
         result.slice(0, 5).forEach(s => prefetchShop(s.id));
       }
@@ -295,15 +322,18 @@ export function DiscoveryScreen({
         const restored = result.find(s => s.id === restoredShopId);
         if (restored) setSelectedShop(restored);
       }
-      // Prefetch next page silently so load-more is instant
+      // Prefetch next page silently so load-more is instant. Tag it with the
+      // current filter key so a filter change before load-more discards it
+      // (otherwise we'd append shops that don't match the active filters).
       if (!isMap && result.length === PAGE_SIZE) {
+        const prefetchKey = makeCacheKey(coords.lat, coords.lng, sort, category ?? '', openNow, hasOffers);
         void api.nearbyShops({
           lat: coords.lat, lng: coords.lng,
           radiusMeters: Math.round(radiusOverride ?? cityRadius),
           sort, openNow: openNow || undefined, category: category || undefined,
           hasOffers: hasOffers || undefined, city: detectedCity ?? undefined,
           limit: PAGE_SIZE, offset: PAGE_SIZE,
-        }).then(next => { _nextPagePrefetched = next; }).catch(() => undefined);
+        }).then(next => { _nextPagePrefetched = next; _nextPagePrefetchedKey = prefetchKey; }).catch(() => undefined);
       }
     } catch (e) {
       setError((e as Error).message);
@@ -316,13 +346,19 @@ export function DiscoveryScreen({
   const loadMore = useCallback(async () => {
     if (loadingMore || !canLoadMore || viewMode === 'map' || !coords) return;
     setLoadingMore(true);
+    const currentKey = makeCacheKey(coords.lat, coords.lng, sort, category ?? '', openNow, hasOffers);
     try {
-      // Use prefetched next page if available (avoids a network wait)
+      // Use prefetched next page if available (avoids a network wait) — but only
+      // if it was fetched for the CURRENT filter set. A stale prefetch (filter
+      // changed since) is discarded so we never append non-matching shops.
       let next: NearbyShop[];
-      if (_nextPagePrefetched.length > 0) {
+      if (_nextPagePrefetched.length > 0 && _nextPagePrefetchedKey === currentKey) {
         next = _nextPagePrefetched;
         _nextPagePrefetched = [];
+        _nextPagePrefetchedKey = '';
       } else {
+        _nextPagePrefetched = [];
+        _nextPagePrefetchedKey = '';
         next = await api.nearbyShops({
           lat: coords.lat, lng: coords.lng,
           radiusMeters: Math.round(cityRadius),
@@ -349,7 +385,7 @@ export function DiscoveryScreen({
           sort, openNow: openNow || undefined, category: category || undefined,
           hasOffers: hasOffers || undefined, city: detectedCity ?? undefined,
           limit: PAGE_SIZE, offset: nextOffset,
-        }).then(prefetched => { _nextPagePrefetched = prefetched; }).catch(() => undefined);
+        }).then(prefetched => { _nextPagePrefetched = prefetched; _nextPagePrefetchedKey = currentKey; }).catch(() => undefined);
       }
     } catch {
       /* keep what's loaded */
@@ -393,6 +429,18 @@ export function DiscoveryScreen({
   // typing (>= 2 chars, coords known); clears the hits otherwise. Shows the
   // first PRODUCT_PAGE results; more load on demand.
   const searchTerm = searchQuery.trim();
+
+  // Shop-name search filters only shops already loaded into memory. Because
+  // pagination is otherwise scroll-driven (and the list shrinks to the matches
+  // while searching, so onEndReached won't fire), auto-pull the remaining pages
+  // whenever a search is active. Bounded by the city's shop count — canLoadMore
+  // flips false at the last page, ending the chain.
+  useEffect(() => {
+    if (searchTerm.length >= 1 && canLoadMore && !loadingMore && viewMode !== 'map') {
+      void loadMore();
+    }
+  }, [searchTerm, canLoadMore, loadingMore, viewMode, loadMore]);
+
   useEffect(() => {
     if (searchTerm.length < 2 || !coords) {
       setProductHits([]);
@@ -663,7 +711,7 @@ export function DiscoveryScreen({
                 label={t.discovery.notifyMe}
                 variant="primary"
                 fullWidth={false}
-                onPress={() => setNotified(true)}
+                onPress={registerCityInterest}
               />
             )
           }
