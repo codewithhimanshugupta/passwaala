@@ -13,6 +13,7 @@ import {
 import { ApiError } from '@passwaala/api-client';
 import { api } from '../api';
 import { theme } from '../theme';
+import { EditIcon, DeleteIcon } from '../EditDeleteIcons';
 
 interface Coupon {
   id: string;
@@ -21,6 +22,7 @@ interface Coupon {
   value: number;
   description: string | null;
   minOrderPaise: number;
+  maxDiscountPaise: number | null;
   maxUses: number | null;
   maxUsesPerUser: number | null;
   usedCount: number;
@@ -53,7 +55,9 @@ function fmtDate(iso: string | null): string {
 
 function discountLabel(c: Coupon): string {
   if (c.type === 'FREE_DELIVERY') return 'Free delivery';
-  if (c.type === 'PERCENT_OFF') return `${c.value}% off`;
+  if (c.type === 'PERCENT_OFF') {
+    return c.maxDiscountPaise ? `${c.value}% off (up to ₹${c.maxDiscountPaise / 100})` : `${c.value}% off`;
+  }
   return `₹${c.value / 100} off`;
 }
 
@@ -77,6 +81,7 @@ function CouponForm({
   const [value, setValue] = useState(initial ? String(type === 'FLAT_OFF' ? initial.value! / 100 : initial.value ?? 0) : '');
   const [description, setDescription] = useState(initial?.description ?? '');
   const [minOrder, setMinOrder] = useState(initial ? String(initial.minOrderPaise ? initial.minOrderPaise / 100 : '') : '');
+  const [maxDiscount, setMaxDiscount] = useState(initial?.maxDiscountPaise != null ? String(initial.maxDiscountPaise / 100) : '');
   const [maxUses, setMaxUses] = useState(initial?.maxUses != null ? String(initial.maxUses) : '');
   const [maxUsesPerUser, setMaxUsesPerUser] = useState(initial?.maxUsesPerUser != null ? String(initial.maxUsesPerUser) : '');
   const [expiresAt, setExpiresAt] = useState(initial?.expiresAt ? initial.expiresAt.slice(0, 10) : '');
@@ -90,6 +95,7 @@ function CouponForm({
       value: type === 'FLAT_OFF' ? Math.round(v * 100) : Math.round(v),
       description: description.trim() || null,
       minOrderPaise: Math.round((parseFloat(minOrder) || 0) * 100),
+      maxDiscountPaise: type === 'PERCENT_OFF' && parseFloat(maxDiscount) > 0 ? Math.round(parseFloat(maxDiscount) * 100) : null,
       maxUses: maxUses.trim() ? parseInt(maxUses) : null,
       maxUsesPerUser: maxUsesPerUser.trim() ? parseInt(maxUsesPerUser) : null,
       expiresAt: expiresAt ? new Date(expiresAt).toISOString() : null,
@@ -132,6 +138,17 @@ function CouponForm({
             <TextInput style={[f.input, { flex: 1, borderWidth: 0 }]} value={value} onChangeText={setValue}
               keyboardType="decimal-pad" placeholder={type === 'PERCENT_OFF' ? '10' : '50'} placeholderTextColor={theme.color.textFaint} />
             <Text style={f.suffix}>{type === 'PERCENT_OFF' ? '%' : '₹'}</Text>
+          </View>
+        </>
+      ) : null}
+
+      {type === 'PERCENT_OFF' ? (
+        <>
+          <Text style={f.label}>Max Discount ₹ (Optional cap)</Text>
+          <View style={f.inputSuffix}>
+            <TextInput style={[f.input, { flex: 1, borderWidth: 0 }]} value={maxDiscount} onChangeText={setMaxDiscount}
+              keyboardType="decimal-pad" placeholder="e.g. 75 — no cap if empty" placeholderTextColor={theme.color.textFaint} />
+            <Text style={f.suffix}>₹</Text>
           </View>
         </>
       ) : null}
@@ -324,11 +341,11 @@ export function CouponsScreen() {
               <View style={s.cardActions}>
                 <Switch value={c.active} onValueChange={() => handleToggle(c)}
                   trackColor={{ false: theme.color.border, true: theme.color.primary }} thumbColor="#fff" />
-                <Pressable style={s.editBtn} onPress={() => setEditing(c)}>
-                  <Text style={s.editBtnText}>Edit</Text>
+                <Pressable style={s.editBtn} onPress={() => setEditing(c)} accessibilityLabel="Edit">
+                  <EditIcon size={18} color={theme.color.text} />
                 </Pressable>
-                <Pressable style={s.delBtn} onPress={() => handleDelete(c.id)} disabled={deleting === c.id}>
-                  <Text style={s.delBtnText}>✕</Text>
+                <Pressable style={s.delBtn} onPress={() => handleDelete(c.id)} disabled={deleting === c.id} accessibilityLabel="Delete">
+                  <DeleteIcon size={18} color={theme.color.critical} />
                 </Pressable>
               </View>
             </View>
@@ -409,7 +426,7 @@ const s = StyleSheet.create({
   cardDesc: { fontSize: theme.font.small, color: theme.color.textMuted },
   cardMeta: { fontSize: theme.font.tiny, color: theme.color.textFaint, marginTop: 2 },
   cardActions: { flexDirection: 'row', alignItems: 'center', gap: theme.space.sm, paddingRight: theme.space.md },
-  editBtn: { paddingVertical: theme.space.xs, paddingHorizontal: theme.space.md, borderRadius: theme.radius.md, borderWidth: 1, borderColor: theme.color.border },
+  editBtn: { padding: theme.space.xs },
   editBtnText: { fontSize: theme.font.small, fontWeight: '700', color: theme.color.text },
   delBtn: { padding: theme.space.xs },
   delBtnText: { fontSize: theme.font.body, color: theme.color.critical, fontWeight: '700' },

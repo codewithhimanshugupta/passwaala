@@ -97,10 +97,10 @@ export function OrdersScreen() {
     prevExpanded.current = expanded;
   }, [expanded, orders]);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (term?: string) => {
     setLoading(true); setError(null); setForbidden(false);
     try {
-      const res = (await api.adminListOrders({ limit: PAGE_SIZE })) as { items: AdminOrder[]; nextCursor: string | null };
+      const res = (await api.adminListOrders({ limit: PAGE_SIZE, q: term?.trim() || undefined })) as { items: AdminOrder[]; nextCursor: string | null };
       setOrders(res.items);
       setNextCursor(res.nextCursor ?? null);
     } catch (e) {
@@ -111,16 +111,25 @@ export function OrdersScreen() {
 
   useEffect(() => { void load(); }, [load]);
 
+  // Debounced server-side search: refetches ALL matching orders (not just the
+  // pages already loaded) whenever the search term settles.
+  const searchRef = useRef(search);
+  searchRef.current = search;
+  useEffect(() => {
+    const t = setTimeout(() => { void load(searchRef.current); }, 350);
+    return () => clearTimeout(t);
+  }, [search, load]);
+
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    try { await load(); } finally { setRefreshing(false); }
+    try { await load(searchRef.current); } finally { setRefreshing(false); }
   }, [load]);
 
   async function loadMore() {
     if (!nextCursor || loadingMore) return;
     setLoadingMore(true);
     try {
-      const res = (await api.adminListOrders({ limit: PAGE_SIZE, cursor: nextCursor })) as { items: AdminOrder[]; nextCursor: string | null };
+      const res = (await api.adminListOrders({ limit: PAGE_SIZE, cursor: nextCursor, q: searchRef.current.trim() || undefined })) as { items: AdminOrder[]; nextCursor: string | null };
       setOrders(prev => [...prev, ...res.items]);
       setNextCursor(res.nextCursor ?? null);
     } catch { /* keep what we have */ }
@@ -190,19 +199,12 @@ export function OrdersScreen() {
     }
   }
 
-  const q = search.trim().toLowerCase();
+  // Search is now server-side (see load()); here we only apply the live/done
+  // status toggle to whatever the server returned.
   const visible = orders.filter(o => {
     if (filter === 'live' && !isLive(o.status)) return false;
     if (filter === 'done' && isLive(o.status)) return false;
-    if (!q) return true;
-    return (
-      o.orderNumber.toLowerCase().includes(q) ||
-      o.shop?.name.toLowerCase().includes(q) ||
-      o.customer?.phone?.includes(q) ||
-      o.customer?.name?.toLowerCase().includes(q) ||
-      o.rider?.phone?.includes(q) ||
-      o.status.toLowerCase().includes(q)
-    );
+    return true;
   });
 
   if (loading) return <View style={s.center}><ActivityIndicator color={theme.color.accent} size="large" /></View>;
@@ -225,9 +227,9 @@ export function OrdersScreen() {
         <View style={s.headerRow}>
           <View>
             <Text style={s.h1}>Orders</Text>
-            <Text style={s.sub}>{orders.length} loaded · {visible.length} shown</Text>
+            <Text style={s.sub}>{search.trim() ? `${visible.length} match${visible.length === 1 ? '' : 'es'}` : `${visible.length} shown`}{nextCursor ? ' · more available' : ''}</Text>
           </View>
-          <Pressable style={s.refreshBtn} onPress={load}>
+          <Pressable style={s.refreshBtn} onPress={() => load(searchRef.current)}>
             <Text style={s.refreshBtnText}>Refresh</Text>
           </Pressable>
         </View>

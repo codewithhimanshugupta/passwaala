@@ -29,6 +29,7 @@ import { DisputesService } from '../disputes/disputes.service';
 import { WebPushService } from '../notifications/web-push.service';
 import { AdvanceOrderDto } from './dto/advance-order.dto';
 import { PlaceOrderDto } from './dto/place-order.dto';
+import { POSCreateSaleDto } from './dto/pos-create-sale.dto';
 import {
   CUSTOMER_DETAIL_SELECT,
   ORDER_MUTATION_SELECT,
@@ -534,11 +535,164 @@ export class OrdersService {
     return this.toPlacedResult(created);
   }
 
+  // ───────────────────────────────────────────────────────────────────────────
+  // In-store POS (counter) sale — shopkeeper-created walk-in cash sale
+  // ───────────────────────────────────────────────────────────────────────────
+
   /**
-   * Cancel one order as the system (no-op if already past PLACED). Used both by
-   * the per-order 15-min setTimeout fired at placement and as a shared helper for
-   * admin force-cancel with SYSTEM actor.
+   * Ring up an in-store POS sale for a walk-in customer. Shop-scoped (shopId from
+   * the JWT, never the body). The sale is created DIRECTLY at DELIVERED, paid
+   * CASH, marked paymentConfirmed, SELF_PICKUP, with NO delivery/platform fee and
+   * NO commission (commission-free per the POS policy — no ledger accrual, so a
+   * counter sale never adds to the shop's dues). Catalog lines re-read the trusted
+   * product price + decrement stock atomically; free-text lines snapshot the
+   * typed name/price.
+   *
+   * idempotencyKey makes offline replay exactly-once: a repeated key returns the
+   * already-created sale rather than double-charging stock.
    */
+  async placePos(shopId: string | undefined, dto: POSCreateSaleDto) {
+    const sid = requireShopScope(shopId);
+    if (!dto.idempotencyKey) throw new BadRequestException('idempotencyKey is required');
+    if (dto.paymentMethod !== PaymentMethod.CASH) {
+      throw new BadRequestException('POS sales are cash-only');
+    }
+    if (!dto.items || dto.items.length === 0) {
+      throw new BadRequestException('Add at least one item');
+    }
+
+    // Idempotency / offline-replay guard: a repeated key returns the same sale.
+    const prior = await this.prisma.order.findUnique({
+      where: { idempotencyKey: dto.idempotencyKey },
+      select: { id: true, shopId: true },
+    });
+    if (prior) {
+      if (prior.shopId !== sid) throw new ForbiddenException('Idempotency key belongs to another shop');
+      return this.toPosResult(prior.id);
+    }
+
+    // Split catalog vs free-text lines. Validate each.
+    const catalogLines: { productId: string; qty: number }[] = [];
+    const freeTextLines: { name: string; pricePaise: number; qty: number }[] = [];
+    for (const it of dto.items) {
+      if (!Number.isInteger(it.qty) || it.qty < 1) {
+        throw new BadRequestException('Item quantity must be at least 1');
+      }
+      if (it.productId) {
+        catalogLines.push({ productId: it.productId, qty: it.qty });
+      } else {
+        if (!it.name || !it.name.trim()) throw new BadRequestException('Each free-text item needs a name');
+        if (!Number.isInteger(it.pricePaise) || (it.pricePaise ?? -1) < 0) {
+          throw new BadRequestException('Item price must be a non-negative integer (paise)');
+        }
+        freeTextLines.push({ name: it.name.trim(), pricePaise: it.pricePaise as number, qty: it.qty });
+      }
+    }
+
+    // Re-read trusted product data for catalog lines (price/stock/name from DB —
+    // never trust client price). Must all belong to THIS shop.
+    const products = catalogLines.length
+      ? await this.prisma.product.findMany({
+          where: { id: { in: catalogLines.map((l) => l.productId) }, shopId: sid, deletedAt: null },
+          select: { id: true, name: true, pricePaise: true, stock: true, available: true },
+        })
+      : [];
+    const byId = new Map(products.map((p) => [p.id, p]));
+    const resolvedCatalog = catalogLines.map((l) => {
+      const p = byId.get(l.productId);
+      if (!p) throw new BadRequestException('One or more products are not from this shop');
+      if (!p.available || p.stock < l.qty) throw new BadRequestException(`"${p.name}" is out of stock`);
+      return { productId: p.id, name: p.name, pricePaise: p.pricePaise, qty: l.qty };
+    });
+
+    const allLines = [
+      ...resolvedCatalog,
+      ...freeTextLines.map((l) => ({ productId: null as string | null, name: l.name, pricePaise: l.pricePaise, qty: l.qty })),
+    ];
+    const subtotalPaise = allLines.reduce((s, l) => s + l.pricePaise * l.qty, 0);
+
+    // Resolve (or lazily create) this shop's synthetic "Walk-in" customer so the
+    // required Order.customerId FK is satisfied without a nullable-FK migration.
+    const walkInPhone = `pos:${sid}`;
+    const walkIn = await this.prisma.user.upsert({
+      where: { phone_appType: { phone: walkInPhone, appType: 'CUSTOMER' } },
+      update: {},
+      create: { phone: walkInPhone, appType: 'CUSTOMER', name: 'Walk-in Customer' },
+      select: { id: true },
+    });
+
+    const orderId = randomUUID();
+    const orderShortId = `OR${orderId.replace(/-/g, '').slice(0, 8).toUpperCase()}`;
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.order.create({
+        data: {
+          id: orderId,
+          shortId: orderShortId,
+          customerId: walkIn.id,
+          shopId: sid,
+          status: OrderStatus.DELIVERED, // counter sale is complete on creation
+          paymentMethod: PaymentMethod.CASH,
+          paymentConfirmed: true,
+          deliveryMode: DeliveryMode.SELF_PICKUP,
+          addressId: null,
+          originalTotalPaise: subtotalPaise,
+          platformFeePaise: 0,
+          deliveryFeePaise: 0,
+          commissionRateSnapshot: 0, // commission-free — never accrues shop dues
+          idempotencyKey: dto.idempotencyKey,
+          isPosSale: true,
+          items: {
+            create: allLines.map((l) => ({
+              productId: l.productId,
+              nameSnapshot: l.name,
+              pricePaiseSnapshot: l.pricePaise,
+              qty: l.qty,
+            })),
+          },
+        },
+      });
+      // Decrement stock for catalog lines only (free-text lines have no product).
+      await Promise.all(
+        resolvedCatalog.map((l) =>
+          tx.product.update({ where: { id: l.productId }, data: { stock: { decrement: l.qty } } }),
+        ),
+      );
+    });
+
+    return this.toPosResult(orderId);
+  }
+
+  /** Build the POS sale result (printed-receipt payload) from a committed order. */
+  private async toPosResult(orderId: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: {
+        id: true,
+        shortId: true,
+        shopId: true,
+        status: true,
+        paymentMethod: true,
+        originalTotalPaise: true,
+        createdAt: true,
+        items: { select: { nameSnapshot: true, pricePaiseSnapshot: true, qty: true } },
+      },
+    });
+    if (!order) throw new NotFoundException('Sale not found');
+    const items = order.items.map((i) => ({ name: i.nameSnapshot, pricePaise: i.pricePaiseSnapshot, qty: i.qty }));
+    const subtotalPaise = items.reduce((s, i) => s + i.pricePaise * i.qty, 0);
+    return {
+      orderId: order.id,
+      shortId: order.shortId,
+      shopId: order.shopId,
+      status: order.status as OrderStatus,
+      items,
+      subtotalPaise,
+      totalPaise: order.originalTotalPaise,
+      paymentMethod: order.paymentMethod as PaymentMethod,
+      createdAt: order.createdAt.toISOString(),
+    };
+  }
   async cancelAsSystem(orderId: string, reason = 'No response from shop within 15 minutes'): Promise<void> {
     const order = await this.prisma.order.findFirst({
       where: { id: orderId, status: OrderStatus.PLACED, deletedAt: null },
@@ -551,25 +705,38 @@ export class OrdersService {
         where: { id: order.id },
         data: { status: OrderStatus.CANCELLED, cancelledBy: CancelledBy.SYSTEM, cancellationReason: reason, cancelledAt: new Date() },
       }),
-      ...order.items.map((item) =>
-        this.prisma.product.update({ where: { id: item.productId }, data: { stock: { increment: item.qty } } }),
-      ),
+      ...order.items
+        .filter((item): item is { productId: string; qty: number } => item.productId != null)
+        .map((item) =>
+          this.prisma.product.update({ where: { id: item.productId }, data: { stock: { increment: item.qty } } }),
+        ),
       ...(order.coinsRedeemedPaise > 0
         ? [this.prisma.user.update({ where: { id: order.customerId }, data: { coinBalance: { increment: order.coinsRedeemedPaise } } })]
         : []),
     ]);
 
     this.realtime.emitOrderStatusChanged(order.customerId, { orderId: order.id, status: OrderStatus.CANCELLED });
-    await this.disputes.openSystemDispute(order.id, `${reason} — auto-cancelled by system.`);
+    await this.disputes.openSystemDispute(order.id, `${reason} — auto-cancelled by system.`, { onlyIfRefundOwed: true });
   }
 
   /**
    * Customer: their order history (newest first), each with a summary. Keyset
    * paginated — pass the previous page's nextCursor to fetch older orders.
    */
-  async historyForCustomer(customerId: string, page: PaginationQuery = {}) {
+  async historyForCustomer(customerId: string, page: PaginationQuery = {}, mode?: string) {
+    // Terminal statuses = the "History" tab; everything else is "Ongoing".
+    // Splitting server-side lets each tab fetch only its own rows (ongoing loads
+    // instantly on app open; history paginates independently).
+    const TERMINAL = [
+      OrderStatus.DELIVERED, OrderStatus.CANCELLED, OrderStatus.REJECTED,
+      OrderStatus.REFUND_PENDING, OrderStatus.REFUNDED,
+    ];
+    const statusWhere =
+      mode === 'ongoing' ? { status: { notIn: TERMINAL } }
+      : mode === 'history' ? { status: { in: TERMINAL } }
+      : {};
     const rows = await this.prisma.order.findMany({
-      where: { customerId, deletedAt: null },
+      where: { customerId, deletedAt: null, ...statusWhere },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       ...cursorArgs(page.limit, page.cursor),
       include: {
@@ -916,6 +1083,11 @@ export class OrdersService {
 
     const skipped: string[] = [];
     for (const item of order.items) {
+      // Free-text prescription lines have no catalog product — can't be re-carted.
+      if (!item.productId) {
+        skipped.push(item.nameSnapshot);
+        continue;
+      }
       const product = await this.prisma.product.findFirst({
         where: { id: item.productId, deletedAt: null, available: true },
         select: { id: true, stock: true },
@@ -983,7 +1155,7 @@ export class OrdersService {
         orderId,
         status: OrderStatus.CANCELLED,
       });
-      await this.disputes.openSystemDispute(orderId, 'All items are out of stock — order cancelled by shop.');
+      await this.disputes.openSystemDispute(orderId, 'All items are out of stock — order cancelled by shop.', { onlyIfRefundOwed: true });
       return { cancelled: true, adjustedTotalPaise: 0 };
     }
 
@@ -1509,6 +1681,7 @@ export class OrdersService {
       await this.disputes.openSystemDispute(
         orderId,
         `Order ${verb} by shop${dto.reason ? ` — ${dto.reason}` : ''}.`,
+        { onlyIfRefundOwed: true },
       );
     }
 
@@ -1523,15 +1696,24 @@ export class OrdersService {
       // orders have no rider, so nothing to credit here.
       // Bump per-product popularity (per-shop orderCount) for the popularity sort.
       const fulfilled = await this.prisma.orderItem.findMany({
-        where: { orderId, status: 'FULFILLED' },
+        where: { orderId, status: 'FULFILLED', productId: { not: null } },
         select: { productId: true, qty: true },
       });
       for (const it of fulfilled) {
+        if (!it.productId) continue;
         await this.prisma.product.update({
           where: { id: it.productId },
           data: { orderCount: { increment: it.qty } },
         });
       }
+      // Bump shop-level popularity + recency signals for rankScore (recomputed by
+      // AutomationService.recomputeShopRankScores). Delivered (not merely placed)
+      // orders are the honest popularity signal — a cancelled order won't rank a
+      // shop up. lastOrderAt drives the recency-of-activity term.
+      await this.prisma.shop.update({
+        where: { id: owned.shopId },
+        data: { orderCount: { increment: 1 }, lastOrderAt: new Date() },
+      }).catch(() => undefined);
       // Cancel fee split: if this order carried a cancel fee line, credit 50%
       // to the original shop and PassWala keeps the other 50%.
       const cancelOrder = await this.prisma.order.findUnique({

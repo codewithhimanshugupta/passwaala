@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@expo/metro-runtime": "~3.2.3",
+    "@msg91comm/sendotp-react-native": "^2.1.0",
     "@passwaala/api-client": "*",
     "@passwaala/shared": "*",
     "@react-native-async-storage/async-storage": "1.23.1",
@@ -31,6 +32,7 @@
     "react": "18.2.0",
     "react-dom": "^18.2.0",
     "react-native": "0.74.5",
+    "react-native-bluetooth-escpos-printer": "^0.0.5",
     "react-native-maps": "1.14.0",
     "react-native-svg": "15.2.0",
     "react-native-web": "^0.19.13",

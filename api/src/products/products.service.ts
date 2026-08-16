@@ -179,6 +179,118 @@ export class ProductsService {
     return products.map((p) => this.toPublicView(p));
   }
 
+  /**
+   * Public: cross-shop product search near a location. Joins Product↔Shop over
+   * APPROVED, non-deleted shops within the radius (PostGIS ST_DWithin on the
+   * GIST-indexed geog column — never a table scan), matching product name
+   * case-insensitively. Ranked by shop distance (nearest first) so the closest
+   * shop stocking a match surfaces at the top, then by popularity. Offset
+   * pagination with a small default page (a few results shown first).
+   */
+  async searchAcrossShops(q: {
+    lat: number;
+    lng: number;
+    q: string;
+    radiusMeters?: number;
+    city?: string;
+    limit?: number;
+    offset?: number;
+  }) {
+    const radius = q.radiusMeters ?? 5000;
+    const limit = q.limit ?? 5;
+    const offset = q.offset ?? 0;
+    // Escape LIKE wildcards so a literal % / _ typed by the customer matches
+    // literally (backslash is the default ILIKE escape char).
+    const term = `%${q.q.trim().replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+
+    const ttl = process.env.NODE_ENV === 'test' ? 0 : 15_000;
+    const cacheKey = [
+      'products:search',
+      Number(q.lat).toFixed(3),
+      Number(q.lng).toFixed(3),
+      radius, limit, offset,
+      q.city ?? '',
+      q.q.trim().toLowerCase(),
+    ].join(':');
+
+    return this.cache.wrap(cacheKey, ttl, async () => {
+      // Fetch limit+1 to know if there's a next page without a separate COUNT.
+      const rows = await this.prisma.$queryRawUnsafe<
+        Array<{
+          id: string;
+          name: string;
+          pricePaise: number;
+          mrpPaise: number;
+          imageUrl: string | null;
+          stock: number;
+          shop_id: string;
+          shop_name: string;
+          shop_city: string;
+          shop_logo_url: string | null;
+          shop_is_open: boolean;
+          deliveryFeePaise: number;
+          minOrderValuePaise: number;
+          distance_meters: number;
+        }>
+      >(
+        `
+        SELECT p.id, p.name, p."pricePaise", p."mrpPaise", p."imageUrl", p.stock,
+               s.id AS shop_id, s.name AS shop_name, s.city AS shop_city,
+               s."logoUrl" AS shop_logo_url, s."isOpen" AS shop_is_open,
+               s."deliveryFeePaise", s."minOrderValuePaise",
+               EXISTS (
+                 SELECT 1 FROM "AdCampaign" ac
+                  WHERE ac."shopId" = s.id AND ac.status = 'ACTIVE' AND ac."deletedAt" IS NULL
+                    AND ac."startAt" <= NOW() AND (ac."endAt" IS NULL OR ac."endAt" > NOW())
+                    AND ac."spentPaise" < ac."totalBudgetPaise"
+                    AND (ac."dailyBudgetPaise" = 0 OR ac."dayResetAt" IS NULL
+                         OR ac."dayResetAt" < date_trunc('day', NOW())
+                         OR ac."spentTodayPaise" < ac."dailyBudgetPaise")
+               ) AS is_sponsored,
+               ST_Distance(s.geog, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography) AS distance_meters
+          FROM "Product" p
+          JOIN "Shop" s ON s.id = p."shopId"
+         WHERE p."deletedAt" IS NULL
+           AND ($7::text IS NULL OR s.city ILIKE $7)
+           AND p.available = TRUE
+           AND s."deletedAt" IS NULL
+           AND s."verificationStatus" = 'APPROVED'
+           AND s.geog IS NOT NULL
+           AND ST_DWithin(s.geog, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, $3)
+           AND p.name ILIKE $4
+         ORDER BY is_sponsored DESC, distance_meters ASC, p."orderCount" DESC, s."rankScore" DESC, p.id ASC
+         LIMIT $5 OFFSET $6
+        `,
+        q.lng,
+        q.lat,
+        radius,
+        term,
+        limit + 1,
+        offset,
+        q.city ?? null,
+      );
+
+      const hasMore = rows.length > limit;
+      const items = rows.slice(0, limit).map((r) => ({
+        id: r.id,
+        name: r.name,
+        pricePaise: r.pricePaise,
+        mrpPaise: r.mrpPaise,
+        imageUrl: r.imageUrl ?? undefined,
+        inStock: r.stock > 0,
+        shopId: r.shop_id,
+        shopName: r.shop_name,
+        shopCity: r.shop_city,
+        shopLogoUrl: r.shop_logo_url ?? undefined,
+        shopIsOpen: r.shop_is_open,
+        deliveryFeePaise: r.deliveryFeePaise,
+        minOrderValuePaise: r.minOrderValuePaise,
+        distanceMeters: Math.round(Number(r.distance_meters)),
+      }));
+      return { items, hasMore };
+    });
+  }
+
   /** Customer-facing product view — no exact stock (PII minimization). */
   private toPublicView(p: {
     id: string;

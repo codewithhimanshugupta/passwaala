@@ -39,6 +39,8 @@ export interface BillInput {
   offerValue?: number | null;
   /** Minimum item subtotal for the offer to apply (0 = always). */
   offerMinOrderPaise?: number | null;
+  /** Cap on a PERCENT_OFF discount (paise); null/undefined = no cap. */
+  offerMaxDiscountPaise?: number | null;
   /** Override the platform fee base (paise). Falls back to the shared PLATFORM_FEE_PAISE constant. */
   platformFeeOverridePaise?: number | null;
 }
@@ -60,6 +62,10 @@ export function computeBill(input: BillInput): BillBreakdown {
     offerApplied = true;
     if (input.offerType === OfferType.PERCENT_OFF && input.offerValue) {
       discountPaise = Math.floor(subtotalPaise * input.offerValue / 100);
+      // Cap the percentage discount at a max ₹ amount when configured.
+      if (input.offerMaxDiscountPaise != null && input.offerMaxDiscountPaise > 0) {
+        discountPaise = Math.min(discountPaise, input.offerMaxDiscountPaise);
+      }
     } else if (input.offerType === OfferType.FLAT_OFF && input.offerValue) {
       discountPaise = Math.min(input.offerValue, subtotalPaise);
     }

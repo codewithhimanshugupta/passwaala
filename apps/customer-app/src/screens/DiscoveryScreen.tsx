@@ -13,6 +13,7 @@ import {
   View,
 } from 'react-native';
 import type { NearbyShop } from '@passwaala/api-client';
+import type { ProductSearchHit } from '@passwaala/shared';
 import { api } from '../api';
 import { prefetchCheckout, getPrefetchedCheckout } from '../checkoutPrefetch';
 import { prefetchShop } from './StorefrontScreen';
@@ -25,9 +26,26 @@ import { useLang } from '../i18n/LanguageContext';
 import type { Strings } from '../i18n/strings';
 import { getCurrentCoords, openDirections } from '../geo';
 import { NearbyShopsMap } from '../components/NearbyShopsMap';
+import { useCart } from '../cart';
 
 /** Nearby shops fetched per page in list view — 5 at a time for fast first load. */
 const PAGE_SIZE = 5;
+
+/** Cross-shop product-search hits fetched per page — a few shown first. */
+const PRODUCT_PAGE = 5;
+
+/** Emoji shown on each category chip, keyed by slug (universal, not localized). */
+const CATEGORY_EMOJI: Record<string, string> = {
+  '': '🛍️',
+  kirana: '🛒',
+  dairy: '🥛',
+  medical: '💊',
+  'fruits-veg': '🥬',
+  electronics: '🔌',
+};
+
+/** Ad campaign impressions already reported this session (dedupe per campaign). */
+const _reportedImpressions = new Set<string>();
 
 /** Module-level shop cache — survives tab switches and back navigation.
  *  Shops are shown instantly from cache; a background refresh updates silently. */
@@ -37,6 +55,21 @@ let _nextPagePrefetched: NearbyShop[] = []; // next page ready before user scrol
 
 function makeCacheKey(lat: number, lng: number, sort: string, category: string, openNow: boolean) {
   return `${lat.toFixed(3)}:${lng.toFixed(3)}:${sort}:${category}:${openNow}`;
+}
+
+/**
+ * Report sponsored-ad impressions for the shops just rendered. Batches the ad
+ * campaign ids of sponsored shops and posts them once per campaign per session
+ * (impressions are unbilled analytics — clicks are what's CPC-billed). Fire and
+ * forget; never blocks or surfaces errors.
+ */
+function reportSponsoredImpressions(shops: NearbyShop[]) {
+  const ids = shops
+    .filter((s) => s.isSponsored && s.adCampaignId && !_reportedImpressions.has(s.adCampaignId))
+    .map((s) => s.adCampaignId as string);
+  if (ids.length === 0) return;
+  ids.forEach((id) => _reportedImpressions.add(id));
+  void api.adImpressions(ids).catch(() => undefined);
 }
 
 /** Resolved delivery location coordinates. Null until GPS or a saved address
@@ -76,6 +109,7 @@ export function DiscoveryScreen({
   loc,
   onLocChange,
   locHydrated = true,
+  onOpenCart,
 }: {
   onOpenShop: (shopId: string) => void;
   viewMode?: 'list' | 'map';
@@ -86,9 +120,14 @@ export function DiscoveryScreen({
   /** True once the persisted location has been read from storage — the auto-GPS
    *  effect waits for this so it can't override a restored choice. */
   locHydrated?: boolean;
+  /** Switch to the Cart tab (sticky cart bar). Optional so the screen still
+   *  renders standalone. */
+  onOpenCart?: () => void;
 }) {
   const { t } = useLang();
   const CATEGORIES = categoriesFor(t);
+  // Local cart snapshot for the sticky cart bar at the bottom of the list.
+  const cart = useCart();
   // Initialize from module-level cache for instant display on back navigation
   const [shops, setShops] = useState<NearbyShop[]>(_cachedShops);
   const [loading, setLoading] = useState(_cachedShops.length === 0);
@@ -99,7 +138,22 @@ export function DiscoveryScreen({
   const [category, setCategory] = useState('');
   const [sort, setSort] = useState<'distance' | 'rating'>('distance');
   const [openNow, setOpenNow] = useState(false);
+  // "Great Offers" filter pill — only shops currently running an offer.
+  const [hasOffers, setHasOffers] = useState(false);
+  // Admin-curated Premium shops (a non-billed "Featured shops" strip). Loaded
+  // separately from the ranked list; empty when none are curated nearby.
+  const [premiumShops, setPremiumShops] = useState<NearbyShop[]>([]);
+  // Promo banner text — the top offer for the detected city (from serviceable
+  // cities config), else a friendly fallback. Display-only.
+  const [promoText, setPromoText] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  // Cross-shop product search — matching products with their owning shop,
+  // ranked nearest-first. Paginated: a few (PRODUCT_PAGE) shown first, more on
+  // "Show more". Fires only for a real query (>= 2 chars) once we have coords.
+  const [productHits, setProductHits] = useState<ProductSearchHit[]>([]);
+  const [productHitsLoading, setProductHitsLoading] = useState(false);
+  const [productHitsMore, setProductHitsMore] = useState(false);
+  const [productHitsMoreLoading, setProductHitsMoreLoading] = useState(false);
   const [selectedShop, setSelectedShop] = useState<NearbyShop | null>(null);
   // Pickup-only confirmation: set to the shop the user tapped that has no
   // delivery available right now (rider offline) but does offer self-pickup.
@@ -191,6 +245,8 @@ export function DiscoveryScreen({
           const radius = match?.deliveryRadiusMeters ?? Math.max(...cities.map(c => c.deliveryRadiusMeters), 10000);
           setCityRadius(radius);
           setMapRadius(radius);
+          // Promo banner: surface the city's top offer title (display-only).
+          setPromoText(match?.offers?.[0]?.title ?? null);
         }
       } catch {
         if (!cancelled) setServiceableCities(null);
@@ -217,10 +273,13 @@ export function DiscoveryScreen({
         sort,
         openNow: openNow || undefined,
         category: category || undefined,
+        hasOffers: hasOffers || undefined,
+        city: detectedCity ?? undefined,
         limit: isMap ? 50 : PAGE_SIZE,
         offset: 0,
       });
       setShops(result);
+      reportSponsoredImpressions(result);
       setCanLoadMore(!isMap && result.length === PAGE_SIZE);
       if (!isMap) {
         _cachedShops = result;
@@ -228,7 +287,7 @@ export function DiscoveryScreen({
         // Prefetch products for first 5 visible shops in background
         result.slice(0, 5).forEach(s => prefetchShop(s.id));
       }
-      if (restoredShopId) {
+      if (restoredShopId && !isMap) {
         const restored = result.find(s => s.id === restoredShopId);
         if (restored) setSelectedShop(restored);
       }
@@ -238,6 +297,7 @@ export function DiscoveryScreen({
           lat: coords.lat, lng: coords.lng,
           radiusMeters: Math.round(radiusOverride ?? cityRadius),
           sort, openNow: openNow || undefined, category: category || undefined,
+          hasOffers: hasOffers || undefined, city: detectedCity ?? undefined,
           limit: PAGE_SIZE, offset: PAGE_SIZE,
         }).then(next => { _nextPagePrefetched = next; }).catch(() => undefined);
       }
@@ -246,7 +306,7 @@ export function DiscoveryScreen({
     } finally {
       setLoading(false);
     }
-  }, [category, sort, openNow, coords, viewMode, mapRadius, cityRadius, restoredShopId]);
+  }, [category, sort, openNow, hasOffers, detectedCity, coords, viewMode, mapRadius, cityRadius, restoredShopId]);
 
   // Load the next page — uses prefetched data when available for instant append.
   const loadMore = useCallback(async () => {
@@ -263,6 +323,7 @@ export function DiscoveryScreen({
           lat: coords.lat, lng: coords.lng,
           radiusMeters: Math.round(cityRadius),
           sort, openNow: openNow || undefined, category: category || undefined,
+          hasOffers: hasOffers || undefined, city: detectedCity ?? undefined,
           limit: PAGE_SIZE, offset: shops.length,
         });
       }
@@ -271,6 +332,7 @@ export function DiscoveryScreen({
         _cachedShops = updated;
         return updated;
       });
+      reportSponsoredImpressions(next);
       setCanLoadMore(next.length === PAGE_SIZE);
       // Prefetch products for newly visible shops
       next.slice(0, 5).forEach(s => prefetchShop(s.id));
@@ -281,6 +343,7 @@ export function DiscoveryScreen({
           lat: coords.lat, lng: coords.lng,
           radiusMeters: Math.round(cityRadius),
           sort, openNow: openNow || undefined, category: category || undefined,
+          hasOffers: hasOffers || undefined, city: detectedCity ?? undefined,
           limit: PAGE_SIZE, offset: nextOffset,
         }).then(prefetched => { _nextPagePrefetched = prefetched; }).catch(() => undefined);
       }
@@ -289,16 +352,94 @@ export function DiscoveryScreen({
     } finally {
       setLoadingMore(false);
     }
-  }, [loadingMore, canLoadMore, viewMode, coords, cityRadius, sort, openNow, category, shops.length]);
+  }, [loadingMore, canLoadMore, viewMode, coords, cityRadius, sort, openNow, category, hasOffers, detectedCity, shops.length]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
+  // Load admin-curated Premium ("Featured") shops for the horizontal strip. This
+  // is a distinct, NON-billed section (not paid ads). Only in list view; silent
+  // on failure (the strip simply doesn't render).
+  useEffect(() => {
+    if (!coords || viewMode === 'map') {
+      setPremiumShops([]);
+      return;
+    }
+    let cancelled = false;
+    api
+      .premiumShops({
+        lat: coords.lat,
+        lng: coords.lng,
+        radiusMeters: Math.round(cityRadius),
+        city: detectedCity ?? undefined,
+        limit: 10,
+      })
+      .then((r) => { if (!cancelled) setPremiumShops(r); })
+      .catch(() => { if (!cancelled) setPremiumShops([]); });
+    return () => { cancelled = true; };
+  }, [coords, cityRadius, detectedCity, viewMode]);
+
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try { await load(); } finally { setRefreshing(false); }
   }, [load]);
+
+  // Debounced cross-shop product search. Fires 300ms after the user stops
+  // typing (>= 2 chars, coords known); clears the hits otherwise. Shows the
+  // first PRODUCT_PAGE results; more load on demand.
+  const searchTerm = searchQuery.trim();
+  useEffect(() => {
+    if (searchTerm.length < 2 || !coords) {
+      setProductHits([]);
+      setProductHitsLoading(false);
+      setProductHitsMore(false);
+      return;
+    }
+    let cancelled = false;
+    setProductHitsLoading(true);
+    const handle = setTimeout(() => {
+      api.searchProductsNearby({
+        lat: coords.lat,
+        lng: coords.lng,
+        q: searchTerm,
+        radiusMeters: Math.round(cityRadius),
+        limit: PRODUCT_PAGE,
+        offset: 0,
+      })
+        .then((res) => {
+          if (cancelled) return;
+          setProductHits(res.items);
+          setProductHitsMore(res.hasMore);
+        })
+        .catch(() => {
+          if (!cancelled) { setProductHits([]); setProductHitsMore(false); }
+        })
+        .finally(() => { if (!cancelled) setProductHitsLoading(false); });
+    }, 300);
+    return () => { cancelled = true; clearTimeout(handle); };
+  }, [searchTerm, coords, cityRadius]);
+
+  const loadMoreProducts = useCallback(async () => {
+    if (productHitsMoreLoading || !productHitsMore || !coords || searchTerm.length < 2) return;
+    setProductHitsMoreLoading(true);
+    try {
+      const res = await api.searchProductsNearby({
+        lat: coords.lat,
+        lng: coords.lng,
+        q: searchTerm,
+        radiusMeters: Math.round(cityRadius),
+        limit: PRODUCT_PAGE,
+        offset: productHits.length,
+      });
+      setProductHits((prev) => [...prev, ...res.items]);
+      setProductHitsMore(res.hasMore);
+    } catch {
+      // Non-fatal — keep what we have.
+    } finally {
+      setProductHitsMoreLoading(false);
+    }
+  }, [productHitsMoreLoading, productHitsMore, coords, searchTerm, cityRadius, productHits.length]);
 
   // Open a shop, but if it's pickup-only right now (no rider nearby for a
   // platform-delivery shop) first confirm the customer is OK with pickup.
@@ -312,6 +453,11 @@ export function DiscoveryScreen({
   // without having made the user wait to enter the shop.
   const handleOpenShop = useCallback((shop: NearbyShop) => {
     onOpenShop(shop.id);
+    // Sponsored shops: attribute the click for CPC billing (once-per-customer-
+    // per-day dedup is enforced server-side). Fire and forget.
+    if (shop.isSponsored && shop.adCampaignId) {
+      void api.adClick(shop.adCampaignId).catch(() => undefined);
+    }
     const contact = shop as NearbyShop & ShopContactFields;
     // Only platform-delivery shops can be rider-unavailable; self-delivery is
     // always available, so skip the check entirely for them.
@@ -431,12 +577,14 @@ export function DiscoveryScreen({
         </View>
       </View>
 
-      {/* Category chips */}
-      <View style={styles.chipsWrap}>
+      {/* Category chips + filters — one compact row: categories scroll (no bar)
+          on the left, Open-now / sort pills stay fixed on the right. */}
+      <View style={styles.filterBar}>
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.chipsRow}
+          style={styles.chipsScroll}
         >
           {CATEGORIES.map((c) => {
             const active = c.slug === category;
@@ -446,18 +594,13 @@ export function DiscoveryScreen({
                 onPress={() => setCategory(c.slug)}
                 style={[styles.chip, active && styles.chipActive]}
               >
-                <Text style={[styles.chipText, active && styles.chipTextActive]}>{c.label}</Text>
+                <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                  {CATEGORY_EMOJI[c.slug] ? `${CATEGORY_EMOJI[c.slug]}  ${c.label}` : c.label}
+                </Text>
               </Pressable>
             );
           })}
         </ScrollView>
-      </View>
-
-      {/* Filter row */}
-      <View style={styles.filterRow}>
-        <Text style={styles.resultCount}>
-          {t.discovery.shopsNearby(shops.length)}
-        </Text>
         <View style={styles.filterActions}>
           <Pressable
             onPress={() => setOpenNow((v) => !v)}
@@ -465,6 +608,14 @@ export function DiscoveryScreen({
           >
             <Text style={[styles.filterPillText, openNow && styles.filterPillTextActive]}>
               {t.discovery.openNow}
+            </Text>
+          </Pressable>
+          <Pressable
+            onPress={() => setHasOffers((v) => !v)}
+            style={[styles.filterPill, hasOffers && styles.filterPillActive]}
+          >
+            <Text style={[styles.filterPillText, hasOffers && styles.filterPillTextActive]}>
+              🏷️ {t.discovery.greatOffers}
             </Text>
           </Pressable>
           <Pressable
@@ -584,6 +735,27 @@ export function DiscoveryScreen({
           keyExtractor={(s) => s.id}
           showsVerticalScrollIndicator={false}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+          ListHeaderComponent={
+            searchTerm.length >= 2 ? (
+              <ProductHitsSection
+                hits={productHits}
+                loading={productHitsLoading}
+                hasMore={productHitsMore}
+                moreLoading={productHitsMoreLoading}
+                query={searchTerm}
+                onOpenShop={onOpenShop}
+                onLoadMore={loadMoreProducts}
+                t={t}
+              />
+            ) : (
+              <DiscoveryHeader
+                promoText={promoText ?? t.discovery.promoFallback}
+                premiumShops={premiumShops}
+                onOpenShop={handleOpenShop}
+                t={t}
+              />
+            )
+          }
           renderItem={({ item }) => <ShopCard shop={item} onPress={() => handleOpenShop(item)} />}
           onEndReached={() => { if (!searchQuery.trim()) void loadMore(); }}
           onEndReachedThreshold={0.5}
@@ -661,11 +833,173 @@ export function DiscoveryScreen({
           </View>
         </Pressable>
       </Modal>
+
+      {/* Sticky cart bar — floats above the tab bar whenever the local cart has
+          items, so the customer can jump straight to checkout from discovery. */}
+      {cart.itemCount > 0 && onOpenCart ? (
+        <Pressable
+          style={({ pressed }) => [styles.cartBar, pressed && { opacity: 0.9 }]}
+          onPress={onOpenCart}
+        >
+          <View style={styles.cartBarLeft}>
+            <View style={styles.cartBarCountPill}>
+              <Text style={styles.cartBarCountText}>{cart.itemCount}</Text>
+            </View>
+            <View style={styles.flex}>
+              {cart.shopName ? (
+                <Text style={styles.cartBarShop} numberOfLines={1}>{cart.shopName}</Text>
+              ) : null}
+              <Text style={styles.cartBarSummary} numberOfLines={1}>
+                {t.discovery.cartBarSummary(cart.itemCount, formatRupees(cart.totalPaise))}
+              </Text>
+            </View>
+          </View>
+          <Text style={styles.cartBarCta}>{t.discovery.viewCartCta} →</Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }
 
 /** Placeholder shop-card list shown while the first page of shops loads. */
+/**
+ * ProductHitsSection — cross-shop product-search results shown above the shop
+ * list when the customer is searching. Each hit shows the product + its owning
+ * shop (nearest-first); tapping opens that shop. A few load first, more on tap.
+ */
+function ProductHitsSection({
+  hits,
+  loading,
+  hasMore,
+  moreLoading,
+  query,
+  onOpenShop,
+  onLoadMore,
+  t,
+}: {
+  hits: ProductSearchHit[];
+  loading: boolean;
+  hasMore: boolean;
+  moreLoading: boolean;
+  query: string;
+  onOpenShop: (shopId: string) => void;
+  onLoadMore: () => void;
+  t: Strings;
+}) {
+  return (
+    <View style={styles.productSection}>
+      <Text style={styles.productSectionTitle}>{t.discovery.productsMatching(query)}</Text>
+      {loading && hits.length === 0 ? (
+        <ActivityIndicator style={{ marginVertical: 12 }} color={theme.color.primary} />
+      ) : hits.length === 0 ? (
+        <Text style={styles.productNone}>{t.discovery.noProductMatch}</Text>
+      ) : (
+        <>
+          {hits.map((h) => (
+            <Pressable
+              key={h.id}
+              onPress={() => onOpenShop(h.shopId)}
+              style={({ pressed }) => [styles.productHit, pressed && { opacity: 0.7 }]}
+            >
+              <ImageOrInitial uri={h.imageUrl} name={h.name} style={styles.productHitThumb} />
+              <View style={styles.flex}>
+                <Text style={styles.productHitName} numberOfLines={1}>{h.name}</Text>
+                <Text style={styles.productHitShop} numberOfLines={1}>
+                  {h.shopName} · {formatDistance(h.distanceMeters)}
+                  {!h.shopIsOpen ? ` · ${t.discovery.closed}` : ''}
+                </Text>
+                <View style={styles.productHitPriceRow}>
+                  <Text style={styles.productHitPrice}>{formatRupees(h.pricePaise)}</Text>
+                  {h.mrpPaise && h.mrpPaise > h.pricePaise ? (
+                    <Text style={styles.productHitMrp}>{formatRupees(h.mrpPaise)}</Text>
+                  ) : null}
+                  {!h.inStock ? <Text style={styles.productHitOos}>{t.discovery.productOutOfStock}</Text> : null}
+                </View>
+              </View>
+            </Pressable>
+          ))}
+          {hasMore ? (
+            <Pressable
+              onPress={onLoadMore}
+              disabled={moreLoading}
+              style={({ pressed }) => [styles.productMore, pressed && { opacity: 0.7 }]}
+            >
+              {moreLoading ? (
+                <ActivityIndicator color={theme.color.primary} />
+              ) : (
+                <Text style={styles.productMoreText}>{t.discovery.showMoreProducts}</Text>
+              )}
+            </Pressable>
+          ) : null}
+        </>
+      )}
+      <Text style={styles.productShopsLabel}>{t.discovery.moreShopsLabel}</Text>
+    </View>
+  );
+}
+
+/**
+ * DiscoveryHeader — the non-search list header: a promo banner, an admin-curated
+ * "Featured shops" horizontal strip (Premium; not a paid ad), and a
+ * "Recommended for you" label above the ranked shop list.
+ */
+function DiscoveryHeader({
+  promoText,
+  premiumShops,
+  onOpenShop,
+  t,
+}: {
+  promoText: string;
+  premiumShops: NearbyShop[];
+  onOpenShop: (shop: NearbyShop) => void;
+  t: Strings;
+}) {
+  return (
+    <View>
+      {promoText ? (
+        <View style={styles.promoBanner}>
+          <Text style={styles.promoEmoji}>🎉</Text>
+          <Text style={styles.promoText} numberOfLines={2}>{promoText}</Text>
+        </View>
+      ) : null}
+
+      {premiumShops.length > 0 ? (
+        <View style={styles.featuredSection}>
+          <Text style={styles.featuredTitle}>⭐ {t.discovery.featuredTitle}</Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.featuredRow}
+          >
+            {premiumShops.map((shop) => (
+              <Pressable
+                key={shop.id}
+                onPress={() => onOpenShop(shop)}
+                style={({ pressed }) => [styles.featuredCard, pressed && { opacity: 0.85 }]}
+              >
+                <ImageOrInitial
+                  uri={bannerImage(shop.id, shop.bannerUrl ?? shop.storefrontPhotoUrl, 300, 160, shop.name)}
+                  name={shop.name}
+                  style={styles.featuredBanner}
+                />
+                <View style={styles.featuredBody}>
+                  <Text style={styles.featuredName} numberOfLines={1}>{shop.name}</Text>
+                  <Text style={styles.featuredMeta} numberOfLines={1}>
+                    {shop.ratingCount > 0 ? `★ ${shop.avgRating.toFixed(1)}` : t.common.newBadge}
+                    {shop.distanceMeters != null ? `  ·  ${formatDistance(shop.distanceMeters)}` : ''}
+                  </Text>
+                </View>
+              </Pressable>
+            ))}
+          </ScrollView>
+        </View>
+      ) : null}
+
+      <Text style={styles.recommendedLabel}>{t.discovery.recommendedForYou}</Text>
+    </View>
+  );
+}
+
 function ShopListSkeleton() {
   return (
     <View style={styles.list}>
@@ -717,6 +1051,11 @@ function ShopCard({ shop, busy, onPress }: { shop: NearbyShop; busy?: boolean; o
           tone={shop.isOpen ? 'success' : 'neutral'}
           style={styles.openBadge}
         />
+        {shop.isSponsored ? (
+          <View style={styles.sponsoredBadge}>
+            <Text style={styles.sponsoredBadgeText}>{t.discovery.sponsored}</Text>
+          </View>
+        ) : null}
         {shop.ratingCount > 0 ? (
           <View style={styles.ratingPill}>
             <Text style={styles.ratingPillText}>★ {shop.avgRating.toFixed(1)}</Text>
@@ -864,7 +1203,7 @@ const styles = StyleSheet.create({
   searchClear: { fontSize: theme.font.body, color: theme.color.textMuted, fontWeight: "700" },
 
   chipsWrap: { backgroundColor: theme.color.bg, paddingBottom: theme.space.xs },
-  chipsRow: { paddingHorizontal: theme.space.lg, gap: 6 },
+  chipsRow: { paddingHorizontal: theme.space.lg, gap: 6, alignItems: 'center' },
   chip: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -880,6 +1219,15 @@ const styles = StyleSheet.create({
   chipText: { fontSize: 11, fontWeight: "600", color: theme.color.textMuted },
   chipTextActive: { color: theme.color.primaryDark },
 
+  filterBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.color.bg,
+    paddingRight: theme.space.lg,
+    paddingVertical: theme.space.xs,
+    gap: theme.space.sm,
+  },
+  chipsScroll: { flex: 1 },
   filterRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -888,21 +1236,55 @@ const styles = StyleSheet.create({
     paddingVertical: theme.space.sm,
   },
   resultCount: { fontSize: theme.font.small, color: theme.color.textMuted, fontWeight: "500" },
-  filterActions: { flexDirection: 'row', gap: theme.space.sm },
+  filterActions: { flexDirection: 'row', gap: 6, flexShrink: 0 },
   filterPill: {
-    paddingHorizontal: theme.space.md,
-    paddingVertical: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
     borderRadius: theme.radius.pill,
     backgroundColor: theme.color.bg,
     borderWidth: 1,
     borderColor: theme.color.border,
   },
   filterPillActive: { backgroundColor: theme.color.primary, borderColor: theme.color.primary },
-  filterPillText: { fontSize: theme.font.small, fontWeight: "600", color: theme.color.text },
+  filterPillText: { fontSize: 11, fontWeight: "600", color: theme.color.text },
   filterPillTextActive: { color: theme.color.onPrimary },
 
   list: { padding: theme.space.md, paddingBottom: theme.space.xxl, gap: theme.space.md },
   gridRow: { gap: theme.space.md, paddingHorizontal: theme.space.md, marginBottom: theme.space.md },
+
+  // Cross-shop product-search results section (list header when searching)
+  productSection: { gap: theme.space.sm, marginBottom: theme.space.sm },
+  productSectionTitle: { fontSize: theme.font.small, fontWeight: '800', color: theme.color.textMuted, textTransform: 'uppercase', letterSpacing: 0.5 },
+  productNone: { fontSize: theme.font.small, color: theme.color.textFaint, paddingVertical: theme.space.sm },
+  productHit: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.space.md,
+    backgroundColor: theme.color.surface,
+    borderRadius: 14,
+    padding: theme.space.sm,
+    borderWidth: 1,
+    borderColor: theme.color.border,
+    ...shadow.sm,
+  },
+  productHitThumb: { width: 52, height: 52, borderRadius: 10, backgroundColor: theme.color.surfaceAlt },
+  productHitName: { fontSize: theme.font.body, fontWeight: '700', color: theme.color.text },
+  productHitShop: { fontSize: theme.font.tiny, color: theme.color.textMuted, marginTop: 1 },
+  productHitPriceRow: { flexDirection: 'row', alignItems: 'baseline', gap: theme.space.sm, marginTop: 2 },
+  productHitPrice: { fontSize: theme.font.body, fontWeight: '800', color: theme.color.text },
+  productHitMrp: { fontSize: theme.font.small, color: theme.color.textFaint, textDecorationLine: 'line-through' },
+  productHitOos: { fontSize: theme.font.tiny, color: theme.color.danger, fontWeight: '700' },
+  productMore: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: theme.space.sm,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: theme.color.primary,
+    minHeight: 40,
+  },
+  productMoreText: { fontSize: theme.font.small, fontWeight: '700', color: theme.color.primary },
+  productShopsLabel: { fontSize: theme.font.small, fontWeight: '800', color: theme.color.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: theme.space.sm },
 
   // Grid card (2-column Instacart-style)
   gridCard: {
@@ -1006,6 +1388,85 @@ const styles = StyleSheet.create({
   },
   offerText: { fontSize: theme.font.small, fontWeight: "700", color: theme.color.warning },
   minOrderNote: { fontSize: theme.font.tiny, color: theme.color.textFaint, marginTop: 2 },
+
+  // Sponsored ("AD") badge — top-left of a sponsored shop's banner.
+  sponsoredBadge: {
+    position: 'absolute',
+    top: theme.space.sm,
+    left: theme.space.sm,
+    backgroundColor: 'rgba(17,24,39,0.82)',
+    borderRadius: theme.radius.sm,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  sponsoredBadgeText: { color: '#fff', fontSize: 10, fontWeight: '800', letterSpacing: 1 },
+
+  // Promo banner (top of the non-search list header).
+  promoBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.space.sm,
+    backgroundColor: theme.color.primaryLight,
+    borderRadius: theme.radius.lg,
+    paddingVertical: theme.space.md,
+    paddingHorizontal: theme.space.lg,
+    marginBottom: theme.space.md,
+  },
+  promoEmoji: { fontSize: 22 },
+  promoText: { flex: 1, fontSize: theme.font.small, fontWeight: '700', color: theme.color.primaryDark },
+
+  // Featured (Premium) horizontal strip.
+  featuredSection: { marginBottom: theme.space.lg },
+  featuredTitle: { fontSize: theme.font.h3, fontWeight: '800', color: theme.color.text, marginBottom: theme.space.sm },
+  featuredRow: { gap: theme.space.md, paddingRight: theme.space.md },
+  featuredCard: {
+    width: 160,
+    backgroundColor: theme.color.card,
+    borderRadius: theme.radius.lg,
+    overflow: 'hidden',
+    ...shadow.sm,
+  },
+  featuredBanner: { width: '100%', height: 90, backgroundColor: theme.color.surfaceAlt },
+  featuredBody: { padding: theme.space.sm, gap: 2 },
+  featuredName: { fontSize: theme.font.small, fontWeight: '800', color: theme.color.text },
+  featuredMeta: { fontSize: theme.font.tiny, color: theme.color.textMuted },
+
+  recommendedLabel: {
+    fontSize: theme.font.h3,
+    fontWeight: '800',
+    color: theme.color.text,
+    marginBottom: theme.space.sm,
+  },
+
+  // Sticky cart bar (floats above the tab bar when the cart has items).
+  cartBar: {
+    position: 'absolute',
+    left: theme.space.md,
+    right: theme.space.md,
+    bottom: theme.space.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: theme.color.primary,
+    borderRadius: theme.radius.lg,
+    paddingVertical: theme.space.md,
+    paddingHorizontal: theme.space.lg,
+    ...shadow.lg,
+  },
+  cartBarLeft: { flexDirection: 'row', alignItems: 'center', gap: theme.space.sm, flex: 1 },
+  cartBarCountPill: {
+    minWidth: 26,
+    height: 26,
+    borderRadius: 13,
+    paddingHorizontal: 6,
+    backgroundColor: 'rgba(255,255,255,0.25)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cartBarCountText: { color: '#fff', fontWeight: '800', fontSize: theme.font.small },
+  cartBarShop: { color: 'rgba(255,255,255,0.85)', fontSize: theme.font.tiny, fontWeight: '600' },
+  cartBarSummary: { color: '#fff', fontSize: theme.font.small, fontWeight: '800' },
+  cartBarCta: { color: '#fff', fontSize: theme.font.body, fontWeight: '800' },
 
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: theme.space.xl, gap: theme.space.sm },
   emptyTitle: { fontSize: theme.font.h3, fontWeight: "700", color: theme.color.text },

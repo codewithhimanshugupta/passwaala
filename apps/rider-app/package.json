@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@expo/metro-runtime": "~3.2.3",
+    "@msg91comm/sendotp-react-native": "^2.1.0",
     "@passwaala/api-client": "*",
     "@passwaala/shared": "*",
     "@react-native-async-storage/async-storage": "1.23.1",

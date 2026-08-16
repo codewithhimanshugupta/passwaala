@@ -5,15 +5,18 @@ import { theme } from '../theme';
 import { Banner, Button, ErrorText } from '../ui';
 import { PinBoxes } from '../PinBoxes';
 import { useLang } from '../i18n/LanguageContext';
+import { resendOtp, sendOtp, verifyOtp } from '../msg91';
 
 export function LoginScreen({
   onLoggedIn,
   sessionExpired = false,
   onSignUp,
+  onForgot,
 }: {
   onLoggedIn: () => void;
   sessionExpired?: boolean;
   onSignUp?: () => void;
+  onForgot?: () => void;
 }) {
   const { t } = useLang();
   const [phone, setPhone] = useState('');
@@ -23,8 +26,13 @@ export function LoginScreen({
   const [step, setStep] = useState<'phone' | 'credential'>('phone');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // OTP-login sub-state (only used when method === 'otp').
+  const [otpSent, setOtpSent] = useState(false);
+  const [otpCode, setOtpCode] = useState('');
+  const [otpReqId, setOtpReqId] = useState('');
 
-  const phoneValid = phone.replace(/\D/g, '').length >= 10;
+  const phone10 = phone.replace(/\D/g, '');
+  const phoneValid = phone10.length >= 10;
 
   function goToCredential() {
     if (!phoneValid) { setError(t.login.invalidPhone); return; }
@@ -35,17 +43,53 @@ export function LoginScreen({
   function selectMethod(m: 'pin' | 'password' | 'otp') {
     setMethod(m);
     setCredential('');
+    setOtpSent(false);
+    setOtpCode('');
+    setOtpReqId('');
     setError(null);
   }
 
+  async function doSendOtp() {
+    setBusy(true); setError(null);
+    try {
+      const id = await sendOtp(phone10);
+      setOtpReqId(id);
+      setOtpSent(true);
+    } catch {
+      setError(t.signup.otpSendFailed);
+    } finally { setBusy(false); }
+  }
+
+  async function doResendOtp() {
+    setBusy(true); setError(null);
+    try {
+      await resendOtp(otpReqId);
+    } catch {
+      setError(t.signup.otpSendFailed);
+    } finally { setBusy(false); }
+  }
+
+  async function loginWithOtp(codeOverride?: string) {
+    const code = (codeOverride ?? otpCode).replace(/\D/g, '');
+    if (code.length !== 6) { setError(t.login.enterAllDigits); return; }
+    setBusy(true); setError(null);
+    try {
+      const token = await verifyOtp(otpReqId, code);
+      const { accessToken } = await api.verifyOtp(`+91${phone10}`, APP_TYPE, token, code);
+      api.setToken(accessToken);
+      onLoggedIn();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally { setBusy(false); }
+  }
+
   async function login(credOverride?: string) {
-    if (method === 'otp') { setError(t.login.otpComingSoon); return; }
     const cred = (credOverride ?? credential).trim();
     if (method === 'pin' && !/^\d{4}$/.test(cred)) { setError(t.login.enterPin); return; }
     if (!cred) { setError(t.login.enterCredential); return; }
     setBusy(true); setError(null);
     try {
-      const { accessToken } = await api.login(`+91${phone.replace(/\D/g, '')}`, cred, {
+      const { accessToken } = await api.login(`+91${phone10}`, cred, {
         method: method === 'pin' ? 'pin' : 'password',
         appType: APP_TYPE,
       });
@@ -112,9 +156,29 @@ export function LoginScreen({
             </View>
 
             {method === 'otp' ? (
-              <View style={styles.comingSoonBox}>
-                <Text style={styles.comingSoonText}>{t.login.otpComingSoon}</Text>
-              </View>
+              !otpSent ? (
+                <>
+                  <Text style={styles.label}>{t.login.otpLabel}</Text>
+                  <Text style={styles.hint}>{t.login.otpHint(phone10)}</Text>
+                  <Button label={t.login.sendOtp} onPress={doSendOtp} busy={busy} />
+                </>
+              ) : (
+                <>
+                  <Text style={styles.label}>{t.login.verifyOtp}</Text>
+                  <PinBoxes
+                    length={6}
+                    mask={false}
+                    value={otpCode}
+                    onChange={(v) => { setOtpCode(v); setError(null); }}
+                    onComplete={(v) => loginWithOtp(v)}
+                    autoFocus
+                  />
+                  <Button label={t.login.verifyContinue} onPress={() => loginWithOtp()} busy={busy} disabled={otpCode.length !== 6} />
+                  <Text style={styles.switchLine}>
+                    <Text style={styles.switchLink} onPress={doResendOtp}>{t.signup.resendOtp}</Text>
+                  </Text>
+                </>
+              )
             ) : (
               <>
                 <Text style={styles.label}>
@@ -151,6 +215,12 @@ export function LoginScreen({
                 />
               </>
             )}
+
+            {onForgot ? (
+              <Text style={styles.switchLine}>
+                <Text style={styles.switchLink} onPress={onForgot}>{t.login.forgotLink}</Text>
+              </Text>
+            ) : null}
           </>
         )}
         {error ? <ErrorText>{error}</ErrorText> : null}
@@ -218,12 +288,6 @@ const styles = StyleSheet.create({
   },
   methodTabText: { fontSize: theme.font.small, fontWeight: '700', color: theme.color.textMuted },
   methodTabTextActive: { color: theme.color.accent },
-  comingSoonBox: {
-    backgroundColor: theme.color.warningSoft,
-    borderRadius: theme.radius.md,
-    padding: theme.space.md,
-  },
-  comingSoonText: { color: theme.color.warning, fontSize: theme.font.small, fontWeight: '700', textAlign: 'center' },
   link: { color: theme.color.accent, fontWeight: '700', textAlign: 'center', fontSize: theme.font.small },
   switchLine: { fontSize: theme.font.small, color: theme.color.textMuted, textAlign: 'center', marginTop: theme.space.sm },
   switchLink: { color: theme.color.accent, fontWeight: '700' },

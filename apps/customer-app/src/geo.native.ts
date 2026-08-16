@@ -81,14 +81,23 @@ export function watchCoords(onChange: (c: Coords) => void, onError?: (e: unknown
   };
 }
 
-/** Open turn-by-turn directions to `dest` in the platform maps app. */
-export function openDirections(dest: Coords, _label?: string): void {
+/**
+ * Open directions to a destination string ("lat,lng" or an encoded address) in
+ * the platform maps app. Uses a native scheme first (opens the app directly, no
+ * browser/white screen), falling back to a universal Google Maps URL.
+ */
+export function openMapsDirections(destination: string): void {
   const primary =
     Platform.OS === 'android'
-      ? `google.navigation:q=${dest.lat},${dest.lng}`
-      : `http://maps.apple.com/?daddr=${dest.lat},${dest.lng}`;
-  const fallback = `https://www.google.com/maps/dir/?api=1&destination=${dest.lat},${dest.lng}`;
+      ? `google.navigation:q=${destination}`
+      : `http://maps.apple.com/?daddr=${destination}`;
+  const fallback = `https://www.google.com/maps/dir/?api=1&destination=${destination}`;
   Linking.openURL(primary).catch(() => {
     Linking.openURL(fallback).catch(() => undefined);
   });
+}
+
+/** Open turn-by-turn directions to `dest` in the platform maps app. */
+export function openDirections(dest: Coords, _label?: string): void {
+  openMapsDirections(`${dest.lat},${dest.lng}`);
 }

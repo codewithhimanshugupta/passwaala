@@ -6,9 +6,10 @@ import { AuthController } from './auth.controller';
 
 /**
  * AuthModule — phone OTP + JWT sessions (plan: Auth).
- * Phase 1 will wire a real SMS/OTP provider (MSG91/Firebase) + rotating refresh
- * tokens + OTP rate-limiting. Phase 0 implements the OTP + JWT wiring end-to-end
- * (mock sender, in-memory store) and enforces the server-assigned-role rule.
+ * Phone verification is wired to the MSG91 OTP Widget: apps verify the number
+ * client-side, and AuthService re-verifies the widget access token server-side
+ * (verifyMsg91Token) before signup / verify-otp / reset-credentials in prod.
+ * Still open for a later phase: rotating refresh tokens + OTP rate-limiting.
  *
  * JwtModule is registered GLOBAL so the app-wide JwtAuthGuard (an APP_GUARD in
  * AppModule) can inject JwtService to verify bearer tokens on every route.

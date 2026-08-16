@@ -30,6 +30,8 @@ import { DisputesModule } from './disputes/disputes.module';
 import { CouponsModule } from './coupons/coupons.module';
 import { GstModule } from './gst/gst.module';
 import { BulkOrdersModule } from './bulk-orders/bulk-orders.module';
+import { AdsModule } from './ads/ads.module';
+import { PrescriptionsModule } from './prescriptions/prescriptions.module';
 
 /**
  * AppModule — root module.
@@ -75,6 +77,8 @@ import { BulkOrdersModule } from './bulk-orders/bulk-orders.module';
     CouponsModule,
     GstModule,
     BulkOrdersModule,
+    AdsModule,
+    PrescriptionsModule,
   ],
   controllers: [HealthController],
   providers: [

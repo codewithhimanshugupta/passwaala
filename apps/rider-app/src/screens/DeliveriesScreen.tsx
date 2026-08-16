@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { api } from '../api';
+import { getPrefetchedHistory } from '../riderPrefetch';
 import { formatRupees, theme } from '../theme';
 import { Badge, Banner, Card, ErrorText } from '../ui';
 import { DisputeModal } from '../components/DisputeModal';
@@ -11,12 +12,27 @@ const PAGE_SIZE = 20;
 
 type HistoryItem = { type: 'order'; data: RiderJob } | { type: 'bulk'; data: BulkRiderJob };
 
+/** Merge order + bulk history rows into one list, newest first. */
+function mergeHistory(orders: RiderJob[], bulkOrders: BulkRiderJob[]): HistoryItem[] {
+  return [
+    ...(orders ?? []).map((d): HistoryItem => ({ type: 'order', data: d })),
+    ...(bulkOrders ?? []).map((d): HistoryItem => ({ type: 'bulk', data: d })),
+  ].sort((a, b) => {
+    const ta = new Date((a.data.updatedAt ?? a.data.createdAt) as string).getTime();
+    const tb = new Date((b.data.updatedAt ?? b.data.createdAt) as string).getTime();
+    return tb - ta;
+  });
+}
+
 export function DeliveriesScreen() {
-  const [items, setItems] = useState<HistoryItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const prefetched = getPrefetchedHistory();
+  const [items, setItems] = useState<HistoryItem[]>(
+    prefetched ? mergeHistory(prefetched.orders, prefetched.bulkOrders) : [],
+  );
+  const [loading, setLoading] = useState(!prefetched);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [nextCursor, setNextCursor] = useState<string | null>(prefetched?.ordersNextCursor ?? null);
   const [loadingMore, setLoadingMore] = useState(false);
   const { t } = useLang();
 
@@ -27,15 +43,7 @@ export function DeliveriesScreen() {
         ordersNextCursor: string | null;
         bulkOrders: BulkRiderJob[];
       };
-      const combined: HistoryItem[] = [
-        ...(page.orders ?? []).map((d): HistoryItem => ({ type: 'order', data: d })),
-        ...(page.bulkOrders ?? []).map((d): HistoryItem => ({ type: 'bulk', data: d })),
-      ].sort((a, b) => {
-        const ta = new Date((a.data.updatedAt ?? a.data.createdAt) as string).getTime();
-        const tb = new Date((b.data.updatedAt ?? b.data.createdAt) as string).getTime();
-        return tb - ta;
-      });
-      setItems(combined);
+      setItems(mergeHistory(page.orders, page.bulkOrders));
       setNextCursor(page.ordersNextCursor);
       setError(null);
     } catch (e) {

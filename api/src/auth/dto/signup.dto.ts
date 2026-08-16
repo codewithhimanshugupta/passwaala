@@ -1,4 +1,4 @@
-import { IsIn, IsOptional, IsString, Length, Matches, MaxLength } from 'class-validator';
+import { IsIn, IsOptional, IsString, Length, Matches } from 'class-validator';
 
 export class SignupDto {
   @IsString()
@@ -22,4 +22,9 @@ export class SignupDto {
   @IsOptional()
   @IsIn(['CUSTOMER', 'SHOPKEEPER', 'RIDER', 'ADMIN', 'OWNER'])
   appType?: string;
+
+  /** MSG91 widget access token — required in production to prove phone ownership. */
+  @IsOptional()
+  @IsString()
+  msg91Token?: string;
 }

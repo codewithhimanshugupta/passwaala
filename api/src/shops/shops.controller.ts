@@ -85,6 +85,16 @@ export class ShopsController {
   }
 
   /**
+   * Public: admin-curated Premium shops near the customer (own home section).
+   * Declared before :id so "premium" isn't captured as a shop ID param.
+   */
+  @Public()
+  @Get('premium')
+  findPremium(@Query() query: NearbyShopsQuery) {
+    return this.shops.findPremium(query);
+  }
+
+  /**
    * Public: shops within 1 km of an anchor shop for multi-shop bulk orders.
    * Declared before :id so it isn't captured as a shop ID param.
    */

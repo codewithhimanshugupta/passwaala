@@ -3,17 +3,24 @@ import { ActivityIndicator, Pressable, SafeAreaView, ScrollView, StyleSheet, Swi
 import { StatusBar } from 'expo-status-bar';
 import { AuthExpiredError } from '@passwaala/api-client';
 import type { VerificationStatus } from '@passwaala/shared';
+import { MEDICAL_CATEGORY } from '@passwaala/shared';
 import { LoginScreen } from './src/screens/LoginScreen';
 import { SignupScreen } from './src/screens/SignupScreen';
+import { ForgotScreen } from './src/screens/ForgotScreen';
 import { RegisterShopScreen } from './src/screens/RegisterShopScreen';
 import { DashboardScreen } from './src/screens/DashboardScreen';
 import { OrderFeedScreen } from './src/screens/OrderFeedScreen';
 import { ProductsScreen } from './src/screens/ProductsScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 import { LedgerScreen } from './src/screens/LedgerScreen';
-import { api, hasSavedToken, logout, onAuthExpired } from './src/api';
-import { connectSocket, disconnectSocket, reconnectSocket } from './src/socket';
+import { PrescriptionsScreen } from './src/screens/PrescriptionsScreen';
+import { AdsScreen } from './src/screens/AdsScreen';
+import { PosScreen } from './src/screens/PosScreen';
+import { api, hasSavedToken, logout, onAuthExpired, flushPosOutbox } from './src/api';
+import { connectSocket, disconnectSocket, reconnectSocket, onSocket } from './src/socket';
+import { clearShopkeeperPrefetch, prefetchShopkeeper } from './src/shopkeeperPrefetch';
 import { formatRupees, theme } from './src/theme';
+import { Splash } from './src/Splash';
 import { Badge } from './src/ui';
 import { TabIcon } from './src/TabIcon';
 import { verificationMeta } from './src/status';
@@ -36,24 +43,30 @@ function isAuthExpired(err: unknown): boolean {
  * (src/api.ts) so a refresh/restart keeps the shopkeeper logged in.
  */
 type Stage = 'login' | 'resolving' | 'register' | 'app';
-type Tab = 'home' | 'orders' | 'products' | 'settings' | 'ledger';
+type Tab = 'home' | 'orders' | 'products' | 'prescriptions' | 'ads' | 'pos' | 'settings' | 'ledger';
 /** 'all' = overview of all shops; a shop id = that shop's single-shop view */
 type ViewContext = 'all' | string;
 
-function tabList(t: Strings): { key: Tab; label: string }[] {
+function tabList(t: Strings, isMedical: boolean): { key: Tab; label: string }[] {
   return [
     { key: 'home', label: t.tabs.home },
     { key: 'orders', label: t.tabs.orders },
     { key: 'products', label: t.tabs.products },
+    { key: 'pos', label: t.tabs.pos },
+    // The prescription queue is prominent only for medical (pharmacy) shops.
+    ...(isMedical ? [{ key: 'prescriptions' as Tab, label: t.tabs.prescriptions }] : []),
+    { key: 'ads', label: t.tabs.ads },
     { key: 'settings', label: t.tabs.settings },
     { key: 'ledger', label: t.tabs.ledger },
   ];
 }
 
 export default function App() {
+  const [splashDone, setSplashDone] = useState(false);
   return (
     <LanguageProvider>
       <AppRoot />
+      {!splashDone && <Splash onDone={() => setSplashDone(true)} />}
     </LanguageProvider>
   );
 }
@@ -61,11 +74,11 @@ export default function App() {
 function AppRoot() {
   const { t } = useLang();
   const [stage, setStage] = useState<Stage>(hasSavedToken() ? 'resolving' : 'login');
-  const [authScreen, setAuthScreen] = useState<'login' | 'signup'>('login');
+  const [authScreen, setAuthScreen] = useState<'login' | 'signup' | 'forgot'>('login');
   const [shop, setShop] = useState<MyShop | null>(null);
   const [shops, setShops] = useState<MyShopSummary[]>([]);
   const [switchingShopId, setSwitchingShopId] = useState<string | null>(null);
-  const [tab, setTab] = useState<Tab>('home');
+  const [tab, setTab] = useState<Tab>('orders');
   const [sessionExpired, setSessionExpired] = useState(false);
   const reachedAppRef = useRef(false);
   // 'all' when the owner has >1 shop (default view on login); otherwise the active shop id.
@@ -111,6 +124,19 @@ function AppRoot() {
     }
   }, [stage]);
 
+  // Whenever the socket (re)connects we're back online — flush any POS sales
+  // queued offline for the ACTIVE shop. Scoped by shop id so a queued sale only
+  // ever replays under its own shop's token (the server derives shopId from the
+  // JWT); re-subscribes when the active shop changes.
+  useEffect(() => {
+    if (stage !== 'app' || !shop) return;
+    const shopId = shop.id;
+    void flushPosOutbox(shopId).catch(() => undefined);
+    return onSocket('connect', () => {
+      void flushPosOutbox(shopId).catch(() => undefined);
+    });
+  }, [stage, shop]);
+
   /** After login (or on startup with a saved token), check for an owned shop. */
   const resolveShop = useCallback(async () => {
     setSessionExpired(false);
@@ -118,7 +144,7 @@ function AppRoot() {
     try {
       const myShop = (await api.myShop()) as MyShop; // 200 → has a shop
       setShop(myShop);
-      setTab('home');
+      setTab('orders');
       setStage('app');
       reachedAppRef.current = true;
       // Load the owner's shop list so we can offer a picker when they own more
@@ -127,10 +153,14 @@ function AppRoot() {
         const list = (await api.myShops()) as MyShopSummary[];
         setShops(list);
         // Default to "all shops" view when the owner has multiple shops.
-        setViewContext(list.length > 1 ? 'all' : myShop.id);
+        const allShops = list.length > 1;
+        setViewContext(allShops ? 'all' : myShop.id);
+        // Warm every tab's data in the background so the first tap is instant.
+        void prefetchShopkeeper(myShop.id, allShops).catch(() => undefined);
       } catch {
         setShops([]);
         setViewContext(myShop.id);
+        void prefetchShopkeeper(myShop.id, false).catch(() => undefined);
       }
     } catch (err) {
       // A 401 / expired session must NOT be treated as "no shop yet" — the
@@ -153,6 +183,7 @@ function AppRoot() {
   useEffect(() => {
     return onAuthExpired(() => {
       setShop(null);
+      clearShopkeeperPrefetch();
       setSessionExpired(reachedAppRef.current);
       reachedAppRef.current = false;
       setAuthScreen('login');
@@ -163,6 +194,7 @@ function AppRoot() {
   async function doLogout() {
     await unregisterPushToken();
     await logout();
+    clearShopkeeperPrefetch();
     setShop(null);
     setShops([]);
     setSessionExpired(false);
@@ -201,7 +233,10 @@ function AppRoot() {
         const myShop = (await api.myShop()) as MyShop;
         setShop(myShop);
         setViewContext(myShop.id);
-        if (tab !== 'settings') setTab('home');
+        if (tab !== 'settings' && tab !== 'ledger') setTab('home');
+        // The old shop's warm cache is stale now — drop it and warm the new shop.
+        clearShopkeeperPrefetch();
+        void prefetchShopkeeper(myShop.id, false).catch(() => undefined);
         try {
           setShops((await api.myShops()) as MyShopSummary[]);
         } catch {
@@ -269,11 +304,17 @@ function AppRoot() {
               onSignedUp={() => { setAuthScreen('login'); resolveShop(); }}
               onBackToLogin={() => setAuthScreen('login')}
             />
+          ) : authScreen === 'forgot' ? (
+            <ForgotScreen
+              onDone={() => setAuthScreen('login')}
+              onBackToLogin={() => setAuthScreen('login')}
+            />
           ) : (
             <LoginScreen
               onLoggedIn={resolveShop}
               sessionExpired={sessionExpired}
               onSignUp={() => setAuthScreen('signup')}
+              onForgot={() => setAuthScreen('forgot')}
             />
           )
         )}
@@ -358,6 +399,12 @@ function AppRoot() {
                   <Text style={styles.allShopsHintText}>Select a shop to manage products.</Text>
                 </View>
               )}
+              {tab === 'pos' && viewContext !== 'all' && <PosScreen shop={shop} />}
+              {tab === 'pos' && viewContext === 'all' && (
+                <View style={styles.allShopsHint}>
+                  <Text style={styles.allShopsHintText}>Select a shop to ring up a counter sale.</Text>
+                </View>
+              )}
               {tab === 'settings' && (
                 <>
                   {shops.length > 1 ? (
@@ -374,9 +421,48 @@ function AppRoot() {
                   <SettingsScreen shop={shop} onShopChange={onShopChange} onKycSubmitted={onKycSubmitted} onLogout={doLogout} />
                 </>
               )}
-              {tab === 'ledger' && <LedgerScreen />}
+              {tab === 'ledger' && (
+                <>
+                  {shops.length > 1 ? (
+                    <ShopPicker
+                      shops={shops}
+                      activeId={shop.id}
+                      viewContext={viewContext}
+                      switchingId={switchingShopId}
+                      onPick={switchToShop}
+                      onPickAll={() => { setViewContext('all'); }}
+                      t={t}
+                    />
+                  ) : null}
+                  {viewContext === 'all' && shops.length > 1 ? (
+                    <View style={styles.allShopsHint}>
+                      <Text style={styles.allShopsHintText}>Select a shop to view its ledger.</Text>
+                    </View>
+                  ) : (
+                    <LedgerScreen key={shop.id} />
+                  )}
+                </>
+              )}
+              {tab === 'prescriptions' && (
+                viewContext === 'all' && shops.length > 1 ? (
+                  <View style={styles.allShopsHint}>
+                    <Text style={styles.allShopsHintText}>Select a shop to view its prescriptions.</Text>
+                  </View>
+                ) : (
+                  <PrescriptionsScreen key={shop.id} />
+                )
+              )}
+              {tab === 'ads' && (
+                viewContext === 'all' && shops.length > 1 ? (
+                  <View style={styles.allShopsHint}>
+                    <Text style={styles.allShopsHintText}>Select a shop to manage its ads.</Text>
+                  </View>
+                ) : (
+                  <AdsScreen key={shop.id} />
+                )
+              )}
             </View>
-            <BottomTabs active={tab} onChange={setTab} t={t} />
+            <BottomTabs active={tab} onChange={setTab} t={t} isMedical={shop.shopCategory === MEDICAL_CATEGORY} />
           </>
         )}
       </View>
@@ -585,10 +671,10 @@ function AllTile({ label, value, icon, iconBg, accent = false }: { label: string
   );
 }
 
-function BottomTabs({ active, onChange, t }: { active: Tab; onChange: (t: Tab) => void; t: Strings }) {
+function BottomTabs({ active, onChange, t, isMedical }: { active: Tab; onChange: (t: Tab) => void; t: Strings; isMedical: boolean }) {
   return (
     <View style={styles.tabbar}>
-      {tabList(t).map((tab) => {
+      {tabList(t, isMedical).map((tab) => {
         const isActive = tab.key === active;
         return (
           <Pressable key={tab.key} style={styles.tabItem} onPress={() => onChange(tab.key)}>

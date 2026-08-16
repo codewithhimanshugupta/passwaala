@@ -1,4 +1,6 @@
 import { PasswaalaApiClient } from '@passwaala/api-client';
+import type { POSCreateSale, POSSaleResult } from '@passwaala/shared';
+import { enqueueOutbox, flushOutbox, PosOfflineError, type FlushResult } from './posOutbox';
 
 /**
  * Shared API client for the shopkeeper app, with token persistence so a refresh
@@ -110,3 +112,89 @@ export async function updateName(name: string): Promise<void> {
 
 /** App identity namespace — passed to OTP endpoints so same phone works across apps. */
 export const APP_TYPE = 'SHOPKEEPER' as const;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POS (counter-sale) network layer with an offline outbox.
+//
+// A sale is rung up + its receipt printed locally *immediately*; the network
+// write is decoupled. `postPosSale` distinguishes a genuine network failure
+// (→ PosOfflineError → queue + retry later) from a server rejection (→ surface
+// the error). Exactly-once is guaranteed server-side by the sale's
+// idempotencyKey, so replaying a queued body that already committed is safe.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Send one counter sale to POST /orders/pos via a direct fetch (the shared
+ * client has no offline-aware method). A thrown fetch (device offline / DNS /
+ * connection refused) becomes a `PosOfflineError`; a 401 fires auth-expiry; any
+ * other non-2xx becomes a plain Error carrying the server message.
+ */
+export async function postPosSale(body: POSCreateSale): Promise<POSSaleResult> {
+  const token = api.getToken();
+  let res: Response;
+  try {
+    res = await fetch(`${baseUrl}/orders/pos`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    // Network unreachable — signal "queue it / stop flushing".
+    throw new PosOfflineError();
+  }
+  if (!res.ok) {
+    if (res.status === 401) {
+      fireAuthExpired();
+      throw new Error('Your session has expired. Please log in again.');
+    }
+    let message = 'Could not record the sale.';
+    try {
+      const parsed = (await res.json()) as { message?: unknown };
+      if (parsed && typeof parsed.message === 'string') message = parsed.message;
+    } catch {
+      /* non-JSON error body — keep default */
+    }
+    throw new Error(message);
+  }
+  return (await res.json()) as POSSaleResult;
+}
+
+/** Outcome of a POS sale attempt: committed online, or queued for later sync. */
+export interface PosSaleOutcome {
+  /** True when the server confirmed the sale; false when queued offline. */
+  synced: boolean;
+  /** The server result (present only when `synced`). */
+  result?: POSSaleResult;
+}
+
+/**
+ * Place a counter sale with offline fallback: try the network write; if the
+ * device is offline, durably queue the body (tagged with `shopId`) for automatic
+ * retry and report `synced: false`. Any non-network error (e.g. validation) is
+ * rethrown so the screen can surface it — the sale is NOT queued in that case.
+ */
+export async function posSaleWithOutbox(shopId: string, body: POSCreateSale): Promise<PosSaleOutcome> {
+  try {
+    const result = await postPosSale(body);
+    return { synced: true, result };
+  } catch (err) {
+    if (err instanceof PosOfflineError) {
+      await enqueueOutbox(shopId, body);
+      return { synced: false };
+    }
+    throw err;
+  }
+}
+
+/**
+ * Flush the offline POS outbox for one shop (called on socket reconnect / screen
+ * focus). Scoped by `shopId` so a queued sale only ever replays while that
+ * shop's token is active — the server derives shopId from the JWT, so replaying
+ * under the wrong shop would misfile the sale.
+ */
+export function flushPosOutbox(shopId: string): Promise<FlushResult> {
+  return flushOutbox(postPosSale, shopId);
+}

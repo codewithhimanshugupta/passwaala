@@ -41,9 +41,15 @@ export class AdminService {
   ) {}
 
   /** List shops awaiting review (PENDING_REVIEW), oldest first. */
-  async listPendingShops() {
+  async listPendingShops(adminId?: string, role?: string) {
+    // City-first: a city admin only reviews shops in their own city (OWNER = all).
+    const city = adminId ? await resolveAdminCity(this.prisma, adminId, role ?? '') : null;
     return this.prisma.shop.findMany({
-      where: { verificationStatus: VerificationStatus.PENDING_REVIEW, deletedAt: null },
+      where: {
+        ...(city ? { city: { equals: city, mode: 'insensitive' } } : {}),
+        verificationStatus: VerificationStatus.PENDING_REVIEW,
+        deletedAt: null,
+      },
       orderBy: { createdAt: 'asc' },
       select: {
         id: true,
@@ -56,14 +62,18 @@ export class AdminService {
   }
 
   /**
-   * List ALL shops (optionally filtered by city) with their config — for the
-   * admin console to manage commission/status per shop without copying IDs.
+   * List ALL shops (city-scoped) with their config — for the admin console to
+   * manage commission/status per shop without copying IDs. City is the FIRST
+   * filter: a city admin sees only their city; an OWNER sees all (or may pass a
+   * city query to narrow). Keeps the list fast as the platform grows.
    */
-  async listAllShops(city?: string) {
+  async listAllShops(adminId?: string, role?: string, cityQuery?: string) {
+    const scopedCity = adminId ? await resolveAdminCity(this.prisma, adminId, role ?? '') : null;
+    const city = scopedCity ?? cityQuery;
     const shops = await this.prisma.shop.findMany({
       where: {
-        deletedAt: null,
         ...(city ? { city: { equals: city, mode: 'insensitive' } } : {}),
+        deletedAt: null,
       },
       orderBy: [{ city: 'asc' }, { name: 'asc' }],
       select: {
@@ -864,13 +874,28 @@ export class AdminService {
 
   /** Admin: all orders across the platform — live and completed. Includes OTPs
    *  and payment state so the admin can verify any order end-to-end. */
-  async listAllOrders(page: PaginationQuery = {}, status?: string, shopId?: string) {
+  async listAllOrders(page: PaginationQuery = {}, status?: string, shopId?: string, q?: string, adminId?: string, role?: string) {
     const where: Record<string, unknown> = { deletedAt: null };
+    // City-first: a city admin only sees orders from shops in their own city.
+    const city = adminId ? await resolveAdminCity(this.prisma, adminId, role ?? '') : null;
+    if (city) where.shop = { is: { city: { equals: city, mode: 'insensitive' } } };
     if (status) {
       const statuses = status.split(',').map((s) => s.trim()).filter(Boolean);
       where.status = statuses.length === 1 ? statuses[0] : { in: statuses };
     }
     if (shopId) where.shopId = shopId;
+    const term = q?.trim();
+    if (term) {
+      // Server-side search across order id/shortId, customer & shop name/phone
+      // so the admin can find ANY order, not just the pages already loaded.
+      where.OR = [
+        { shortId: { contains: term, mode: 'insensitive' } },
+        { id: { contains: term, mode: 'insensitive' } },
+        { customer: { is: { name: { contains: term, mode: 'insensitive' } } } },
+        { customer: { is: { phone: { contains: term, mode: 'insensitive' } } } },
+        { shop: { is: { name: { contains: term, mode: 'insensitive' } } } },
+      ];
+    }
     const rows = await this.prisma.order.findMany({
       where,
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
@@ -1240,10 +1265,16 @@ export class AdminService {
     return bulk;
   }
 
-  /** Admin: list bulk orders newest-first, keyset paginated. */
-  async listBulkOrders(limit = 20, cursor?: string) {
+  /** Admin: list bulk orders newest-first, keyset paginated. City-scoped. */
+  async listBulkOrders(limit = 20, cursor?: string, adminId?: string, role?: string) {
+    // City-first: a city admin only sees bulk orders touching a shop in their city.
+    const city = adminId ? await resolveAdminCity(this.prisma, adminId, role ?? '') : null;
     const rows = await this.prisma.bulkOrder.findMany({
-      where: { deletedAt: null, ...(cursor ? { id: { lt: cursor } } : {}) },
+      where: {
+        ...(city ? { orders: { some: { shop: { is: { city: { equals: city, mode: 'insensitive' } } } } } } : {}),
+        deletedAt: null,
+        ...(cursor ? { id: { lt: cursor } } : {}),
+      },
       orderBy: { createdAt: 'desc' },
       take: limit + 1,
       select: {
@@ -1259,6 +1290,7 @@ export class AdminService {
         orders: {
           select: {
             id: true,
+            shortId: true,
             shopId: true,
             status: true,
             shop: { select: { name: true } },

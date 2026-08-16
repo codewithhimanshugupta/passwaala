@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { VerificationStatus } from '@passwaala/shared';
 import { api, updateName, type MyAccount } from '../api';
+import { getShopkeeperPrefetch } from '../shopkeeperPrefetch';
 import { paiseToRupeeInput, placeholderImage, rupeeInputToPaise, theme } from '../theme';
 import { Badge, Banner, Button, Card, ErrorText, Field, Screen, SectionTitle } from '../ui';
 import { ImagePicker } from '../components/ImagePicker';
@@ -80,8 +81,21 @@ export function SettingsScreen({
     const couponIds = (shop as { activeCouponIds?: string[] }).activeCouponIds ?? [];
     return [...(offerId ? [offerId] : []), ...couponIds];
   });
-  const [cityOffers, setCityOffers] = useState<Array<{ id: string; title: string; type: string; value: number; minOrderPaise: number }>>([]);
-  const [offerStats, setOfferStats] = useState<Record<string, number>>({});
+  const [cityOffers, setCityOffers] = useState<Array<{ id: string; title: string; type: string; value: number; minOrderPaise: number }>>(() => {
+    // Seed coupons from the app-open prefetch so they show instantly.
+    const pf = getShopkeeperPrefetch();
+    const cities = pf?.cities as Array<{ name: string; offers: Array<{ id: string; title: string; type: string; value: number; minOrderPaise: number }> }> | null | undefined;
+    if (!cities || !shop.city) return [];
+    const shopCity = shop.city.toLowerCase();
+    const city = cities.find(c => shopCity.includes(c.name.toLowerCase()) || c.name.toLowerCase().includes(shopCity));
+    return city?.offers ?? [];
+  });
+  const [offerStats, setOfferStats] = useState<Record<string, number>>(() => {
+    const stats = getShopkeeperPrefetch()?.offerStats as Array<{ offerId: string; usedCount: number }> | null | undefined;
+    const map: Record<string, number> = {};
+    for (const s of stats ?? []) map[s.offerId] = s.usedCount;
+    return map;
+  });
 
   // Working hours
   const [hours, setHours] = useState<Record<string, DayHours>>(() => initHours(shop.workingHours));
@@ -368,9 +382,12 @@ function TimeBox({ value, onChangeText }: { value: string; onChangeText: (t: str
 
 function ProfileSection({ onLogout }: { onLogout: () => void }) {
   const { t } = useLang();
-  const [account, setAccount] = useState<MyAccount | null>(null);
-  const [name, setName] = useState('');
-  const [loading, setLoading] = useState(true);
+  // Seed the account from the app-open prefetch so Settings shows the profile
+  // instantly instead of spinning while me() flies.
+  const pfMe = getShopkeeperPrefetch()?.me as MyAccount | null | undefined;
+  const [account, setAccount] = useState<MyAccount | null>(pfMe ?? null);
+  const [name, setName] = useState(pfMe?.name ?? '');
+  const [loading, setLoading] = useState(!pfMe);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);

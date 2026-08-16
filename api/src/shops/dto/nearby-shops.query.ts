@@ -38,6 +38,20 @@ export class NearbyShopsQuery {
   @IsString()
   category?: string;
 
+  /**
+   * City filter — the FIRST filter applied so the query prunes to the customer's
+   * serviceable city before the radius/sort work (keeps discovery fast as the
+   * platform grows to many cities). Case-insensitive match on Shop.city.
+   */
+  @IsOptional()
+  @IsString()
+  city?: string;
+
+  /** Filter: only shops currently running an offer ("Great Offers" pill). */
+  @IsOptional()
+  @IsIn(['true', 'false'])
+  hasOffers?: string;
+
   /** Filter: minimum average rating (0..5). */
   @IsOptional()
   @Type(() => Number)
@@ -60,4 +74,13 @@ export class NearbyShopsQuery {
   @IsInt()
   @Min(0)
   offset?: number;
+
+  /**
+   * Optional requesting customer id — used ONLY to personalize ranking (a small
+   * additive boost for the customer's favourite shop categories). Never a
+   * data-access key, so a spoofed value only re-ranks that caller's own list.
+   */
+  @IsOptional()
+  @IsString()
+  customerId?: string;
 }

@@ -6,7 +6,7 @@ import Svg, { Path, Circle, Rect } from 'react-native-svg';
  * based, inherits the tab's active/inactive colour via the `color` prop. 24×24
  * viewbox, round caps.
  */
-export type TabName = 'home' | 'orders' | 'products' | 'settings' | 'ledger';
+export type TabName = 'home' | 'orders' | 'products' | 'prescriptions' | 'ads' | 'pos' | 'settings' | 'ledger';
 
 export function TabIcon({
   name,
@@ -62,6 +62,25 @@ export function TabIcon({
         <>
           <Circle cx="12" cy="12" r="9" {...common} />
           <Path d="M9 8h6M9 11h6M14 8c0 2.2-1.8 3-4 3l4 5" {...common} />
+        </>
+      )}
+      {name === 'prescriptions' && (
+        <>
+          <Rect x="4" y="3" width="16" height="18" rx="2" {...common} />
+          <Path d="M8 8h4a2 2 0 0 1 0 4H8V8Zm0 4 4 5" {...common} />
+          <Path d="M14 15l4 4M18 15l-4 4" {...common} />
+        </>
+      )}
+      {name === 'ads' && (
+        <>
+          <Path d="M4 9v6h3l6 4V5L7 9H4Z" {...common} />
+          <Path d="M17 9a4 4 0 0 1 0 6" {...common} />
+        </>
+      )}
+      {name === 'pos' && (
+        <>
+          <Path d="M6 8h12l-1 11a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L6 8Z" {...common} />
+          <Path d="M9 8V6a3 3 0 0 1 6 0v2" {...common} />
         </>
       )}
     </Svg>

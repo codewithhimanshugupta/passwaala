@@ -81,6 +81,7 @@ enum VerificationStatus {
 /// OUT_FOR_DELIVERY -> DELIVERED, plus REJECTED, CANCELLED, REFUND_PENDING.
 enum OrderStatus {
   PLACED
+  QUOTE_PENDING // medical/prescription: shop is building the itemized bill before the customer pays
   ACCEPTED
   AWAITING_PAYMENT
   PREPARING
@@ -98,6 +99,9 @@ enum OrderStatus {
 enum PaymentMethod {
   UPI_DIRECT
   COD
+  /// Cash tendered at the counter for an in-store POS sale (shopkeeper-created,
+  /// marked paid immediately). Never used in the delivery/rider flow.
+  CASH
 }
 
 /// Order fulfillment mode. Pilot = SELF_DELIVERY or SELF_PICKUP (customer
@@ -128,6 +132,7 @@ enum LedgerEntryType {
   RIDER_DELIVERY_FEE // debit (pos): shop owes the delivery fee it collected (passed to rider)
   DISCOUNT_GIVEN // informational (total 0): "you gave ₹X discount"
   SHOP_PAYOUT // debit (pos): PassWala pays a shop its negative balance toward 0
+  AD_SPEND // debit (pos): shop owes CPC ad spend for sponsored placement (day-end billed)
 }
 
 /// Rider ledger entry type — mirrors LedgerEntryType for the rider side.
@@ -200,6 +205,33 @@ enum BulkOrderStatus {
   OUT_FOR_DELIVERY
   DELIVERED
   CANCELLED
+}
+
+/// Sponsored-ad campaign lifecycle. Admin creates ACTIVE; auto-flips EXHAUSTED
+/// (budget spent) or EXPIRED (past endAt); admin can PAUSE. Only ACTIVE campaigns
+/// pin a shop to the top of discovery. APPEND-ONLY (rule #5).
+enum AdCampaignStatus {
+  ACTIVE
+  PAUSED
+  EXHAUSTED
+  EXPIRED
+}
+
+/// Ad interaction event type. IMPRESSION = a sponsored card was shown; CLICK = a
+/// customer tapped it (CPC billed once per campaign+customer per day, at day-end).
+enum AdEventType {
+  IMPRESSION
+  CLICK
+}
+
+/// Prescription (medical-store-only) lifecycle. Customer uploads an Rx (SUBMITTED);
+/// the shop builds a free-text itemized quote (QUOTED → an Order in QUOTE_PENDING);
+/// customer pays online (CONVERTED). Shop may REJECT (out of stock / unreadable).
+enum PrescriptionStatus {
+  SUBMITTED
+  QUOTED
+  CONVERTED
+  REJECTED
 }
 
 // ===========================================================================
@@ -275,10 +307,22 @@ model ServiceableCity {
   referralShopCoins     Int @default(100)
 
   /// Max COD orders per customer per rolling window (hours). Default 24.
-  codWindowHours Int       @default(24)
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-  deletedAt      DateTime?
+  codWindowHours Int @default(24)
+
+  // ── Sponsored-ads config (admin-tunable per city) ─────────────────────────
+  /// Cost-per-click (paise) charged to a shop for each unique daily click on its
+  /// sponsored card. Snapshotted onto a campaign at opt-in. Default ₹5.
+  sponsoredCpcPaise           Int @default(500)
+  /// Default total ad budget (paise) suggested when a shop opts into promotion. ₹500.
+  sponsoredDefaultBudgetPaise Int @default(50000)
+
+  // ── Ranking config (admin-tunable per city) ───────────────────────────────
+  /// Days a newly-approved shop gets a discovery boost. Default 21.
+  newShopBoostDays Int @default(21)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
 
   adminInvites   AdminInvite[]
   offerTemplates OfferTemplate[]
@@ -343,6 +387,9 @@ model User {
   riderKyc          RiderKyc?
   pushSubscriptions PushSubscription[]
   expoPushTokens    ExpoPushToken[]
+  prescriptions     Prescription[]     @relation("PrescriptionCustomer")
+  customerProfile   CustomerProfile?
+  adEvents          AdEvent[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -469,16 +516,30 @@ model Shop {
   avgRating   Float @default(0)
   ratingCount Int   @default(0)
 
+  // ── Ranking signals (Zomato-style discovery). rankScore is recomputed by a
+  // cron (recomputeShopRankScores) from these denormalized inputs; discovery
+  // ORDER BY layers distance/open/sponsored/personalization on top at query time.
+  rankScore   Float     @default(0) // precomputed composite relevance score (higher = ranks first)
+  orderCount  Int       @default(0) // lifetime delivered-order count (popularity input)
+  lastOrderAt DateTime? // recency-of-activity input for the score
+
+  // ── Premium (admin-curated). Distinct from paid CPC ads: admin hand-picks
+  // "Premium" shops that surface in a dedicated customer-app section. Not billed.
+  isPremium Boolean @default(false) // admin toggles; shows in the Premium section
+
   // Relations
-  kyc         ShopKyc?
-  categories  Category[]
-  products    Product[]
-  carts       Cart[]
-  orders      Order[]
-  reviews     Review[]
-  ledger      LedgerEntry[]
-  taxInvoices TaxInvoice[]
-  referredBy  Referral[]    @relation("RefereeShop")
+  kyc           ShopKyc?
+  categories    Category[]
+  products      Product[]
+  carts         Cart[]
+  orders        Order[]
+  reviews       Review[]
+  ledger        LedgerEntry[]
+  taxInvoices   TaxInvoice[]
+  referredBy    Referral[]     @relation("RefereeShop")
+  adCampaigns   AdCampaign[]
+  adEvents      AdEvent[]
+  prescriptions Prescription[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -488,6 +549,7 @@ model Shop {
   @@index([verificationStatus])
   @@index([shopCategory])
   @@index([isOpen])
+  @@index([rankScore])
 }
 
 /// KYC + document bundle for a shop. ADMIN-ONLY access — never returned on
@@ -777,9 +839,19 @@ model Order {
   // Reliability — client-generated key so retries/double-taps never duplicate.
   idempotencyKey String @unique
 
+  // In-store POS (counter) sale: shopkeeper-created walk-in sale, created
+  // directly at DELIVERED, paid CASH, commission-free. Distinguishes counter
+  // sales from delivery/pickup orders in the feed and future POS reports.
+  isPosSale Boolean @default(false)
+
   // BulkOrder link — null for standalone single-shop orders.
   bulkOrderId String?
   bulkOrder   BulkOrder? @relation(fields: [bulkOrderId], references: [id])
+
+  // Prescription link — set for medical-store prescription orders (the shop-built
+  // quote from an uploaded Rx). Null for normal catalog/bulk orders.
+  prescriptionId String?       @unique
+  prescription   Prescription? @relation(fields: [prescriptionId], references: [id])
 
   // Relations
   items     OrderItem[]
@@ -798,6 +870,7 @@ model Order {
   @@index([riderId])
   @@index([bulkOrderId])
   @@index([shopId, status]) // hot: shopkeeper order feed (shop + status tab)
+  @@index([shopId, isPosSale]) // POS counter-sale reports
 }
 
 /// An order line. Carries snapshots (rule #6) + substitution status.
@@ -807,8 +880,11 @@ model OrderItem {
   orderId String
   order   Order  @relation(fields: [orderId], references: [id])
 
-  productId String
-  product   Product @relation(fields: [productId], references: [id])
+  // Nullable: prescription (medical-store) orders carry free-text line items the
+  // shop types in — they have no catalog Product. nameSnapshot/pricePaiseSnapshot
+  // carry the display data for those lines. Catalog orders always set productId.
+  productId String?
+  product   Product? @relation(fields: [productId], references: [id])
 
   nameSnapshot        String // product name at order time (rule #6)
   pricePaiseSnapshot  Int // unit price at order time, paise (rule #6)
@@ -843,6 +919,7 @@ model Address {
 
   orders     Order[]
   bulkOrders BulkOrder[]
+  prescriptions Prescription[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -1153,25 +1230,26 @@ model PaymentClaim {
 /// Admin-created discount coupon with a unique code. Customers enter the code
 /// at checkout; the server validates expiry, usage limits, and shop applicability.
 model Coupon {
-  id             String        @id @default(uuid())
-  code           String        @unique
-  type           String // PERCENT_OFF | FLAT_OFF | FREE_DELIVERY
-  value          Int           @default(0) // percent points or paise
-  description    String?
-  minOrderPaise  Int           @default(0)
-  maxUses        Int? // null = unlimited
-  maxUsesPerUser Int? // null = unlimited
-  usedCount      Int           @default(0)
-  validFrom      DateTime?
-  expiresAt      DateTime?
-  active         Boolean       @default(true)
-  shopIds        String[] // empty = applicable to all shops
-  cityIds        String[] // empty = all cities; non-empty = only these cities
-  createdById    String
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
-  deletedAt      DateTime?
-  usages         CouponUsage[]
+  id               String        @id @default(uuid())
+  code             String        @unique
+  type             String // PERCENT_OFF | FLAT_OFF | FREE_DELIVERY
+  value            Int           @default(0) // percent points or paise
+  description      String?
+  minOrderPaise    Int           @default(0)
+  maxDiscountPaise Int? // cap for PERCENT_OFF (paise); null = no cap
+  maxUses          Int? // null = unlimited
+  maxUsesPerUser   Int? // null = unlimited
+  usedCount        Int           @default(0)
+  validFrom        DateTime?
+  expiresAt        DateTime?
+  active           Boolean       @default(true)
+  shopIds          String[] // empty = applicable to all shops
+  cityIds          String[] // empty = all cities; non-empty = only these cities
+  createdById      String
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  deletedAt        DateTime?
+  usages           CouponUsage[]
 
   @@index([active])
   @@index([code])
@@ -1279,4 +1357,159 @@ model OfferTemplate {
 
   @@index([cityId])
   @@index([active])
+}
+
+// ===========================================================================
+// SPONSORED ADS (CPC) — opt-in shop promotion, billed at day-end via ledger
+// ===========================================================================
+
+/// A shop's sponsored-ad campaign. Ads are OPT-IN: a shop enables promotion in
+/// its app, which creates an ACTIVE campaign. Only ACTIVE campaigns pin the shop
+/// to the top of discovery ("Sponsored" badge) and accrue CPC. Non-opted shops
+/// rank on normal factors and are never charged. Admin sets the CPC price (per
+/// city) and can view analytics / pause. Mirrors Coupon (budget/validity/active).
+model AdCampaign {
+  id     String @id @default(uuid())
+  shopId String
+  shop   Shop   @relation(fields: [shopId], references: [id])
+
+  status AdCampaignStatus @default(ACTIVE)
+
+  /// Cost-per-click in paise, snapshotted from the city's sponsoredCpcPaise at
+  /// opt-in (admin can override per campaign). Billed once per unique daily click.
+  cpcPaise         Int
+  /// Total ad budget cap (paise). When spentPaise >= this, status → EXHAUSTED.
+  totalBudgetPaise Int
+  /// Shop-set daily spend cap (paise). 0 = no daily cap. When the day's billed
+  /// spend reaches this, the ad auto-stops serving (dropped from sponsored slots)
+  /// for the rest of the day; it auto-resumes the next day, or immediately if the
+  /// shop raises this cap. Spend can never exceed it (enforced at click billing).
+  dailyBudgetPaise Int       @default(0)
+  /// Running billed spend (paise, GST-exclusive base). Incremented at day-end settle.
+  spentPaise       Int       @default(0)
+  /// Today's billed spend so far (paise, GST-exclusive). Enforces dailyBudgetPaise
+  /// in real time; reset to 0 when dayResetAt rolls to a new day (at click time or
+  /// day-end settle). Serving is gated on this vs dailyBudgetPaise.
+  spentTodayPaise  Int       @default(0)
+  /// The calendar day (midnight) that spentTodayPaise belongs to. When older than
+  /// today, spentTodayPaise is stale (treated as 0) so the ad auto-resumes.
+  dayResetAt       DateTime?
+
+  /// Optional cities to restrict the promotion to (empty = shop's own city). Matches Coupon.cityIds.
+  cityIds String[] @default([])
+
+  startAt DateTime  @default(now())
+  endAt   DateTime? // null = runs until budget exhausted / paused
+
+  createdById String? // admin/owner or the shop owner who toggled it on
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  events AdEvent[]
+
+  @@index([shopId])
+  @@index([status])
+}
+
+/// A single ad interaction (impression or click) on a sponsored card. Clicks are
+/// billed at day-end (CPC), once per (campaign, customer) per calendar day — the
+/// first billable click of the day carries billedPaise = cpcPaise, repeats carry
+/// 0. Impressions are never billed. This table is the analytics source (counts,
+/// CTR, spend series) for the admin dashboard + the shopkeeper's own stats.
+model AdEvent {
+  id         String     @id @default(uuid())
+  campaignId String
+  campaign   AdCampaign @relation(fields: [campaignId], references: [id])
+  shopId     String
+  shop       Shop       @relation(fields: [shopId], references: [id])
+
+  type       AdEventType
+  customerId String? // the viewing/clicking customer (null for anonymous)
+  customer   User?       @relation(fields: [customerId], references: [id])
+
+  /// Amount this event will be billed at day-end (paise, GST-exclusive). Set to
+  /// cpcPaise on the day's first billable click per customer; 0 otherwise.
+  billedPaise Int       @default(0)
+  /// Set when the day-end settle cron has folded this event into a ledger entry
+  /// (so re-runs are idempotent). Null until settled.
+  settledAt   DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([campaignId])
+  @@index([shopId])
+  @@index([type])
+  @@index([createdAt])
+  @@index([campaignId, customerId, type])
+}
+
+// ===========================================================================
+// PERSONALIZATION — per-customer taste profile (recomputed by cron)
+// ===========================================================================
+
+/// A per-customer taste profile derived from delivered-order history. Recomputed
+/// periodically (recomputeCustomerProfiles cron); read at discovery to add a
+/// personalization boost (category affinity + price-band match) on top of each
+/// shop's precomputed rankScore. Never a source of truth — safe to recompute.
+model CustomerProfile {
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id])
+
+  /// { "<shopCategory>": <weight 0..1>, ... } — recent-order affinity by category.
+  categoryWeightsJson Json?
+  /// Average order value (paise) — used for price-band matching.
+  avgOrderValuePaise  Int   @default(0)
+  /// Number of delivered orders considered when this profile was built.
+  orderCount          Int   @default(0)
+
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+}
+
+// ===========================================================================
+// PRESCRIPTIONS (medical-store-only order flow)
+// ===========================================================================
+
+/// A prescription upload from a customer to a medical shop. The customer uploads
+/// Rx image(s); the shop reads them and builds a free-text itemized quote, which
+/// becomes an Order (status QUOTE_PENDING → AWAITING_PAYMENT, UPI_DIRECT only).
+/// Mirrors the BulkOrder envelope pattern (a separate table + Order.prescriptionId).
+model Prescription {
+  id      String  @id @default(uuid())
+  /// Human-readable ID: RX + 8 hex.
+  shortId String? @unique
+
+  customerId String
+  customer   User   @relation("PrescriptionCustomer", fields: [customerId], references: [id])
+
+  shopId String
+  shop   Shop   @relation(fields: [shopId], references: [id])
+
+  /// Uploaded prescription image URLs (1+). Stored under uploads/prescription/.
+  imageUrls String[]
+  /// Optional free-text note from the customer (allergies, brand preference, etc.).
+  note      String?
+
+  status          PrescriptionStatus @default(SUBMITTED)
+  /// Shop's reason when REJECTED (unreadable / out of stock / cannot fulfil).
+  rejectionReason String?
+
+  /// Customer's delivery choice, captured at upload. The shop (not the customer)
+  /// triggers the quote that creates the Order, so it must be persisted here.
+  deliveryMode DeliveryMode @default(SELF_PICKUP)
+  addressId    String?
+  address      Address?     @relation(fields: [addressId], references: [id])
+
+  /// The Order created when the shop quotes (1:1). Null until QUOTED.
+  order Order?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([customerId])
+  @@index([shopId])
+  @@index([status])
 }

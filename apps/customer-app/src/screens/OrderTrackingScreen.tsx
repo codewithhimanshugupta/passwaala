@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Image, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { OrderStatus, PaymentMethod, DeliveryMode, buildUpiDeepLink } from '@passwaala/shared';
+import { OrderStatus, PaymentMethod, DeliveryMode, buildUpiDeepLink, UPI_APPS, toIntentLink } from '@passwaala/shared';
 import type { PlaceOrderResult, ProductPublic } from '@passwaala/shared';
 import { api } from '../api';
 import type { OrderDetail } from '../types';
@@ -164,6 +164,7 @@ export function OrderTrackingScreen({
   const [showCancel, setShowCancel] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
   const [cancelBusy, setCancelBusy] = useState(false);
+  const [showUpiPicker, setShowUpiPicker] = useState(false);
 
   // Request notification permission once on mount (silently — no prompt yet,
   // just prime it so we can fire when backgrounded).
@@ -302,10 +303,7 @@ export function OrderTrackingScreen({
     if (!link) return;
     try {
       if (Platform.OS === 'web') {
-        // Navigate the current tab to the upi: scheme so the OS shows its UPI
-        // app picker. window.open(_blank) opens a dead tab and lets some apps
-        // (e.g. WhatsApp Pay) hijack the intent — location.href is reliable.
-        window.location.href = link;
+        setShowUpiPicker(true);
       } else {
         await Linking.openURL(link);
       }
@@ -882,7 +880,9 @@ export function OrderTrackingScreen({
         <View style={styles.recapRow}>
           <Text style={styles.recapName}>{t.orderTracking.deliveryFee}</Text>
           <Text style={styles.recapPrice}>
-            {order.deliveryFeePaise > 0 ? formatRupees(order.deliveryFeePaise) : t.common.free}
+            {order.bulkOrderId
+              ? t.orderTracking.deliveryFeeOnBulk
+              : order.deliveryFeePaise > 0 ? formatRupees(order.deliveryFeePaise) : t.common.free}
           </Text>
         </View>
         <View style={styles.recapRow}>
@@ -1000,6 +1000,45 @@ export function OrderTrackingScreen({
             />
             <Button label={t.orderTracking.submitRating} onPress={submitReview} busy={submittingReview} />
             <Button label={t.common.cancel} onPress={() => setShowReview(false)} variant="ghost" />
+          </View>
+        </View>
+      </Modal>
+
+      {/* UPI app picker — web only; avoids the OS chooser defaulting to WhatsApp Pay */}
+      <Modal visible={showUpiPicker} transparent animationType="fade" onRequestClose={() => setShowUpiPicker(false)}>
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Pay with UPI</Text>
+            <Text style={styles.modalSub}>
+              {order ? formatRupees(order.adjustedTotalPaise ?? order.originalTotalPaise) : ''}
+            </Text>
+            {UPI_APPS.map(({ label, pkg, iconBg, iconText }) => (
+              <Pressable
+                key={pkg}
+                style={styles.upiAppBtn}
+                onPress={() => {
+                  setShowUpiPicker(false);
+                  const link = upiLink();
+                  if (link) window.location.href = toIntentLink(link, pkg);
+                }}
+              >
+                <View style={[styles.upiAppIcon, { backgroundColor: iconBg }]}>
+                  <Text style={styles.upiAppIconText}>{iconText}</Text>
+                </View>
+                <Text style={styles.upiAppBtnText}>{label}</Text>
+              </Pressable>
+            ))}
+            <Pressable
+              style={[styles.upiAppBtn, styles.upiAppBtnOutline]}
+              onPress={() => {
+                setShowUpiPicker(false);
+                const link = upiLink();
+                if (link) window.location.href = link;
+              }}
+            >
+              <Text style={[styles.upiAppBtnText, styles.upiAppBtnOutlineText]}>Other UPI app</Text>
+            </Pressable>
+            <Button label={t.common.cancel} onPress={() => setShowUpiPicker(false)} variant="ghost" />
           </View>
         </View>
       </Modal>
@@ -1592,6 +1631,32 @@ const styles = StyleSheet.create({
   },
   modalTitle: { fontSize: theme.font.h2, fontWeight: "700", color: theme.color.text, textAlign: 'center' },
   modalSub: { fontSize: theme.font.body, color: theme.color.textMuted, textAlign: 'center' },
+  upiAppBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.space.md,
+    backgroundColor: theme.color.card,
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    borderColor: theme.color.border,
+    paddingVertical: theme.space.sm,
+    paddingHorizontal: theme.space.md,
+  },
+  upiAppIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  upiAppIconText: { color: '#fff', fontWeight: '800', fontSize: theme.font.small },
+  upiAppBtnText: { color: theme.color.text, fontWeight: '700', fontSize: theme.font.body },
+  upiAppBtnOutline: {
+    backgroundColor: 'transparent',
+    borderWidth: 1.5,
+    borderColor: theme.color.border,
+  },
+  upiAppBtnOutlineText: { color: theme.color.textMuted },
   starRow: { flexDirection: 'row', justifyContent: 'center', gap: theme.space.xs, marginVertical: theme.space.sm },
   starPick: { fontSize: 36, color: theme.color.borderStrong },
   starPickActive: { color: theme.color.star },

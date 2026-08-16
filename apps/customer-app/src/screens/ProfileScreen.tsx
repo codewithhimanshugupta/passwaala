@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, Modal, Platform, Pressable, RefreshControl, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import { api, updateName } from '../api';
-import { clearCheckoutPrefetch } from '../checkoutPrefetch';
+import { clearCheckoutPrefetch, getPrefetchedCheckout } from '../checkoutPrefetch';
 import type { Account, Address, ReferralInfo } from '../types';
 import { AddressForm } from '../components/AddressForm';
 import { LanguagePicker } from '../components/LanguagePicker';
 import { shadow, theme } from '../theme';
+import { EditIcon, DeleteIcon } from '../EditDeleteIcons';
 import { Badge, Button, CoinChip, ErrorState, SkeletonBlock } from '../ui';
 import { useLang } from '../i18n/LanguageContext';
 
@@ -17,10 +18,12 @@ import { useLang } from '../i18n/LanguageContext';
  */
 export function ProfileScreen({ onLogout }: { onLogout: () => void }) {
   const { t } = useLang();
-  const [account, setAccount] = useState<Account | null>(null);
-  const [addresses, setAddresses] = useState<Address[]>([]);
-  const [referral, setReferral] = useState<ReferralInfo | null>(null);
-  const [loading, setLoading] = useState(true);
+  // Seed from the app-open prefetch so Profile renders instantly when warm.
+  const prefetched = getPrefetchedCheckout();
+  const [account, setAccount] = useState<Account | null>(prefetched?.account ?? null);
+  const [addresses, setAddresses] = useState<Address[]>(prefetched?.addresses ?? []);
+  const [referral, setReferral] = useState<ReferralInfo | null>(prefetched?.referral ?? null);
+  const [loading, setLoading] = useState(!prefetched?.account);
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -42,8 +45,8 @@ export function ProfileScreen({ onLogout }: { onLogout: () => void }) {
   const [editingAddressId, setEditingAddressId] = useState<string | null>(null);
   const [deletingAddressId, setDeletingAddressId] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setLoading(true);
     setError(null);
     try {
       const [me, addrs, ref] = await Promise.all([
@@ -57,12 +60,14 @@ export function ProfileScreen({ onLogout }: { onLogout: () => void }) {
     } catch (e) {
       setError((e as Error).message);
     } finally {
-      setLoading(false);
+      if (!opts?.silent) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    void load();
+    // Warm → silent refresh (keep seeded data visible); cold → normal load.
+    void load({ silent: !!prefetched?.account });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [load]);
 
   const onRefresh = useCallback(async () => {
@@ -218,7 +223,7 @@ export function ProfileScreen({ onLogout }: { onLogout: () => void }) {
 
         {/* Name + phone */}
         <Text style={styles.name}>{account?.name || t.profile.defaultCustomer}</Text>
-        <Text style={styles.phone}>+91 {account?.phone}</Text>
+        <Text style={styles.phone}>{account?.phone}</Text>
 
         {/* Coin pill */}
         <Pressable onPress={() => void load()} style={styles.heroCoins}>
@@ -315,18 +320,18 @@ export function ProfileScreen({ onLogout }: { onLogout: () => void }) {
                     onPress={() => { setEditingAddressId(addr.id); setAddingAddress(false); }}
                     style={styles.addrActionBtn}
                     hitSlop={6}
+                    accessibilityLabel={t.profile.edit}
                   >
-                    <Text style={styles.addrEditIcon}>{t.profile.edit}</Text>
+                    <EditIcon size={18} color={theme.color.primary} />
                   </Pressable>
                   <Pressable
                     onPress={() => removeAddress(addr.id)}
                     disabled={deletingAddressId === addr.id}
-                    style={styles.addrActionBtn}
+                    style={[styles.addrActionBtn, deletingAddressId === addr.id && { opacity: 0.4 }]}
                     hitSlop={6}
+                    accessibilityLabel={t.profile.delete}
                   >
-                    <Text style={styles.addrDeleteIcon}>
-                      {deletingAddressId === addr.id ? '…' : t.profile.delete}
-                    </Text>
+                    <DeleteIcon size={18} color={theme.color.danger} />
                   </Pressable>
                 </View>
               </View>
@@ -413,7 +418,7 @@ export function ProfileScreen({ onLogout }: { onLogout: () => void }) {
       </View>
 
       <View style={styles.section}>
-        <Row label={t.profile.phone} value={`+91 ${account?.phone ?? ''}`} last />
+        <Row label={t.profile.phone} value={account?.phone ?? ''} last />
       </View>
 
       {error ? <Text style={styles.error}>{error}</Text> : null}

@@ -16,8 +16,10 @@ import { CitiesScreen } from './src/screens/CitiesScreen';
 import { TaskboardScreen } from './src/screens/TaskboardScreen';
 import { GstScreen } from './src/screens/GstScreen';
 import { BulkOrdersScreen } from './src/screens/BulkOrdersScreen';
+import { AdsScreen } from './src/screens/AdsScreen';
 import { hasSavedToken, logout, me, onAuthExpired } from './src/api';
 import { theme } from './src/theme';
+import { Splash } from './src/Splash';
 import { LanguageProvider, useLang } from './src/i18n/LanguageContext';
 import { LanguagePicker } from './src/components/LanguagePicker';
 import { NavIcon, type NavIconName } from './src/NavIcon';
@@ -32,12 +34,14 @@ import { NavIcon, type NavIconName } from './src/NavIcon';
  * which each screen surfaces as a friendly "not an admin" message. On any 401
  * (expired token) the client fires onAuthExpired → we drop to login with a note.
  */
-type Nav = 'dashboard' | 'approvals' | 'shops' | 'riders' | 'customers' | 'orders' | 'bulk-orders' | 'settlements' | 'disputes' | 'coupons' | 'cities' | 'taskboard' | 'gst';
+type Nav = 'dashboard' | 'approvals' | 'shops' | 'riders' | 'customers' | 'orders' | 'bulk-orders' | 'settlements' | 'disputes' | 'coupons' | 'ads' | 'cities' | 'taskboard' | 'gst';
 
 export default function App() {
+  const [splashDone, setSplashDone] = useState(false);
   return (
     <LanguageProvider>
       <AppRoot />
+      {!splashDone && <Splash onDone={() => setSplashDone(true)} />}
     </LanguageProvider>
   );
 }
@@ -118,6 +122,7 @@ function AppRoot() {
           {nav === 'settlements' && <PaymentClaimsScreen />}
           {nav === 'disputes' && <DisputesScreen />}
           {nav === 'coupons' && <CouponsScreen />}
+          {nav === 'ads' && <AdsScreen />}
           {nav === 'cities' && isOwner && <CitiesScreen />}
           {nav === 'gst' && <GstScreen />}
           {nav === 'taskboard' && <TaskboardScreen />}
@@ -216,6 +221,12 @@ function Sidebar({
           label="Coupons"
           active={nav === 'coupons'}
           onPress={() => onNavigate('coupons')}
+        />
+        <NavItem
+          icon="coupons"
+          label="Ads"
+          active={nav === 'ads'}
+          onPress={() => onNavigate('ads')}
         />
         <NavItem
           icon="taskboard"

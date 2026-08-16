@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Linking, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { buildUpiDeepLink } from '@passwaala/shared';
 import { api } from '../api';
-import { getCurrentCoords } from '../geo';
+import { getCurrentCoords, openDirections } from '../geo';
+import { getPrefetchedJobs } from '../riderPrefetch';
 import { onSocket } from '../socket';
 import { formatRupees, theme } from '../theme';
 import { Badge, Banner, Button, Card, ErrorText, Field, Screen } from '../ui';
@@ -15,11 +16,18 @@ import type { RiderJob, BulkRiderJob } from '../types';
 /** Fallback poll for jobs while online — socket 'job.offered' is primary (ms). */
 const POLL_MS = 60000;
 
-function mapsUrl(lat?: number | null, lng?: number | null): string | null {
+function openNav(lat?: number | null, lng?: number | null): void {
   const a = Number(lat);
   const b = Number(lng);
-  if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
-  return `https://www.google.com/maps/dir/?api=1&destination=${a},${b}`;
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return;
+  // Platform-aware: native opens the maps app directly; web navigates the
+  // current tab (no blank `_blank` white screen before Maps loads).
+  openDirections({ lat: a, lng: b });
+}
+
+/** True when lat/lng are both finite (i.e. navigable). */
+function hasCoords(lat?: number | null, lng?: number | null): boolean {
+  return Number.isFinite(Number(lat)) && Number.isFinite(Number(lng));
 }
 
 function collectPaise(job: RiderJob): number {
@@ -42,11 +50,13 @@ function upiCollectLink(job: RiderJob): string | null {
 
 export function JobsScreen({ online }: { online: boolean }) {
   const { t } = useLang();
-  const [jobs, setJobs] = useState<RiderJob[]>([]);
-  const [bulkJobs, setBulkJobs] = useState<BulkRiderJob[]>([]);
-  const [active, setActive] = useState<RiderJob[]>([]);
-  const [activeBulk, setActiveBulk] = useState<BulkRiderJob[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Seed from the app-open prefetch so jobs show instantly (no spinner) when warm.
+  const prefetched = getPrefetchedJobs();
+  const [jobs, setJobs] = useState<RiderJob[]>(prefetched?.jobs ?? []);
+  const [bulkJobs, setBulkJobs] = useState<BulkRiderJob[]>(prefetched?.bulkJobs ?? []);
+  const [active, setActive] = useState<RiderJob[]>(prefetched?.active ?? []);
+  const [activeBulk, setActiveBulk] = useState<BulkRiderJob[]>(prefetched?.activeBulk ?? []);
+  const [loading, setLoading] = useState(!prefetched);
   const [refreshing, setRefreshing] = useState(false);
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -96,9 +106,11 @@ export function JobsScreen({ online }: { online: boolean }) {
 
   useEffect(() => {
     alive.current = true;
-    setLoading(true);
+    // Warm → refresh in the background (keep seeded jobs on screen); cold → spinner.
+    if (!prefetched) setLoading(true);
     load();
     return () => { alive.current = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [load]);
 
   useEffect(() => {
@@ -214,20 +226,16 @@ export function JobsScreen({ online }: { online: boolean }) {
   }
 
   function navigateToShop(job: RiderJob) {
-    const url = mapsUrl(job.shop?.latitude, job.shop?.longitude);
-    if (url) void Linking.openURL(url);
+    openNav(job.shop?.latitude, job.shop?.longitude);
   }
   function navigateToCustomer(job: RiderJob) {
-    const url = mapsUrl(job.address?.latitude, job.address?.longitude);
-    if (url) void Linking.openURL(url);
+    openNav(job.address?.latitude, job.address?.longitude);
   }
   function navigateToBulkDrop(job: BulkRiderJob) {
-    const url = mapsUrl(job.address?.latitude, job.address?.longitude);
-    if (url) void Linking.openURL(url);
+    openNav(job.address?.latitude, job.address?.longitude);
   }
   function navigateToBulkShop(sub: BulkRiderJob['orders'][0]) {
-    const url = mapsUrl(sub.shop?.latitude, sub.shop?.longitude);
-    if (url) void Linking.openURL(url);
+    openNav(sub.shop?.latitude, sub.shop?.longitude);
   }
 
   if (!online) {
@@ -241,8 +249,8 @@ export function JobsScreen({ online }: { online: boolean }) {
     return <View style={styles.center}><ActivityIndicator color={theme.color.accent} size="large" /></View>;
   }
 
-  const hasShopCoords = (job: RiderJob) => mapsUrl(job.shop?.latitude, job.shop?.longitude) !== null;
-  const hasDropCoords = (job: RiderJob) => mapsUrl(job.address?.latitude, job.address?.longitude) !== null;
+  const hasShopCoords = (job: RiderJob) => hasCoords(job.shop?.latitude, job.shop?.longitude);
+  const hasDropCoords = (job: RiderJob) => hasCoords(job.address?.latitude, job.address?.longitude);
 
   return (
     <Screen
@@ -391,7 +399,7 @@ export function JobsScreen({ online }: { online: boolean }) {
                 <Button
                   label="Navigate to shop"
                   variant="outline"
-                  onPress={() => { const url = mapsUrl(currentSub.shop?.latitude, currentSub.shop?.longitude); if (url) void Linking.openURL(url); }}
+                  onPress={() => openNav(currentSub.shop?.latitude, currentSub.shop?.longitude)}
                   style={{ marginTop: theme.space.sm }}
                 />
                 {open ? (

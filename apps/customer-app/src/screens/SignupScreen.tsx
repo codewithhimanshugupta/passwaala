@@ -2,7 +2,6 @@ import { useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
-  Pressable,
   StyleSheet,
   Text,
   TextInput,
@@ -13,15 +12,22 @@ import { theme } from '../theme';
 import { Button } from '../ui';
 import { PinBoxes } from '../PinBoxes';
 import { useLang } from '../i18n/LanguageContext';
+import { resendOtp, sendOtp, verifyOtp } from '../msg91';
 
 /**
- * SignupScreen — phone + name + password + a user-chosen 4-digit login PIN
- * (set + confirmed). No SMS, no backup OTP. On success we store the token and
- * hand off to the app's normal post-login flow.
+ * SignupScreen — mandatory phone verification via SMS OTP, then account details.
+ * Three steps: (1) enter phone → send OTP, (2) verify OTP (number is locked;
+ * "Change number" restarts from step 1), (3) name + password + 4-digit PIN.
+ * The MSG91 access token from step 2 is sent to the backend, which re-verifies
+ * it server-side before creating the account.
  */
 export function SignupScreen({ onSignedUp, onBackToLogin }: { onSignedUp: () => void; onBackToLogin: () => void }) {
   const { t } = useLang();
+  const [step, setStep] = useState<'phone' | 'otp' | 'details'>('phone');
   const [phone, setPhone] = useState('');
+  const [otp, setOtp] = useState('');
+  const [reqId, setReqId] = useState('');
+  const [msg91Token, setMsg91Token] = useState('');
   const [name, setName] = useState('');
   const [password, setPassword] = useState('');
   const [pin, setPin] = useState('');
@@ -29,13 +35,53 @@ export function SignupScreen({ onSignedUp, onBackToLogin }: { onSignedUp: () => 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const phoneValid = phone.replace(/\D/g, '').length >= 10;
+  const phone10 = phone.replace(/\D/g, '');
+  const phoneValid = phone10.length >= 10;
+
+  function restart() {
+    setStep('phone');
+    setOtp('');
+    setReqId('');
+    setMsg91Token('');
+    setError(null);
+  }
+
+  async function doSendOtp() {
+    if (!phoneValid) { setError(t.login.invalidPhone); return; }
+    setBusy(true); setError(null);
+    try {
+      const id = await sendOtp(phone10);
+      setReqId(id);
+      setStep('otp');
+    } catch {
+      setError(t.signup.otpSendFailed);
+    } finally { setBusy(false); }
+  }
+
+  async function doResend() {
+    setBusy(true); setError(null);
+    try {
+      await resendOtp(reqId);
+    } catch {
+      setError(t.signup.otpSendFailed);
+    } finally { setBusy(false); }
+  }
+
+  async function doVerifyOtp(codeOverride?: string) {
+    const code = (codeOverride ?? otp).replace(/\D/g, '');
+    if (code.length !== 6) { setError(t.login.enterAllDigits); return; }
+    setBusy(true); setError(null);
+    try {
+      const token = await verifyOtp(reqId, code);
+      setMsg91Token(token);
+      setStep('details');
+    } catch {
+      setError(t.signup.otpInvalid);
+    } finally { setBusy(false); }
+  }
 
   async function submit(confirmOverride?: string) {
-    // On auto-fire, PinBoxes passes the just-completed confirm PIN so we don't
-    // compare against stale state (the bug behind a false "PINs do not match").
     const confirmValue = confirmOverride ?? confirmPin;
-    if (!phoneValid) { setError(t.login.invalidPhone); return; }
     if (name.trim().length < 2) { setError(t.signup.enterName); return; }
     if (password.trim().length < 4) { setError(t.signup.enterPassword); return; }
     if (!/^\d{4}$/.test(pin)) { setError(t.signup.enterPin); return; }
@@ -43,10 +89,10 @@ export function SignupScreen({ onSignedUp, onBackToLogin }: { onSignedUp: () => 
     setBusy(true); setError(null);
     try {
       const { accessToken } = await api.signup(
-        `+91${phone.replace(/\D/g, '')}`,
+        `+91${phone10}`,
         name.trim(),
         password,
-        { pin, appType: APP_TYPE },
+        { pin, appType: APP_TYPE, msg91Token },
       );
       api.setToken(accessToken);
       onSignedUp();
@@ -66,67 +112,105 @@ export function SignupScreen({ onSignedUp, onBackToLogin }: { onSignedUp: () => 
       </View>
 
       <View style={styles.sheet}>
-        <Text style={styles.stepTitle}>{t.signup.title}</Text>
-        <Text style={styles.hint}>{t.signup.subtitle}</Text>
+        {step === 'phone' ? (
+          <>
+            <Text style={styles.stepTitle}>{t.signup.title}</Text>
+            <Text style={styles.hint}>{t.signup.subtitle}</Text>
 
-        <View style={styles.fieldGroup}>
-          <Text style={styles.fieldLabel}>{t.signup.phoneLabel}</Text>
-          <View style={styles.phoneRow}>
-            <View style={styles.ccBox}><Text style={styles.ccText}>+91</Text></View>
-            <TextInput
-              style={styles.phoneInput}
-              placeholder={t.login.phonePlaceholder}
-              placeholderTextColor={theme.color.textFaint}
-              keyboardType="phone-pad"
-              value={phone}
-              onChangeText={(v) => { setPhone(v.replace(/\D/g, '').slice(0, 10)); setError(null); }}
-              maxLength={10}
+            <View style={styles.fieldGroup}>
+              <Text style={styles.fieldLabel}>{t.signup.phoneLabel}</Text>
+              <View style={styles.phoneRow}>
+                <View style={styles.ccBox}><Text style={styles.ccText}>+91</Text></View>
+                <TextInput
+                  style={styles.phoneInput}
+                  placeholder={t.login.phonePlaceholder}
+                  placeholderTextColor={theme.color.textFaint}
+                  keyboardType="phone-pad"
+                  value={phone}
+                  onChangeText={(v) => { setPhone(v.replace(/\D/g, '').slice(0, 10)); setError(null); }}
+                  maxLength={10}
+                  autoFocus
+                />
+              </View>
+            </View>
+
+            <Button label={t.signup.sendOtp} onPress={doSendOtp} busy={busy} size="lg" />
+
+            <Text style={styles.switchLine}>
+              {t.signup.haveAccount}{' '}
+              <Text style={styles.switchLink} onPress={onBackToLogin}>{t.signup.loginLink}</Text>
+            </Text>
+          </>
+        ) : step === 'otp' ? (
+          <>
+            <Text style={styles.stepTitle}>{t.signup.otpStepTitle}</Text>
+            <Text style={styles.hint}>
+              {t.signup.otpSentHint(phone10)} ·{' '}
+              <Text style={styles.switchLink} onPress={restart}>{t.signup.changeNumber}</Text>
+            </Text>
+
+            <PinBoxes
+              length={6}
+              mask={false}
+              value={otp}
+              onChange={(v) => { setOtp(v); setError(null); }}
+              onComplete={(v) => doVerifyOtp(v)}
+              autoFocus
             />
-          </View>
-        </View>
 
-        <View style={styles.fieldGroup}>
-          <Text style={styles.fieldLabel}>{t.signup.nameLabel}</Text>
-          <TextInput
-            style={styles.field}
-            placeholder={t.signup.namePlaceholder}
-            placeholderTextColor={theme.color.textFaint}
-            value={name}
-            onChangeText={(v) => { setName(v); setError(null); }}
-          />
-        </View>
+            <Button label={t.signup.verifyOtp} onPress={() => doVerifyOtp()} busy={busy} size="lg" disabled={otp.length !== 6} />
+            <Text style={styles.switchLine}>
+              <Text style={styles.switchLink} onPress={doResend}>{t.signup.resendOtp}</Text>
+            </Text>
+          </>
+        ) : (
+          <>
+            <Text style={styles.stepTitle}>{t.signup.detailsStepTitle}</Text>
+            <Text style={styles.hint}>
+              +91 {phone10} ·{' '}
+              <Text style={styles.switchLink} onPress={restart}>{t.signup.changeNumber}</Text>
+            </Text>
 
-        <View style={styles.fieldGroup}>
-          <Text style={styles.fieldLabel}>{t.signup.passwordLabel}</Text>
-          <TextInput
-            style={styles.field}
-            placeholder={t.signup.passwordPlaceholder}
-            placeholderTextColor={theme.color.textFaint}
-            secureTextEntry
-            value={password}
-            onChangeText={(v) => { setPassword(v); setError(null); }}
-          />
-        </View>
+            <View style={styles.fieldGroup}>
+              <Text style={styles.fieldLabel}>{t.signup.nameLabel}</Text>
+              <TextInput
+                style={styles.field}
+                placeholder={t.signup.namePlaceholder}
+                placeholderTextColor={theme.color.textFaint}
+                value={name}
+                onChangeText={(v) => { setName(v); setError(null); }}
+                autoFocus
+              />
+            </View>
 
-        <PinBoxes
-          label={t.signup.pinLabel}
-          value={pin}
-          onChange={(v) => { setPin(v); setError(null); }}
-        />
+            <View style={styles.fieldGroup}>
+              <Text style={styles.fieldLabel}>{t.signup.passwordLabel}</Text>
+              <TextInput
+                style={styles.field}
+                placeholder={t.signup.passwordPlaceholder}
+                placeholderTextColor={theme.color.textFaint}
+                secureTextEntry
+                value={password}
+                onChangeText={(v) => { setPassword(v); setError(null); }}
+              />
+            </View>
 
-        <PinBoxes
-          label={t.signup.confirmPinLabel}
-          value={confirmPin}
-          onChange={(v) => { setConfirmPin(v); setError(null); }}
-          onComplete={(v) => submit(v)}
-        />
+            <PinBoxes
+              label={t.signup.pinLabel}
+              value={pin}
+              onChange={(v) => { setPin(v); setError(null); }}
+            />
 
-        <Button label={t.signup.submit} onPress={() => submit()} busy={busy} size="lg" />
+            <PinBoxes
+              label={t.signup.confirmPinLabel}
+              value={confirmPin}
+              onChange={(v) => { setConfirmPin(v); setError(null); }}
+              onComplete={(v) => submit(v)}
+            />
 
-        <Text style={styles.switchLine}>
-          {t.signup.haveAccount}{' '}
-          <Text style={styles.switchLink} onPress={onBackToLogin}>{t.signup.loginLink}</Text>
-        </Text>
+            <Button label={t.signup.submit} onPress={() => submit()} busy={busy} size="lg" />
+          </>
+        )}
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
       </View>
@@ -173,12 +257,6 @@ const styles = StyleSheet.create({
     fontSize: theme.font.small, fontWeight: theme.weight.semibold,
     color: theme.color.textMuted,
   },
-
-  otpCard: {
-    backgroundColor: theme.color.primaryLight, borderRadius: theme.radius.md,
-    paddingVertical: theme.space.lg, alignItems: 'center',
-  },
-  otpBig: { fontSize: 40, fontWeight: theme.weight.heavy, color: theme.color.primary, letterSpacing: 6 },
 
   switchLine: { fontSize: theme.font.small, color: theme.color.textMuted, textAlign: 'center', marginTop: theme.space.sm },
   switchLink: { color: theme.color.primary, fontWeight: theme.weight.semibold },

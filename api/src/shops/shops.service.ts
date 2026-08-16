@@ -389,16 +389,52 @@ export class ShopsService {
     const radius = q.radiusMeters ?? 3000;
     const limit = q.limit ?? 15;
     const offset = q.offset ?? 0;
+
+    // Personalization (cheap, off the hot path): the requester's favourite shop
+    // categories from their precomputed CustomerProfile (recomputeCustomerProfiles
+    // cron). We only need the top few category slugs — membership drives a small
+    // additive rank boost in SQL. Cached 60s per customer so repeated home-screen
+    // calls never re-hit the DB for the profile.
+    let topCategories: string[] = [];
+    if (q.customerId) {
+      topCategories = await this.cache.wrap(
+        `cust:topcats:${q.customerId}`,
+        process.env.NODE_ENV === 'test' ? 0 : 60_000,
+        async () => {
+          const profile = await this.prisma.customerProfile.findUnique({
+            where: { userId: q.customerId },
+            select: { categoryWeightsJson: true },
+          });
+          const weights = (profile?.categoryWeightsJson as Record<string, number> | null) ?? {};
+          return Object.entries(weights)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 3)
+            .map(([cat]) => cat);
+        },
+      );
+    }
+
+    // Sponsored (ads) and open/closed are pinned first in BOTH sort modes. The
+    // core relevance is the PRECOMPUTED rankScore (indexed) multiplied by a
+    // distance-decay so nearer shops rank higher without distance alone winning,
+    // plus a personalization boost for favourite categories. sort=rating falls
+    // back to a Bayesian rating order (still sponsored/open-first).
+    // NOTE: a SELECT output alias (distance_meters) may only be referenced in
+    // ORDER BY as a *standalone* term — Postgres resolves names *inside* an
+    // expression against real input columns only, so the personalization decay
+    // must inline the ST_Distance() expression, not the alias, or the query
+    // fails with `column "distance_meters" does not exist` (42703).
+    const distExpr = `ST_Distance(s.geog, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography)`;
+    const personalizedScore =
+      `((s."rankScore" + CASE WHEN s."shopCategory" = ANY($9::text[]) THEN 25 ELSE 0 END)` +
+      ` * (1.0 / (1.0 + ${distExpr} / 1000.0)))`;
     const orderBy =
       q.sort === 'rating'
-        // Bayesian weighted rating: shops with < 5 reviews are pulled toward the
-        // global mean (3.0). This prevents a shop with 1×5-star review from
-        // outranking a shop with 200×4.5-star reviews.
-        // Formula: (ratingCount * avgRating + 5 * 3.0) / (ratingCount + 5)
-        ? '("ratingCount" * "avgRating" + 5 * 3.0) / ("ratingCount" + 5) DESC, distance_meters ASC'
-        : 'distance_meters ASC';
+        ? 'is_sponsored DESC, s."isOpen" DESC, ("ratingCount" * "avgRating" + 5 * 3.0) / ("ratingCount" + 5) DESC, distance_meters ASC'
+        : `is_sponsored DESC, s."isOpen" DESC, ${personalizedScore} DESC, s."rankScore" DESC, distance_meters ASC`;
 
     const openNow = q.openNow === 'true';
+    const hasOffers = q.hasOffers === 'true';
     // Cache the discovery list briefly (15s), keyed on the query. Coords are
     // rounded to ~3 decimals (~110m) so customers in the same area share a cache
     // entry — the home screen's repeated identical calls then skip the DB. Short
@@ -412,6 +448,8 @@ export class ShopsService {
       Number(q.lng).toFixed(3),
       radius, limit, offset, orderBy, openNow,
       q.category ?? '', q.minRating ?? '',
+      q.city ?? '', hasOffers,
+      topCategories.join(',') || '-',
     ].join(':');
     return this.cache.wrap(cacheKey, ttl, async () => {
     const rows = await this.prisma.$queryRawUnsafe<
@@ -437,23 +475,53 @@ export class ShopsService {
         distance_meters: number;
         platformDeliveryEnabled: boolean;
         selfPickupEnabled: boolean;
+        isPremium: boolean;
+        is_sponsored: boolean;
+        ad_campaign_id: string | null;
       }>
     >(
       `
-      SELECT id, name, "shopCategory", "storefrontPhotoUrl", "logoUrl", "bannerUrl",
-             "isOpen", "avgRating", "ratingCount", "minOrderValuePaise",
-             "deliveryFeePaise", "freeDeliveryAbovePaise", "city", "addressLine", "contactPhone",
-             "offerText", latitude, longitude, "platformDeliveryEnabled", "selfPickupEnabled",
-             ST_Distance(geog, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography) AS distance_meters
-        FROM "Shop"
-       WHERE "deletedAt" IS NULL
-         AND "verificationStatus" = 'APPROVED'
-         AND "isOpen" = TRUE
-         AND geog IS NOT NULL
-         AND ST_DWithin(geog, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, $3)
-         AND ($4::boolean IS NOT TRUE OR "isOpen" = TRUE)
-         AND ($5::text IS NULL OR "shopCategory" = $5)
-         AND ($6::double precision IS NULL OR "avgRating" >= $6)
+      SELECT s.id, s.name, s."shopCategory", s."storefrontPhotoUrl", s."logoUrl", s."bannerUrl",
+             s."isOpen", s."avgRating", s."ratingCount", s."minOrderValuePaise",
+             s."deliveryFeePaise", s."freeDeliveryAbovePaise", s."city", s."addressLine", s."contactPhone",
+             s."offerText", s.latitude, s.longitude, s."platformDeliveryEnabled", s."selfPickupEnabled",
+             s."isPremium",
+             (spon.campaign_id IS NOT NULL) AS is_sponsored,
+             spon.campaign_id AS ad_campaign_id,
+             ST_Distance(s.geog, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography) AS distance_meters
+        FROM "Shop" s
+        LEFT JOIN LATERAL (
+          -- The shop's currently-serveable sponsored campaign (if any): ACTIVE,
+          -- within lifetime budget, AND within today's daily cap. When the daily
+          -- cap is hit the ad auto-stops (drops out here) until the next day or a
+          -- budget raise (spentTodayPaise < dailyBudgetPaise) auto-resumes it.
+          SELECT ac.id AS campaign_id
+            FROM "AdCampaign" ac
+           WHERE ac."shopId" = s.id
+             AND ac.status = 'ACTIVE'
+             AND ac."deletedAt" IS NULL
+             AND ac."startAt" <= NOW()
+             AND (ac."endAt" IS NULL OR ac."endAt" > NOW())
+             AND ac."spentPaise" < ac."totalBudgetPaise"
+             AND (
+               ac."dailyBudgetPaise" = 0
+               OR ac."dayResetAt" IS NULL
+               OR ac."dayResetAt" < date_trunc('day', NOW())
+               OR ac."spentTodayPaise" < ac."dailyBudgetPaise"
+             )
+           ORDER BY ac."cpcPaise" DESC
+           LIMIT 1
+        ) spon ON TRUE
+       WHERE s."deletedAt" IS NULL
+         AND ($10::text IS NULL OR s.city ILIKE $10)
+         AND s."verificationStatus" = 'APPROVED'
+         AND s."isOpen" = TRUE
+         AND s.geog IS NOT NULL
+         AND ST_DWithin(s.geog, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, $3)
+         AND ($4::boolean IS NOT TRUE OR s."isOpen" = TRUE)
+         AND ($5::text IS NULL OR s."shopCategory" = $5)
+         AND ($6::double precision IS NULL OR s."avgRating" >= $6)
+         AND ($11::boolean IS NOT TRUE OR (s."offerText" IS NOT NULL AND s."offerText" <> ''))
        ORDER BY ${orderBy}
        LIMIT $7 OFFSET $8
       `,
@@ -465,6 +533,9 @@ export class ShopsService {
       q.minRating ?? null,
       limit,
       offset,
+      topCategories,
+      q.city ?? null,
+      hasOffers,
     );
 
     // NOTE (perf): we no longer scan ALL online riders + haversine per shop on
@@ -510,7 +581,84 @@ export class ShopsService {
       selfPickupEnabled: r.selfPickupEnabled,
       deliveryAvailable: r.deliveryAvailable,
       deliveryUnavailable: r.deliveryUnavailable ?? false,
+      isPremium: r.isPremium,
+      isSponsored: r.is_sponsored,
+      adCampaignId: r.ad_campaign_id ?? undefined,
     }));
+    });
+  }
+
+  /**
+   * Admin-curated "Premium" shops near the customer, for the dedicated Premium
+   * section on the home screen. Same PostGIS radius + rankScore ordering as
+   * discovery but filtered to isPremium shops. Cached 30s (the set changes only
+   * when admin toggles premium). Kept lean + paginated so the section is instant.
+   */
+  async findPremium(q: NearbyShopsQuery) {
+    const radius = q.radiusMeters ?? 5000;
+    const limit = q.limit ?? 10;
+    const offset = q.offset ?? 0;
+    const ttl = process.env.NODE_ENV === 'test' ? 0 : 30_000;
+    const cacheKey = [
+      'shops:premium',
+      Number(q.lat).toFixed(3),
+      Number(q.lng).toFixed(3),
+      radius, limit, offset,
+      q.city ?? '',
+    ].join(':');
+    return this.cache.wrap(cacheKey, ttl, async () => {
+      const rows = await this.prisma.$queryRawUnsafe<
+        Array<{
+          id: string; name: string; shopCategory: string; storefrontPhotoUrl: string;
+          logoUrl: string | null; bannerUrl: string | null; isOpen: boolean;
+          avgRating: number; ratingCount: number; minOrderValuePaise: number;
+          deliveryFeePaise: number; freeDeliveryAbovePaise: number | null; city: string;
+          offerText: string | null; latitude: unknown; longitude: unknown;
+          distance_meters: number; platformDeliveryEnabled: boolean; selfPickupEnabled: boolean;
+        }>
+      >(
+        `
+        SELECT id, name, "shopCategory", "storefrontPhotoUrl", "logoUrl", "bannerUrl",
+               "isOpen", "avgRating", "ratingCount", "minOrderValuePaise",
+               "deliveryFeePaise", "freeDeliveryAbovePaise", "city", "offerText",
+               latitude, longitude, "platformDeliveryEnabled", "selfPickupEnabled",
+               ST_Distance(geog, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography) AS distance_meters
+          FROM "Shop"
+         WHERE "deletedAt" IS NULL
+           AND ($6::text IS NULL OR "city" ILIKE $6)
+           AND "verificationStatus" = 'APPROVED'
+           AND "isOpen" = TRUE
+           AND "isPremium" = TRUE
+           AND geog IS NOT NULL
+           AND ST_DWithin(geog, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, $3)
+         ORDER BY "rankScore" DESC, distance_meters ASC
+         LIMIT $4 OFFSET $5
+        `,
+        q.lng, q.lat, radius, limit, offset, q.city ?? null,
+      );
+      return rows.map((r) => ({
+        id: r.id,
+        name: r.name,
+        shopCategory: r.shopCategory,
+        storefrontPhotoUrl: r.storefrontPhotoUrl,
+        logoUrl: r.logoUrl ?? undefined,
+        bannerUrl: r.bannerUrl ?? undefined,
+        isOpen: r.isOpen,
+        avgRating: r.avgRating,
+        ratingCount: r.ratingCount,
+        minOrderValuePaise: r.minOrderValuePaise,
+        deliveryFeePaise: r.deliveryFeePaise,
+        freeDeliveryAbovePaise: r.freeDeliveryAbovePaise,
+        city: r.city,
+        offerText: r.offerText ?? undefined,
+        latitude: r.latitude != null ? Number(r.latitude) : undefined,
+        longitude: r.longitude != null ? Number(r.longitude) : undefined,
+        distanceMeters: Math.round(r.distance_meters),
+        platformDeliveryEnabled: r.platformDeliveryEnabled,
+        selfPickupEnabled: r.selfPickupEnabled,
+        deliveryAvailable: true,
+        isPremium: true,
+      }));
     });
   }
 

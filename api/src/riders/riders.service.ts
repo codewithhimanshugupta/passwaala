@@ -135,6 +135,31 @@ export class RidersService {
         select: { id: true, type: true, amountPaise: true, note: true, orderId: true, createdAt: true },
       }),
     ]);
+    // The rider's city per-km delivery fee tiers (admin-configured on the
+    // ServiceableCity). Parsed + sorted so the app can render them live instead
+    // of hardcoding — additions/increases by the admin reflect on next fetch.
+    const cityCfg = profile.serviceCity
+      ? await this.prisma.serviceableCity.findFirst({
+          where: { name: { equals: profile.serviceCity, mode: 'insensitive' } },
+          select: { deliveryTiersJson: true },
+        })
+      : null;
+    let deliveryTiers: Array<{ maxKm: number; feePaise: number }> = [];
+    if (cityCfg?.deliveryTiersJson) {
+      try {
+        const parsed = JSON.parse(cityCfg.deliveryTiersJson);
+        if (Array.isArray(parsed)) {
+          deliveryTiers = parsed
+            .filter(
+              (tier): tier is { maxKm: number; feePaise: number } =>
+                tier && typeof tier.maxKm === 'number' && typeof tier.feePaise === 'number',
+            )
+            .sort((a, b) => a.maxKm - b.maxKm);
+        }
+      } catch {
+        /* leave empty on malformed config */
+      }
+    }
     return {
       online: profile.online,
       vehicle: profile.vehicle,
@@ -144,6 +169,8 @@ export class RidersService {
       duesPaise: profile.duesPaise,
       creditLimitPaise: profile.creditLimitPaise,
       collectionUpi,
+      serviceCity: profile.serviceCity,
+      deliveryTiers,
       ledger: recentLedger,
     };
   }

@@ -1,5 +1,5 @@
 import { api } from './api';
-import type { Address } from './types';
+import type { Account, Address, ReferralInfo } from './types';
 
 /**
  * Checkout data prefetch — warms ALL data the cart/checkout screen needs
@@ -8,13 +8,16 @@ import type { Address } from './types';
  *  - NearBaz Coin balance
  *  - pending cancel fee (blocks COD)
  *  - nearby shops for bulk order banner (keyed by shopId)
+ *  - the full account + referral objects (so Profile renders instantly too)
  *
- * When the customer opens cart, all of this is already in memory → instant render.
+ * When the customer opens cart/profile, all of this is already in memory → instant render.
  */
 export interface CheckoutData {
   addresses: Address[];
   coinBalance: number;
   pendingCancelFeePaise: number;
+  account: Account | null;
+  referral: ReferralInfo | null;
   nearbyShops: Array<{ id: string; name: string; city: string; latitude: number; longitude: number; distanceMeters: number }>;
   nearbyShopsForShopId: string | null;
   shopDeliveryAvailable: boolean;
@@ -34,18 +37,20 @@ export function prefetchCheckout(shopId?: string | null): Promise<CheckoutData> 
   }
   if (inflight) return inflight;
   inflight = (async () => {
-    const [addresses, referral, me, nearby] = await Promise.all([
+    const [addresses, referral, account, nearby] = await Promise.all([
       api.addresses().then((l) => l as Address[]).catch(() => [] as Address[]),
-      api.referralMe().then((r) => r?.coinBalance ?? 0).catch(() => 0),
-      api.me().then((a: any) => (a?.pendingCancelFeePaise ?? 0) as number).catch(() => 0),
+      api.referralMe().then((r) => (r as ReferralInfo | null) ?? null).catch(() => null),
+      api.me().then((a) => (a as Account | null) ?? null).catch(() => null),
       shopId
         ? api.nearbyShopsForBulk(shopId).then(r => r.items).catch(() => [])
         : Promise.resolve([] as CheckoutData['nearbyShops']),
     ]);
     const data: CheckoutData = {
       addresses,
-      coinBalance: referral,
-      pendingCancelFeePaise: me,
+      coinBalance: referral?.coinBalance ?? 0,
+      pendingCancelFeePaise: (account as { pendingCancelFeePaise?: number } | null)?.pendingCancelFeePaise ?? 0,
+      account,
+      referral,
       nearbyShops: nearby,
       nearbyShopsForShopId: shopId ?? null,
       shopDeliveryAvailable: true,

@@ -7,6 +7,7 @@ import { RequestOtpDto } from './dto/request-otp.dto';
 import { VerifyOtpDto } from './dto/verify-otp.dto';
 import { SignupDto } from './dto/signup.dto';
 import { LoginDto } from './dto/login.dto';
+import { ResetCredentialsDto } from './dto/reset-credentials.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -16,7 +17,7 @@ export class AuthController {
   @Post('signup')
   @HttpCode(HttpStatus.OK)
   signup(@Body() dto: SignupDto) {
-    return this.auth.signup(dto.phone, dto.name, dto.password, dto.pin, dto.appType);
+    return this.auth.signup(dto.phone, dto.name, dto.password, dto.pin, dto.appType, dto.msg91Token);
   }
 
   @Public()
@@ -37,7 +38,16 @@ export class AuthController {
   @Post('verify-otp')
   @HttpCode(HttpStatus.OK)
   verifyOtp(@Body() dto: VerifyOtpDto) {
-    return this.auth.verifyOtp(dto.phone, dto.code, dto.appType);
+    return this.auth.verifyOtp(dto.phone, dto.appType, dto.msg91Token, dto.code);
+  }
+
+  @Public()
+  @Post('reset-credentials')
+  @HttpCode(HttpStatus.OK)
+  resetCredentials(@Body() dto: ResetCredentialsDto) {
+    return this.auth.resetCredentials(
+      dto.phone, dto.appType, dto.msg91Token, dto.newPassword, dto.newPin,
+    );
   }
 
   @Post('logout')

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Modal, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { api } from '../api';
+import { getPrefetchedRiderMe } from '../riderPrefetch';
 import { formatRupees, theme } from '../theme';
 import { Button, Card, ErrorText, Screen } from '../ui';
 import { useLang } from '../i18n/LanguageContext';
@@ -14,8 +15,9 @@ import type { RiderLedgerType, RiderMe } from '../types';
  */
 export function EarningsScreen({ onDeleted }: { onDeleted: () => void }) {
   const { t } = useLang();
-  const [me, setMe] = useState<RiderMe | null>(null);
-  const [loading, setLoading] = useState(true);
+  const prefetchedMe = getPrefetchedRiderMe();
+  const [me, setMe] = useState<RiderMe | null>(prefetchedMe);
+  const [loading, setLoading] = useState(!prefetchedMe);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);

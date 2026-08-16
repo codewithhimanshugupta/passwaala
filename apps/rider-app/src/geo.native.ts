@@ -5,10 +5,32 @@
  * resolve to null / call the onError hook so callers stay simple.
  */
 import * as Location from 'expo-location';
+import { Linking, Platform } from 'react-native';
 
 export interface Coords {
   lat: number;
   lng: number;
+}
+
+/**
+ * Open directions to a destination string ("lat,lng" or encoded address) in the
+ * platform maps app. Native scheme first (opens the app directly, no browser /
+ * white screen), falling back to a universal Google Maps URL.
+ */
+export function openMapsDirections(destination: string): void {
+  const primary =
+    Platform.OS === 'android'
+      ? `google.navigation:q=${destination}`
+      : `http://maps.apple.com/?daddr=${destination}`;
+  const fallback = `https://www.google.com/maps/dir/?api=1&destination=${destination}`;
+  Linking.openURL(primary).catch(() => {
+    Linking.openURL(fallback).catch(() => undefined);
+  });
+}
+
+/** Open turn-by-turn directions to `dest` in the platform maps app. */
+export function openDirections(dest: Coords, _label?: string): void {
+  openMapsDirections(`${dest.lat},${dest.lng}`);
 }
 
 /** Request foreground location permission; true when granted. Never throws. */

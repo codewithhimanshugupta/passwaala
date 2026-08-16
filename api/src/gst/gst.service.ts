@@ -273,17 +273,37 @@ export class GstService {
       orderBy: { issuedAt: 'asc' },
     });
 
-    const b2b = invoices.map((inv) => ({
-      gstin: inv.shopGstin,
-      invoiceNumber: inv.invoiceNumber,
-      invoiceDate: (inv.issuedAt ?? inv.createdAt).toISOString(),
-      taxableValuePaise: inv.taxableValuePaise,
-      rate: 18,
-      cgstPaise: inv.cgstPaise,
-      sgstPaise: inv.sgstPaise,
-      igstPaise: inv.igstPaise,
-      totalPaise: inv.totalPaise,
-    }));
+    // GSTR-1 requires a valid GSTIN for every B2B row. Shops without a GSTIN
+    // (unregistered / composition) cannot be filed as B2B — bucket them into a
+    // separate B2C-style list so they're visible but never emitted as invalid B2B.
+    const b2b = invoices
+      .filter((inv) => !!inv.shopGstin)
+      .map((inv) => ({
+        gstin: inv.shopGstin as string,
+        invoiceNumber: inv.invoiceNumber,
+        invoiceDate: (inv.issuedAt ?? inv.createdAt).toISOString(),
+        taxableValuePaise: inv.taxableValuePaise,
+        rate: 18,
+        cgstPaise: inv.cgstPaise,
+        sgstPaise: inv.sgstPaise,
+        igstPaise: inv.igstPaise,
+        totalPaise: inv.totalPaise,
+      }));
+
+    // No-GSTIN invoices — reported separately (unregistered shops).
+    const b2cUnregistered = invoices
+      .filter((inv) => !inv.shopGstin)
+      .map((inv) => ({
+        shopId: inv.shopId,
+        invoiceNumber: inv.invoiceNumber,
+        invoiceDate: (inv.issuedAt ?? inv.createdAt).toISOString(),
+        taxableValuePaise: inv.taxableValuePaise,
+        rate: 18,
+        cgstPaise: inv.cgstPaise,
+        sgstPaise: inv.sgstPaise,
+        igstPaise: inv.igstPaise,
+        totalPaise: inv.totalPaise,
+      }));
 
     const totals = b2b.reduce(
       (acc, r) => {
@@ -304,7 +324,14 @@ export class GstService {
       },
     );
 
-    return { periodStart: periodStart.toISOString(), periodEnd: periodEnd.toISOString(), b2b, totals };
+    return {
+      periodStart: periodStart.toISOString(),
+      periodEnd: periodEnd.toISOString(),
+      b2b,
+      b2cUnregistered,
+      missingGstinCount: b2cUnregistered.length,
+      totals,
+    };
   }
 
   /**
@@ -333,12 +360,14 @@ export class GstService {
       string,
       {
         shopId: string;
+        shopName: string | null;
         shopGstin: string | null;
         invoiceCount: number;
-        taxablePaise: number;
+        taxableValuePaise: number;
         cgstPaise: number;
         sgstPaise: number;
         igstPaise: number;
+        totalGstPaise: number;
         totalPaise: number;
       }
     >();
@@ -352,21 +381,37 @@ export class GstService {
 
       const row = perShopMap.get(inv.shopId) ?? {
         shopId: inv.shopId,
+        shopName: null,
         shopGstin: inv.shopGstin,
         invoiceCount: 0,
-        taxablePaise: 0,
+        taxableValuePaise: 0,
         cgstPaise: 0,
         sgstPaise: 0,
         igstPaise: 0,
+        totalGstPaise: 0,
         totalPaise: 0,
       };
       row.invoiceCount += 1;
-      row.taxablePaise += inv.taxableValuePaise;
+      row.taxableValuePaise += inv.taxableValuePaise;
       row.cgstPaise += inv.cgstPaise;
       row.sgstPaise += inv.sgstPaise;
       row.igstPaise += inv.igstPaise;
+      row.totalGstPaise += inv.cgstPaise + inv.sgstPaise + inv.igstPaise;
       row.totalPaise += inv.totalPaise;
       perShopMap.set(inv.shopId, row);
+    }
+
+    // Resolve shop names for the per-shop breakdown (single query).
+    const shopIds = Array.from(perShopMap.keys());
+    if (shopIds.length > 0) {
+      const shops = await this.prisma.shop.findMany({
+        where: { id: { in: shopIds } },
+        select: { id: true, name: true },
+      });
+      for (const s of shops) {
+        const row = perShopMap.get(s.id);
+        if (row) row.shopName = s.name;
+      }
     }
 
     return {
@@ -379,6 +424,15 @@ export class GstService {
       totalIgstPaise,
       totalGstPaise: totalCgstPaise + totalSgstPaise + totalIgstPaise,
       totalPaise,
+      // Normalized totals block the admin screen reads (matches GstSummary.totals).
+      totals: {
+        taxableValuePaise: totalTaxablePaise,
+        cgstPaise: totalCgstPaise,
+        sgstPaise: totalSgstPaise,
+        igstPaise: totalIgstPaise,
+        totalGstPaise: totalCgstPaise + totalSgstPaise + totalIgstPaise,
+        invoiceCount: invoices.length,
+      },
       perShop: Array.from(perShopMap.values()),
     };
   }

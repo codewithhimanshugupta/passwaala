@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { VerificationStatus } from '@passwaala/shared';
 import { api } from '../api';
+import { getShopkeeperPrefetch } from '../shopkeeperPrefetch';
 import { formatRupees, placeholderImage, theme } from '../theme';
 import { Banner, Button, SectionTitle } from '../ui';
 import { verificationMeta } from '../status';
@@ -42,10 +43,17 @@ export function DashboardScreen({
   onGoToProducts: () => void;
 }) {
   const { t } = useLang();
+  // Seed from the app-open prefetch (only when it's for this shop) so the
+  // dashboard shows numbers immediately instead of dashes on first open.
+  const pf = getShopkeeperPrefetch();
+  const pfMatch = pf && pf.shopId === shop.id ? pf : null;
+  const pfProducts = pfMatch?.products as ProductSummary[] | null | undefined;
   const [error, setError] = useState<string | null>(null);
-  const [stats, setStats] = useState<ShopStats | null>(null);
-  const [totalProducts, setTotalProducts] = useState<number | null>(null);
-  const [outOfStock, setOutOfStock] = useState<number | null>(null);
+  const [stats, setStats] = useState<ShopStats | null>((pfMatch?.stats as ShopStats | null) ?? null);
+  const [totalProducts, setTotalProducts] = useState<number | null>(pfProducts ? pfProducts.length : null);
+  const [outOfStock, setOutOfStock] = useState<number | null>(
+    pfProducts ? pfProducts.filter((p) => p.stock === 0 || !p.available).length : null,
+  );
   const [range, setRange] = useState<StatRange>('today');
 
   const RANGES: { key: StatRange; label: string }[] = [
@@ -71,10 +79,16 @@ export function DashboardScreen({
     }
   }, []);
 
+  const seededShopRef = useRef(pfMatch ? shop.id : null);
   useEffect(() => {
-    setStats(null);
-    setTotalProducts(null);
-    setOutOfStock(null);
+    // Clear stale numbers on shop switch — but keep the prefetch-seeded values
+    // on the very first render for the seeded shop (no dashes flash).
+    if (seededShopRef.current !== shop.id) {
+      setStats(null);
+      setTotalProducts(null);
+      setOutOfStock(null);
+    }
+    seededShopRef.current = null;
     loadData();
   }, [loadData, shop.id]);
 

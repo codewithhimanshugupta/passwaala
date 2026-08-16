@@ -443,4 +443,119 @@ export class AutomationService {
       await this.log({ action: 'REFUND_SLA_ESCALATED', detail: msg, orderId: order.id, shopId: order.shopId });
     }
   }
+
+  // ---------------------------------------------------------------------------
+  // Job 11 — Recompute server-side shop rankScore (every 10 min)
+  //
+  // Zomato-style precomputed relevance so the discovery list is "already ranked,
+  // instant, paginated". Distance, open/closed, time-of-day and ad-sponsorship
+  // stay in the query-time ORDER BY (they depend on the requester's location /
+  // now); this cron precomputes the location-independent blend into Shop.rankScore.
+  //
+  //   rankScore = 10·BayesianRating(0..5)          (quality)
+  //             +  8·ln(1+orderCount)              (popularity, log-damped)
+  //             + recency(lastOrderAt, ≤~30d)      (activity freshness)
+  //             + newShopBoost(createdAt < 21d)    (temporary discovery boost)
+  //             − ratingFloorPenalty(<3.5 w/ ≥5 reviews)   (suppress bad shops)
+  //
+  // One set-based UPDATE (no per-row round-trips) + one summary AutomationLog.
+  // ---------------------------------------------------------------------------
+  @Cron('*/10 * * * *')
+  async recomputeShopRankScores() {
+    try {
+      const updated = await this.prisma.$executeRawUnsafe(`
+        UPDATE "Shop" SET "rankScore" =
+            (("ratingCount" * "avgRating" + 5 * 3.0) / ("ratingCount" + 5)) * 10
+          + LN(1 + GREATEST("orderCount", 0)) * 8
+          + CASE WHEN "lastOrderAt" IS NULL THEN 0
+                 ELSE GREATEST(0, 10 - EXTRACT(EPOCH FROM (NOW() - "lastOrderAt")) / 86400.0 / 3.0)
+            END
+          + CASE WHEN "createdAt" > NOW() - INTERVAL '21 days' THEN 15 ELSE 0 END
+          - CASE WHEN "ratingCount" >= 5 AND "avgRating" < 3.5 THEN 20 ELSE 0 END
+        WHERE "deletedAt" IS NULL
+      `);
+      await this.log({
+        action: 'RANK_SCORES_RECOMPUTED',
+        detail: `Recomputed rankScore for ${updated} shop(s)`,
+      });
+    } catch (err) {
+      this.logger.error(`AUTOMATION rankScore recompute failed: ${(err as Error).message}`);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Job 12 — Recompute per-customer taste profiles (every 6 hours)
+  //
+  // Personalization input: from each customer's DELIVERED orders, aggregate the
+  // shop categories they buy from (→ normalized categoryWeightsJson) plus their
+  // average order value + order count. At discovery, findNearby loads the
+  // requester's profile and adds a small additive boost for shops in their
+  // top categories / price band. Recompute is coarse (6h) — taste drifts slowly.
+  // ---------------------------------------------------------------------------
+  @Cron('0 */6 * * *')
+  async recomputeCustomerProfiles() {
+    try {
+      // Per (customer, category) delivered-order counts.
+      const catRows = await this.prisma.$queryRawUnsafe<
+        Array<{ customerId: string; shopCategory: string; cnt: bigint }>
+      >(`
+        SELECT o."customerId", s."shopCategory", COUNT(*) AS cnt
+          FROM "Order" o
+          JOIN "Shop" s ON s.id = o."shopId"
+         WHERE o.status = 'DELIVERED' AND o."deletedAt" IS NULL
+         GROUP BY o."customerId", s."shopCategory"
+      `);
+      // Per-customer order count + average order value (paise).
+      const aggRows = await this.prisma.$queryRawUnsafe<
+        Array<{ customerId: string; orderCount: bigint; avgValue: number | null }>
+      >(`
+        SELECT o."customerId",
+               COUNT(*) AS "orderCount",
+               AVG(COALESCE(o."adjustedTotalPaise", o."originalTotalPaise")) AS "avgValue"
+          FROM "Order" o
+         WHERE o.status = 'DELIVERED' AND o."deletedAt" IS NULL
+         GROUP BY o."customerId"
+      `);
+
+      // Build per-customer normalized category weights (0..1, sum≈1).
+      const byCustomer = new Map<string, Record<string, number>>();
+      const totals = new Map<string, number>();
+      for (const r of catRows) {
+        const n = Number(r.cnt);
+        totals.set(r.customerId, (totals.get(r.customerId) ?? 0) + n);
+      }
+      for (const r of catRows) {
+        const total = totals.get(r.customerId) || 1;
+        const w = byCustomer.get(r.customerId) ?? {};
+        w[r.shopCategory] = Number((Number(r.cnt) / total).toFixed(4));
+        byCustomer.set(r.customerId, w);
+      }
+
+      let count = 0;
+      for (const agg of aggRows) {
+        const weights = byCustomer.get(agg.customerId) ?? {};
+        await this.prisma.customerProfile.upsert({
+          where: { userId: agg.customerId },
+          create: {
+            userId: agg.customerId,
+            categoryWeightsJson: weights,
+            avgOrderValuePaise: Math.round(Number(agg.avgValue ?? 0)),
+            orderCount: Number(agg.orderCount),
+          },
+          update: {
+            categoryWeightsJson: weights,
+            avgOrderValuePaise: Math.round(Number(agg.avgValue ?? 0)),
+            orderCount: Number(agg.orderCount),
+          },
+        });
+        count++;
+      }
+      await this.log({
+        action: 'CUSTOMER_PROFILES_RECOMPUTED',
+        detail: `Recomputed taste profile for ${count} customer(s)`,
+      });
+    } catch (err) {
+      this.logger.error(`AUTOMATION customerProfile recompute failed: ${(err as Error).message}`);
+    }
+  }
 }

@@ -10,6 +10,21 @@ export interface Coords {
   lng: number;
 }
 
+/**
+ * Open Google Maps directions to a destination string ("lat,lng" or an encoded
+ * address). Navigates the CURRENT tab — a new `_blank` tab shows a blank white
+ * screen on mobile browsers before Maps loads. Same-tab hands off immediately.
+ */
+export function openMapsDirections(destination: string): void {
+  if (typeof window === 'undefined') return;
+  window.location.href = `https://www.google.com/maps/dir/?api=1&destination=${destination}`;
+}
+
+/** Open turn-by-turn directions to `dest` (Google Maps, same tab on web). */
+export function openDirections(dest: Coords, _label?: string): void {
+  openMapsDirections(`${dest.lat},${dest.lng}`);
+}
+
 /** Grab the geolocation object if the browser exposes one. */
 function getGeo(): Geolocation | undefined {
   return typeof navigator !== 'undefined' ? navigator.geolocation : undefined;

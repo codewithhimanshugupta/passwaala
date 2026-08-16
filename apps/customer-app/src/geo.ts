@@ -72,8 +72,18 @@ export function watchCoords(onChange: (c: Coords) => void, onError?: (e: unknown
   };
 }
 
-/** Open turn-by-turn directions to `dest` in a new tab (Google Maps). */
+/**
+ * Open Google Maps directions to a destination string ("lat,lng" or an
+ * already-encoded address). Navigates the CURRENT tab — opening a new `_blank`
+ * tab shows a blank white screen on mobile browsers before Maps loads. Same-tab
+ * hands off to the Maps app immediately; the browser back button returns here.
+ */
+export function openMapsDirections(destination: string): void {
+  if (typeof window === 'undefined') return;
+  window.location.href = `https://www.google.com/maps/dir/?api=1&destination=${destination}`;
+}
+
+/** Open turn-by-turn directions to `dest` (Google Maps, same tab on web). */
 export function openDirections(dest: Coords, _label?: string): void {
-  const url = `https://www.google.com/maps/dir/?api=1&destination=${dest.lat},${dest.lng}`;
-  if (typeof window !== 'undefined') window.open(url, '_blank');
+  openMapsDirections(`${dest.lat},${dest.lng}`);
 }

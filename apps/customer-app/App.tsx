@@ -4,12 +4,15 @@ import { StatusBar } from 'expo-status-bar';
 import type { PlaceOrderResult } from '@passwaala/shared';
 import { LoginScreen } from './src/screens/LoginScreen';
 import { SignupScreen } from './src/screens/SignupScreen';
+import { ForgotScreen } from './src/screens/ForgotScreen';
 import { NameOnboardingScreen } from './src/screens/NameOnboardingScreen';
 import { LocationPermissionScreen } from './src/screens/LocationPermissionScreen';
 import { DiscoveryScreen } from './src/screens/DiscoveryScreen';
 import { StorefrontScreen } from './src/screens/StorefrontScreen';
 import { CartScreen } from './src/screens/CartScreen';
 import { BulkCartScreen } from './src/screens/BulkCartScreen';
+import { PrescriptionUploadScreen } from './src/screens/PrescriptionUploadScreen';
+import { PrescriptionReviewScreen } from './src/screens/PrescriptionReviewScreen';
 import { OrderTrackingScreen } from './src/screens/OrderTrackingScreen';
 import { OrdersScreen } from './src/screens/OrdersScreen';
 import { ProfileScreen } from './src/screens/ProfileScreen';
@@ -18,7 +21,9 @@ import { connectSocket, disconnectSocket } from './src/socket';
 import { registerPushToken, unregisterPushToken } from './src/push';
 import type { Account } from './src/types';
 import { resetCartStore, useCart } from './src/cart';
+import { Splash } from './src/Splash';
 import { clearCheckoutPrefetch, prefetchCheckout } from './src/checkoutPrefetch';
+import { clearOrdersPrefetch, prefetchOrders } from './src/ordersPrefetch';
 import { idbGet, idbSet } from './src/idbKv';
 import { TabIcon } from './src/TabIcon';
 import { shadow, theme } from './src/theme';
@@ -176,12 +181,16 @@ type Stack =
   | { name: 'confirmed'; orderId: string; result: PlaceOrderResult }
   | { name: 'track'; orderId: string; result?: PlaceOrderResult }
   | { name: 'bulkCart' }
-  | { name: 'bulkConfirmed'; bulkOrderId: string; shortId: string; totalPaise: number };
+  | { name: 'bulkConfirmed'; bulkOrderId: string; shortId: string; totalPaise: number }
+  | { name: 'prescriptionUpload'; shopId: string }
+  | { name: 'prescriptionReview'; prescriptionId: string };
 
 export default function App() {
+  const [splashDone, setSplashDone] = useState(false);
   return (
     <LanguageProvider>
       <AppRoot />
+      {!splashDone && <Splash onDone={() => setSplashDone(true)} />}
     </LanguageProvider>
   );
 }
@@ -189,7 +198,7 @@ export default function App() {
 function AppRoot() {
   const { t } = useLang();
   const [loggedIn, setLoggedIn] = useState(hasSavedToken());
-  const [authScreen, setAuthScreen] = useState<'login' | 'signup'>('login');
+  const [authScreen, setAuthScreen] = useState<'login' | 'signup' | 'forgot'>('login');
   const [tab, setTab] = useState<Tab>('home');
   const [stack, setStack] = useState<Stack>({ name: 'tabs' });
   const [sessionExpired, setSessionExpired] = useState(false);
@@ -249,9 +258,12 @@ function AppRoot() {
   useEffect(() => {
     // Ping health endpoint silently — wakes the server before any user action
     fetch('https://passwaala.onrender.com/health').catch(() => undefined);
-    // Warm checkout data (addresses, coins, cancel fee, nearby shops) in background
+    // Warm every tab's data (addresses/coins/cancel fee/account/referral +
+    // ongoing/history/bulk orders) in the background so tapping Cart/Orders/
+    // Profile renders instantly instead of showing skeletons.
     if (hasSavedToken()) {
       void prefetchCheckout().catch(() => undefined);
+      void prefetchOrders().catch(() => undefined);
     }
   }, []);
 
@@ -291,6 +303,7 @@ function AppRoot() {
     return onAuthExpired(() => {
       resetCartStore();
       clearCheckoutPrefetch();
+      clearOrdersPrefetch();
       setSessionExpired(reachedAppRef.current);
       reachedAppRef.current = false;
       setLoggedIn(false);
@@ -331,10 +344,16 @@ function AppRoot() {
               }}
               onBackToLogin={() => setAuthScreen('login')}
             />
+          ) : authScreen === 'forgot' ? (
+            <ForgotScreen
+              onDone={() => setAuthScreen('login')}
+              onBackToLogin={() => setAuthScreen('login')}
+            />
           ) : (
             <LoginScreen
               notice={sessionExpired ? t.login.sessionExpired : undefined}
               onSignUp={() => setAuthScreen('signup')}
+              onForgot={() => setAuthScreen('forgot')}
               onLoggedIn={() => {
                 setSessionExpired(false);
                 setLoggedIn(true);
@@ -401,6 +420,7 @@ function AppRoot() {
             setStack({ name: 'tabs' });
           }}
           onOpenCart={() => stack.fromBulk ? setStack({ name: 'bulkCart' }) : goTab('cart')}
+          onOpenPrescription={(shopId) => setStack({ name: 'prescriptionUpload', shopId })}
         />
       </Shell>
     );
@@ -460,6 +480,30 @@ function AppRoot() {
     );
   }
 
+  if (stack.name === 'prescriptionUpload') {
+    return (
+      <Shell showTabs={false} tab={tab} onTab={goTab}>
+        <PrescriptionUploadScreen
+          shopId={stack.shopId}
+          onBack={() => setStack({ name: 'shop', shopId: stack.shopId })}
+          onSubmitted={(prescriptionId) => setStack({ name: 'prescriptionReview', prescriptionId })}
+        />
+      </Shell>
+    );
+  }
+
+  if (stack.name === 'prescriptionReview') {
+    return (
+      <Shell showTabs={false} tab={tab} onTab={goTab}>
+        <PrescriptionReviewScreen
+          prescriptionId={stack.prescriptionId}
+          onBack={() => { goTab('home'); setStack({ name: 'tabs' }); }}
+          onOpenOrder={(orderId) => setStack({ name: 'track', orderId })}
+        />
+      </Shell>
+    );
+  }
+
   return (
     <Shell showTabs tab={tab} onTab={goTab}>
       {tab === 'home' && (
@@ -474,6 +518,7 @@ function AppRoot() {
             loc={loc}
             onLocChange={changeLoc}
             locHydrated={locHydrated}
+            onOpenCart={() => goTab('cart')}
           />
       )}
       {tab === 'cart' && (

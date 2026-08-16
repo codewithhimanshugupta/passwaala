@@ -124,6 +124,19 @@ export class RealtimeGateway
     this.server?.to(shopRoom(shopId)).emit('order.shopUpdated', payload);
   }
 
+  /** Emit `prescription.created` to the shop's room (new Rx to quote). */
+  emitPrescriptionCreated(shopId: string, payload: { prescriptionId: string }): void {
+    this.server?.to(shopRoom(shopId)).emit('prescription.created', payload);
+  }
+
+  /** Emit `prescription.updated` to the CUSTOMER's room (quoted / rejected). */
+  emitPrescriptionUpdated(
+    customerId: string,
+    payload: { prescriptionId: string; status: string; orderId?: string },
+  ): void {
+    this.server?.to(customerRoom(customerId)).emit('prescription.updated', payload);
+  }
+
   /** Emit `job.offered` to a specific rider (dispatch offer). */
   emitJobOffered(userId: string, payload: { orderId: string }): void {
     this.server?.to(riderRoom(userId)).emit('job.offered', payload);

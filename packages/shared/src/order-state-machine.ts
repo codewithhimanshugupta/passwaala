@@ -12,6 +12,13 @@ import { OrderStatus } from './enums';
  * order and must verify the shop's pickup OTP before going out). Self-delivery /
  * self-pickup shops go READY -> OUT_FOR_DELIVERY directly.
  *
+ * Medical/prescription branch (shop-quoted, online-pay-only): the customer
+ * uploads a prescription and the order is created in QUOTE_PENDING while the
+ * shop builds the itemized bill from free-text lines. Once quoted the order
+ * moves QUOTE_PENDING -> AWAITING_PAYMENT (COD is never offered here), then
+ * rejoins the normal UPI path. The shop may REJECT (can't read/fulfil the Rx)
+ * and either side may CANCEL before payment.
+ *
  * Because NearBaz is NOT in the money flow, the shop accepts (and can adjust
  * for stock) BEFORE the customer pays. Rejections / out-of-stock adjustments
  * therefore happen before any money changes hands.
@@ -53,8 +60,19 @@ import { OrderStatus } from './enums';
  */
 export const ORDER_TRANSITIONS: Readonly<Record<OrderStatus, readonly OrderStatus[]>> = {
   // Just placed: shop accepts, rejects, or either side cancels before payment.
+  // A prescription order is placed directly into QUOTE_PENDING (never PLACED),
+  // so PLACED itself does not transition into the quote branch.
   [OrderStatus.PLACED]: [
     OrderStatus.ACCEPTED,
+    OrderStatus.REJECTED,
+    OrderStatus.CANCELLED,
+  ],
+  // Quote pending (medical/prescription): the shop is building the itemized
+  // bill from the uploaded prescription. Once priced it goes straight to
+  // AWAITING_PAYMENT (online-pay only — no COD). The shop may reject (illegible
+  // / can't fulfil the Rx) and either side may cancel before any money moves.
+  [OrderStatus.QUOTE_PENDING]: [
+    OrderStatus.AWAITING_PAYMENT,
     OrderStatus.REJECTED,
     OrderStatus.CANCELLED,
   ],

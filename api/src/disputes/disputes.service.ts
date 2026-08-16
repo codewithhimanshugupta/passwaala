@@ -95,8 +95,20 @@ export class DisputesService {
    * raiseDispute this has NO 48h window and needs no raiser — it lands in the
    * admin queue (OPEN) so every cancelled order gets reviewed. Best-effort: never
    * throws, so a dispute failure can't block the cancellation flow.
+   *
+   * `onlyIfRefundOwed` — set by the AUTOMATIC cancel/reject call sites (shop
+   * rejects, 15-min auto-cancel, out-of-stock). A cancelled COD order that was
+   * never paid owes no refund → opening a dispute is pure admin-queue noise, so
+   * we skip it. Any prepaid (UPI_DIRECT) order, or a COD order already paid via
+   * UPI (codUpiClaimedAt), still opens a dispute so the refund gets reviewed.
+   * Deliberate admin actions (force-cancel, partial-delivery) omit this flag and
+   * always open a dispute.
    */
-  async openSystemDispute(orderId: string, reason: string): Promise<void> {
+  async openSystemDispute(
+    orderId: string,
+    reason: string,
+    opts?: { onlyIfRefundOwed?: boolean },
+  ): Promise<void> {
     try {
       const existing = await this.prisma.orderDispute.findFirst({
         where: { orderId, raisedByRole: 'SYSTEM' },
@@ -108,10 +120,17 @@ export class DisputesService {
         where: { id: orderId, deletedAt: null },
         select: {
           id: true, originalTotalPaise: true, adjustedTotalPaise: true,
+          paymentMethod: true, codUpiClaimedAt: true,
           shop: { select: { name: true } },
         },
       });
       if (!order) return;
+
+      // Skip no-refund noise: COD order with no UPI payment claimed owes nothing.
+      if (opts?.onlyIfRefundOwed) {
+        const refundOwed = order.paymentMethod !== 'COD' || order.codUpiClaimedAt != null;
+        if (!refundOwed) return;
+      }
 
       const dispute = await this.prisma.orderDispute.create({
         data: { orderId, raisedById: SYSTEM_ID, raisedByRole: 'SYSTEM', reason },

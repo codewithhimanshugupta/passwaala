@@ -134,6 +134,8 @@ export interface OrderDetail {
   adjustedTotalPaise?: number | null;
   platformFeePaise: number;
   deliveryFeePaise: number;
+  /** Set when this order is a sub-order of a bulk order; delivery fee lives on the bulk parent. */
+  bulkOrderId?: string | null;
   discountPaise?: number;
   coinsRedeemedPaise?: number;
   extraDeliveryDuePaise?: number;

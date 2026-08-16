@@ -36,8 +36,13 @@ export async function getCurrentCoords(opts?: { timeoutMs?: number }): Promise<C
   });
 }
 
-export function openDirections(dest: Coords, _label?: string): void {
+export function openMapsDirections(destination: string): void {
   if (typeof window === 'undefined') return;
-  const url = `https://www.google.com/maps/dir/?api=1&destination=${dest.lat},${dest.lng}`;
-  window.open(url, '_blank');
+  // Same-tab: a `_blank` tab shows a blank white screen on mobile browsers
+  // before Maps loads. Same-tab hands off to Maps immediately.
+  window.location.href = `https://www.google.com/maps/dir/?api=1&destination=${destination}`;
+}
+
+export function openDirections(dest: Coords, _label?: string): void {
+  openMapsDirections(`${dest.lat},${dest.lng}`);
 }

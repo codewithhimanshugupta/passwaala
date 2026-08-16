@@ -13,8 +13,9 @@ import { theme } from '../theme';
 import { Button } from '../ui';
 import { PinBoxes } from '../PinBoxes';
 import { useLang } from '../i18n/LanguageContext';
+import { resendOtp, sendOtp, verifyOtp } from '../msg91';
 
-export function LoginScreen({ onLoggedIn, notice, onSignUp }: { onLoggedIn: () => void; notice?: string; onSignUp?: () => void }) {
+export function LoginScreen({ onLoggedIn, notice, onSignUp, onForgot }: { onLoggedIn: () => void; notice?: string; onSignUp?: () => void; onForgot?: () => void }) {
   const { t } = useLang();
   const [phone, setPhone] = useState('');
   const [credential, setCredential] = useState('');
@@ -23,8 +24,13 @@ export function LoginScreen({ onLoggedIn, notice, onSignUp }: { onLoggedIn: () =
   const [step, setStep] = useState<'phone' | 'credential'>('phone');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // OTP-login sub-state (only used when method === 'otp').
+  const [otpSent, setOtpSent] = useState(false);
+  const [otpCode, setOtpCode] = useState('');
+  const [otpReqId, setOtpReqId] = useState('');
 
-  const phoneValid = phone.replace(/\D/g, '').length >= 10;
+  const phone10 = phone.replace(/\D/g, '');
+  const phoneValid = phone10.length >= 10;
 
   function goToCredential() {
     if (!phoneValid) { setError(t.login.invalidPhone); return; }
@@ -35,11 +41,47 @@ export function LoginScreen({ onLoggedIn, notice, onSignUp }: { onLoggedIn: () =
   function selectMethod(m: 'pin' | 'password' | 'otp') {
     setMethod(m);
     setCredential('');
+    setOtpSent(false);
+    setOtpCode('');
+    setOtpReqId('');
     setError(null);
   }
 
+  async function doSendOtp() {
+    setBusy(true); setError(null);
+    try {
+      const id = await sendOtp(phone10);
+      setOtpReqId(id);
+      setOtpSent(true);
+    } catch {
+      setError(t.signup.otpSendFailed);
+    } finally { setBusy(false); }
+  }
+
+  async function doResendOtp() {
+    setBusy(true); setError(null);
+    try {
+      await resendOtp(otpReqId);
+    } catch {
+      setError(t.signup.otpSendFailed);
+    } finally { setBusy(false); }
+  }
+
+  async function loginWithOtp(codeOverride?: string) {
+    const code = (codeOverride ?? otpCode).replace(/\D/g, '');
+    if (code.length !== 6) { setError(t.login.enterAllDigits); return; }
+    setBusy(true); setError(null);
+    try {
+      const token = await verifyOtp(otpReqId, code);
+      const { accessToken } = await api.verifyOtp(`+91${phone10}`, APP_TYPE, token, code);
+      api.setToken(accessToken);
+      onLoggedIn();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally { setBusy(false); }
+  }
+
   async function login(credOverride?: string) {
-    if (method === 'otp') { setError(t.login.otpComingSoon); return; }
     // On PIN auto-fire, PinBoxes passes the completed value so we don't submit
     // stale state (which would send a 3-digit PIN and fail).
     const cred = (credOverride ?? credential).trim();
@@ -47,7 +89,7 @@ export function LoginScreen({ onLoggedIn, notice, onSignUp }: { onLoggedIn: () =
     if (!cred) { setError(t.login.enterCredential); return; }
     setBusy(true); setError(null);
     try {
-      const { accessToken } = await api.login(`+91${phone.replace(/\D/g,'')}`, cred, {
+      const { accessToken } = await api.login(`+91${phone10}`, cred, {
         method: method === 'pin' ? 'pin' : 'password',
         appType: APP_TYPE,
       });
@@ -123,9 +165,29 @@ export function LoginScreen({ onLoggedIn, notice, onSignUp }: { onLoggedIn: () =
             </View>
 
             {method === 'otp' ? (
-              <View style={styles.comingSoonBox}>
-                <Text style={styles.comingSoonText}>{t.login.otpComingSoon}</Text>
-              </View>
+              !otpSent ? (
+                <>
+                  <Text style={styles.stepTitle}>{t.login.otpLabel}</Text>
+                  <Text style={styles.hint}>{t.login.otpHint}</Text>
+                  <Button label={t.login.sendOtp} onPress={doSendOtp} busy={busy} size="lg" />
+                </>
+              ) : (
+                <>
+                  <Text style={styles.stepTitle}>{t.login.verifyOtp}</Text>
+                  <PinBoxes
+                    length={6}
+                    mask={false}
+                    value={otpCode}
+                    onChange={(v) => { setOtpCode(v); setError(null); }}
+                    onComplete={(v) => loginWithOtp(v)}
+                    autoFocus
+                  />
+                  <Button label={t.login.verifyContinue} onPress={() => loginWithOtp()} busy={busy} size="lg" disabled={otpCode.length !== 6} />
+                  <Text style={styles.switchLine}>
+                    <Text style={styles.switchLink} onPress={doResendOtp}>{t.signup.resendOtp}</Text>
+                  </Text>
+                </>
+              )
             ) : method === 'pin' ? (
               <>
                 <Text style={styles.stepTitle}>{t.login.pinLabel}</Text>
@@ -153,6 +215,12 @@ export function LoginScreen({ onLoggedIn, notice, onSignUp }: { onLoggedIn: () =
                 <Button label={t.login.loginBtn} onPress={() => login()} busy={busy} size="lg" disabled={!credential.trim()} />
               </>
             )}
+
+            {onForgot ? (
+              <Text style={styles.switchLine}>
+                <Text style={styles.switchLink} onPress={onForgot}>{t.login.forgotLink}</Text>
+              </Text>
+            ) : null}
           </>
         )}
 

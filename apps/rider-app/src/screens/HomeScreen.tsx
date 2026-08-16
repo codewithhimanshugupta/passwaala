@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { api } from '../api';
 import { getCurrentCoords } from '../geo';
+import { getPrefetchedRiderMe } from '../riderPrefetch';
 import { theme } from '../theme';
 import { Banner, ErrorText, Screen } from '../ui';
 import { LanguagePicker } from '../components/LanguagePicker';
@@ -21,7 +22,7 @@ export function HomeScreen({
   online: boolean;
   onOnlineChange: (online: boolean) => void;
 }) {
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!getPrefetchedRiderMe());
   const [toggling, setToggling] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);

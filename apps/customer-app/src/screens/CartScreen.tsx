@@ -25,6 +25,27 @@ import { StripedProgressBar } from '../StripedProgressBar';
 import { useLang } from '../i18n/LanguageContext';
 import { useBulkCart, bulkCartAddOne, currentBulkCartShops } from '../bulkCart';
 import { getCurrentCoords } from '../geo';
+import { idbGet } from '../idbKv';
+
+/** Key of the active "Delivering to" location persisted at the app root (App.tsx). */
+const LOC_STORAGE_KEY = 'pw.deliveryLoc.v1';
+
+/** Synchronous read of the active delivery-location coords from the localStorage
+ * mirror — so the cart can pick the nearest saved address to where the user is
+ * actually ordering ("Delivering to …"), not fall back to the first address
+ * while GPS is still resolving. */
+function readDeliveryGeoSync(): { lat: number; lng: number } | null {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const raw = localStorage.getItem(LOC_STORAGE_KEY);
+      if (raw) {
+        const loc = JSON.parse(raw) as { coords?: { lat: number; lng: number } | null };
+        if (loc?.coords && Number.isFinite(loc.coords.lat) && Number.isFinite(loc.coords.lng)) return loc.coords;
+      }
+    }
+  } catch { /* ignore — fall back to GPS */ }
+  return null;
+}
 
 /**
  * CartScreen — cart review + checkout (plan → Cart & Checkout). Line items with
@@ -86,6 +107,11 @@ export function CartScreen({
   // Customer's current GPS position (best-effort) for the soft "far from your
   // current location" warning. Null until/if geolocation resolves.
   const [currentGeo, setCurrentGeo] = useState<{ lat: number; lng: number } | null>(null);
+  // The active "Delivering to" location (root-persisted). Preferred over raw GPS
+  // when choosing the default saved address, so the cart matches where the user
+  // is ordering to. Seeded synchronously from the localStorage mirror.
+  const [deliveryGeo, setDeliveryGeo] = useState<{ lat: number; lng: number } | null>(() => readDeliveryGeoSync());
+  const [geoResolved, setGeoResolved] = useState(false);
   // The user has acknowledged the "far from your location" warning and wants to
   // proceed anyway. Reset whenever they switch to a different address.
   const [farConfirmed, setFarConfirmed] = useState(false);
@@ -213,11 +239,17 @@ export function CartScreen({
 
   // Best-effort: capture the customer's current GPS position once, for the soft
   // "this address is X km from your current location" warning. Silent on failure.
+  // Also hydrate the active delivery location from IDB (native + web post-startup).
   useEffect(() => {
     let alive = true;
-    void getCurrentCoords({ timeoutMs: 10000 }).then((coords) => {
-      if (alive && coords) setCurrentGeo(coords);
+    void idbGet<{ coords?: { lat: number; lng: number } | null }>(LOC_STORAGE_KEY).then((loc) => {
+      if (alive && loc?.coords && Number.isFinite(loc.coords.lat) && Number.isFinite(loc.coords.lng)) {
+        setDeliveryGeo(loc.coords);
+      }
     });
+    void getCurrentCoords({ timeoutMs: 10000 })
+      .then((coords) => { if (alive && coords) setCurrentGeo(coords); })
+      .finally(() => { if (alive) setGeoResolved(true); });
     return () => { alive = false; };
   }, []);
 
@@ -227,25 +259,28 @@ export function CartScreen({
     setFarConfirmed(false);
   }, [selectedAddress, fulfilment]);
 
-  // Auto-select the BEST default address: nearest to the customer's current
-  // location when GPS is known, else the first saved one. Skips once the user
-  // has manually picked, and never overrides an existing manual choice.
+  // Auto-select the BEST default address: nearest to the active "Delivering to"
+  // location (falling back to live GPS). Only drops to the first saved address
+  // once we know there's NO location signal at all — never picks "first" merely
+  // because GPS hasn't resolved yet. Skips once the user has manually picked.
   useEffect(() => {
     if (addressPickedManually || addresses.length === 0) return;
     const valid = addresses.filter(
       (a) => Number.isFinite(Number(a.latitude)) && Number.isFinite(Number(a.longitude)),
     );
-    if (currentGeo && valid.length > 0) {
+    const refGeo = deliveryGeo ?? currentGeo;
+    if (refGeo && valid.length > 0) {
       const nearest = valid.reduce((best, a) => {
-        const d = haversineMeters(currentGeo, { lat: Number(a.latitude), lng: Number(a.longitude) });
-        const bd = haversineMeters(currentGeo, { lat: Number(best.latitude), lng: Number(best.longitude) });
+        const d = haversineMeters(refGeo, { lat: Number(a.latitude), lng: Number(a.longitude) });
+        const bd = haversineMeters(refGeo, { lat: Number(best.latitude), lng: Number(best.longitude) });
         return d < bd ? a : best;
       });
       setSelectedAddress((prev) => prev ?? nearest.id);
-    } else {
+    } else if (geoResolved) {
+      // No delivery location and no GPS — fall back to the first saved address.
       setSelectedAddress((prev) => prev ?? addresses[0].id);
     }
-  }, [addresses, currentGeo, addressPickedManually]);
+  }, [addresses, deliveryGeo, currentGeo, geoResolved, addressPickedManually]);
 
   // Auto-switch fulfilment to the best available mode when shop data loads
   useEffect(() => {

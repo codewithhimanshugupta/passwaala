@@ -206,10 +206,65 @@ export class LedgerService {
   }
 
   /**
-   * A shopkeeper's own ledger + outstanding dues summary (scoped by JWT shopId).
-   * Entries are keyset paginated (?limit=&cursor=) — the summary (dues, limit,
-   * isOpen) rides along on every page so the client always has it.
+   * Accrue a shop's sponsored-ad CPC spend for a day (plan → Ads billing =
+   * CPC, settled at day-end). `basePaise` is the sum of the day's billable
+   * clicks for one campaign; this writes ONE AD_SPEND debit line (18% GST, like
+   * commission) and increments the shop's outstandingDues in a tx, then
+   * auto-pauses the shop if dues cross the credit limit.
+   *
+   * Money discipline mirrors accrueOnDelivery: integer paise only, GST split via
+   * computeGst, positive signed total (shop owes NearBaz). Idempotency for the
+   * "once per (campaign, day)" guarantee lives in AdsService (AdEvent.settledAt);
+   * this helper is a pure accrual and must only be called with an already-deduped
+   * base amount. A non-positive base is a no-op (never write a zero/blank line).
+   *
+   * Returns the created ledger entry id + new dues, or null when nothing accrued.
    */
+  async accrueAdSpend(
+    shopId: string,
+    basePaise: number,
+  ): Promise<{ ledgerEntryId: string; totalPaise: number; newDuesPaise: number } | null> {
+    if (!Number.isFinite(basePaise) || basePaise <= 0) return null;
+
+    const shop = await this.prisma.shop.findFirst({
+      where: { id: shopId, deletedAt: null },
+      select: { creditLimitPaise: true, outstandingDuesPaise: true },
+    });
+    if (!shop) return null;
+
+    const line = this.buildDebitLine(LedgerEntryType.AD_SPEND, Math.round(basePaise));
+
+    const [entry] = await this.prisma.$transaction([
+      this.prisma.ledgerEntry.create({
+        data: {
+          shopId,
+          orderId: null, // ad spend is not tied to an order
+          type: line.type,
+          basePaise: line.basePaise,
+          gstPaise: line.gstPaise,
+          totalPaise: line.totalPaise,
+        },
+      }),
+      this.prisma.shop.update({
+        where: { id: shopId },
+        data: { outstandingDuesPaise: { increment: line.totalPaise } },
+      }),
+    ]);
+
+    const newDues = shop.outstandingDuesPaise + line.totalPaise;
+    // Credit-limit enforcement: auto-pause once dues cross the limit (same rule
+    // as accrueOnDelivery — ad debt is real dues and can pause a shop).
+    if (newDues >= shop.creditLimitPaise) {
+      await this.prisma.shop.update({
+        where: { id: shopId },
+        data: { isOpen: false },
+      });
+    }
+
+    return { ledgerEntryId: entry.id, totalPaise: line.totalPaise, newDuesPaise: newDues };
+  }
+
+
   async listForShop(shopId: string | undefined, page: PaginationQuery = {}) {
     if (!shopId) {
       throw new BadRequestException('No shop scope');

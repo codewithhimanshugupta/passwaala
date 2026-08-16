@@ -15,6 +15,7 @@ import { ShopId } from '../common/current-user.decorator';
 import { ProductsService } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
+import { SearchProductsQuery } from './dto/search-products.query';
 
 /**
  * ProductsController — public per-shop catalog reads + shopkeeper-only CRUD.
@@ -46,6 +47,14 @@ export class ProductsController {
   @Get('mine')
   listMine(@ShopId() shopId: string | undefined) {
     return this.products.listMine(shopId);
+  }
+
+  /** Public: cross-shop product search near a location (APPROVED shops only).
+   * Declared BEFORE :id so "search" isn't captured as a product id. */
+  @Public()
+  @Get('search')
+  searchAcrossShops(@Query() query: SearchProductsQuery) {
+    return this.products.searchAcrossShops(query);
   }
 
   /** Public: one product's DETAIL (lazy-loaded on tap). After 'mine' so the

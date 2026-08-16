@@ -1,9 +1,23 @@
 import type {
   CreateOrder,
   PlaceOrderResult,
+  POSCreateSale,
+  POSSaleResult,
   ProductPublic,
   ProductDetailPublic,
+  ProductSearchResult,
   ShopPublic,
+  CreateAdCampaign,
+  UpdateAdCampaign,
+  AdCampaignView,
+  AdAnalyticsSummary,
+  AdShopCard,
+  AdShopDrilldown,
+  AdImpressionBatch,
+  CreatePrescription,
+  QuotePrescription,
+  RejectPrescription,
+  PrescriptionView,
 } from '@passwaala/shared';
 
 /** A discovered nearby shop (public view + distance). */
@@ -115,20 +129,21 @@ export class PasswaalaApiClient {
   }
 
   // ---- Auth ----
-  /** Sign up with phone + name + password + an optional user-chosen 4-digit login PIN. */
+  /** Sign up with phone + name + password + optional PIN. msg91Token required in production. */
   signup(
     phone: string,
     name: string,
     password: string,
-    opts?: { pin?: string; appType?: string },
+    opts?: { pin?: string; appType?: string; msg91Token?: string },
   ): Promise<{ accessToken: string; role: string }> {
-    const { pin, appType } = opts ?? {};
+    const { pin, appType, msg91Token } = opts ?? {};
     return this.post('/auth/signup', {
       phone,
       name,
       password,
       ...(pin && { pin }),
       ...(appType && { appType }),
+      ...(msg91Token && { msg91Token }),
     });
   }
   /**
@@ -148,11 +163,28 @@ export class PasswaalaApiClient {
       ...(appType && { appType }),
     });
   }
-  requestOtp(phone: string, appType?: string): Promise<{ sent: true }> {
-    return this.post('/auth/request-otp', { phone, ...(appType && { appType }) });
+  verifyOtp(phone: string, appType?: string, msg91Token?: string, code?: string): Promise<{ accessToken: string; role: string }> {
+    return this.post('/auth/verify-otp', {
+      phone,
+      ...(appType && { appType }),
+      ...(msg91Token && { msg91Token }),
+      ...(code && { code }),
+    });
   }
-  verifyOtp(phone: string, code: string, appType?: string): Promise<{ accessToken: string; role: string }> {
-    return this.post('/auth/verify-otp', { phone, code, ...(appType && { appType }) });
+
+  resetCredentials(
+    phone: string,
+    msg91Token: string,
+    opts?: { newPassword?: string; newPin?: string; appType?: string },
+  ): Promise<{ ok: true }> {
+    const { newPassword, newPin, appType } = opts ?? {};
+    return this.post('/auth/reset-credentials', {
+      phone,
+      msg91Token,
+      ...(newPassword && { newPassword }),
+      ...(newPin && { newPin }),
+      ...(appType && { appType }),
+    });
   }
 
   // ---- Discovery ----
@@ -163,6 +195,10 @@ export class PasswaalaApiClient {
     sort?: 'distance' | 'rating';
     openNow?: boolean;
     category?: string;
+    /** City filter — applied FIRST server-side so discovery stays fast at scale. */
+    city?: string;
+    /** Only shops currently running an offer ("Great Offers" pill). */
+    hasOffers?: boolean;
     minRating?: number;
     limit?: number;
     offset?: number;
@@ -174,10 +210,33 @@ export class PasswaalaApiClient {
     if (params.sort) q.set('sort', params.sort);
     if (params.openNow) q.set('openNow', 'true');
     if (params.category) q.set('category', params.category);
+    if (params.city) q.set('city', params.city);
+    if (params.hasOffers) q.set('hasOffers', 'true');
     if (params.minRating != null) q.set('minRating', String(params.minRating));
     if (params.limit != null) q.set('limit', String(params.limit));
     if (params.offset != null) q.set('offset', String(params.offset));
     return this.get(`/shops/nearby?${q.toString()}`);
+  }
+  /**
+   * Premium (admin-curated) shops near a location — a distinct, NON-billed
+   * section (not paid ads). City-first filter for speed at scale.
+   */
+  premiumShops(params: {
+    lat: number;
+    lng: number;
+    radiusMeters?: number;
+    city?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<NearbyShop[]> {
+    const q = new URLSearchParams();
+    q.set('lat', String(params.lat));
+    q.set('lng', String(params.lng));
+    if (params.radiusMeters) q.set('radiusMeters', String(params.radiusMeters));
+    if (params.city) q.set('city', params.city);
+    if (params.limit != null) q.set('limit', String(params.limit));
+    if (params.offset != null) q.set('offset', String(params.offset));
+    return this.get(`/shops/premium?${q.toString()}`);
   }
   /** Lazy per-shop delivery-availability check (cheap; call when opening a shop). */
   shopDeliveryAvailable(shopId: string): Promise<{ deliveryAvailable: boolean; selfPickupEnabled: boolean }> {
@@ -200,9 +259,114 @@ export class PasswaalaApiClient {
     if (opts.categoryId) p.set('categoryId', opts.categoryId);
     return this.get(`/products?${p.toString()}`);
   }
+  /**
+   * Cross-shop product search near a location. Returns matching products with
+   * their owning shop, ranked nearest-first; paginated (a few results first,
+   * more on scroll via `offset`).
+   */
+  searchProductsNearby(params: {
+    lat: number;
+    lng: number;
+    q: string;
+    radiusMeters?: number;
+    city?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<ProductSearchResult> {
+    const p = new URLSearchParams();
+    p.set('lat', String(params.lat));
+    p.set('lng', String(params.lng));
+    p.set('q', params.q);
+    if (params.radiusMeters != null) p.set('radiusMeters', String(params.radiusMeters));
+    if (params.city) p.set('city', params.city);
+    if (params.limit != null) p.set('limit', String(params.limit));
+    if (params.offset != null) p.set('offset', String(params.offset));
+    return this.get(`/products/search?${p.toString()}`);
+  }
   /** Public: a shop's categories (for the drill-down). */
   shopCategories(shopId: string): Promise<Array<{ id: string; name: string }>> {
     return this.get(`/categories?shopId=${shopId}`);
+  }
+
+  // ---- Sponsored Ads (CPC) ----
+  /** Customer: report a tap on a sponsored shop card (CPC-billed once/customer/day). */
+  adClick(campaignId: string): Promise<{ ok: true }> {
+    return this.post(`/ads/${campaignId}/click`, {});
+  }
+  /** Customer: batch-report sponsored cards shown this render (unbilled analytics). */
+  adImpressions(campaignIds: string[]): Promise<{ ok: true }> {
+    const body: AdImpressionBatch = { campaignIds };
+    return this.post('/ads/impressions', body);
+  }
+  /** Shopkeeper: this shop's own ads drill-down (impressions/clicks/spend + dues). */
+  myAds(): Promise<AdShopDrilldown> {
+    return this.get('/shops/me/ads');
+  }
+  /** Shopkeeper: opt into ads (create/activate a campaign at the city default CPC). */
+  optInAds(opts: { totalBudgetPaise?: number; dailyBudgetPaise?: number } = {}): Promise<AdCampaignView> {
+    return this.post('/shops/me/ads/opt-in', opts);
+  }
+  /** Shopkeeper: pause/resume own campaign. */
+  setAdActive(campaignId: string, active: boolean): Promise<AdCampaignView> {
+    return this.patch(`/shops/me/ads/${campaignId}/active`, { active });
+  }
+  /** Shopkeeper: set own daily spend cap (paise; 0 = no cap). */
+  setAdDailyBudget(campaignId: string, dailyBudgetPaise: number): Promise<AdCampaignView> {
+    return this.patch(`/shops/me/ads/${campaignId}/daily-budget`, { dailyBudgetPaise });
+  }
+  // Admin ads back office
+  adminCreateCampaign(dto: CreateAdCampaign): Promise<AdCampaignView> {
+    return this.post('/admin/ads/campaigns', dto);
+  }
+  adminUpdateCampaign(id: string, dto: UpdateAdCampaign): Promise<AdCampaignView> {
+    return this.patch(`/admin/ads/campaigns/${id}`, dto);
+  }
+  adminDeleteCampaign(id: string): Promise<{ ok: true }> {
+    return this.delete(`/admin/ads/campaigns/${id}`);
+  }
+  /** Admin: global ads analytics (totals + per-campaign + time series), city-scoped. */
+  adminAdsAnalytics(rangeDays?: number): Promise<AdAnalyticsSummary> {
+    const q = rangeDays != null ? `?range=${rangeDays}` : '';
+    return this.get(`/admin/ads/analytics${q}`);
+  }
+  /** Admin: all shops as cards with per-shop ad rollups (city-scoped). */
+  adminAdsShops(): Promise<AdShopCard[]> {
+    return this.get('/admin/ads/shops');
+  }
+  /** Admin: one shop's ads drill-down. */
+  adminAdsShopDrilldown(shopId: string, rangeDays?: number): Promise<AdShopDrilldown> {
+    const q = rangeDays != null ? `?range=${rangeDays}` : '';
+    return this.get(`/admin/ads/shops/${shopId}${q}`);
+  }
+  /** Admin: curate a shop into (or out of) the Premium section (NOT billed). */
+  adminSetPremium(shopId: string, isPremium: boolean): Promise<{ ok: true }> {
+    return this.patch(`/admin/ads/shops/${shopId}/premium`, { isPremium });
+  }
+
+  // ---- Medical-store Prescriptions ----
+  /** Customer: submit a prescription (image URLs + delivery choice) to a medical shop. */
+  createPrescription(dto: CreatePrescription): Promise<PrescriptionView> {
+    return this.post('/prescriptions', dto);
+  }
+  /** Customer: their own prescriptions (newest first). */
+  myPrescriptions(): Promise<PrescriptionView[]> {
+    return this.get('/prescriptions/mine');
+  }
+  /** Shopkeeper: this shop's prescription queue. */
+  shopPrescriptions(): Promise<PrescriptionView[]> {
+    return this.get('/prescriptions/shop');
+  }
+  /** Either party: one prescription's detail (authorized as its customer or shop). */
+  prescription(id: string): Promise<PrescriptionView> {
+    return this.get(`/prescriptions/${id}`);
+  }
+  /** Shopkeeper: build the itemized bill → creates the order the customer pays. */
+  quotePrescription(id: string, dto: QuotePrescription): Promise<PrescriptionView> {
+    return this.post(`/prescriptions/${id}/quote`, dto);
+  }
+  /** Shopkeeper: reject a prescription it can't read/fulfil. */
+  rejectPrescription(id: string, dto: RejectPrescription): Promise<PrescriptionView> {
+    return this.post(`/prescriptions/${id}/reject`, dto);
   }
 
   // ---- Referrals / NearBaz Coins ----
@@ -436,11 +600,12 @@ export class PasswaalaApiClient {
     return this.get('/admin/payment-claims');
   }
   /** Admin/owner: all orders across the platform (live + completed). */
-  adminListOrders(opts?: { limit?: number; cursor?: string; status?: string }): Promise<unknown> {
+  adminListOrders(opts?: { limit?: number; cursor?: string; status?: string; q?: string }): Promise<unknown> {
     const params = new URLSearchParams();
     if (opts?.limit) params.set('limit', String(opts.limit));
     if (opts?.cursor) params.set('cursor', opts.cursor);
     if (opts?.status) params.set('status', opts.status);
+    if (opts?.q) params.set('q', opts.q);
     const qs = params.toString();
     return this.get(`/admin/orders${qs ? `?${qs}` : ''}`);
   }
@@ -526,7 +691,7 @@ export class PasswaalaApiClient {
   /** Admin: create a coupon. */
   adminCreateCoupon(body: {
     code: string; type: string; value?: number; description?: string;
-    minOrderPaise?: number; maxUses?: number | null; maxUsesPerUser?: number | null;
+    minOrderPaise?: number; maxDiscountPaise?: number | null; maxUses?: number | null; maxUsesPerUser?: number | null;
     validFrom?: string | null; expiresAt?: string | null; active?: boolean; shopIds?: string[];
   }): Promise<unknown> {
     return this.post('/admin/coupons', body);
@@ -616,6 +781,8 @@ export class PasswaalaApiClient {
   riderMe(): Promise<{
     online: boolean; vehicle: string | null; earningsPaise: number; duesPaise: number; creditLimitPaise: number;
     collectionUpi: { vpa: string; name: string } | null;
+    serviceCity?: string;
+    deliveryTiers?: Array<{ maxKm: number; feePaise: number }>;
   }> {
     return this.get('/riders/me');
   }
@@ -747,8 +914,17 @@ export class PasswaalaApiClient {
   placeOrder(body: Omit<CreateOrder, 'shopId' | 'items'>): Promise<PlaceOrderResult> {
     return this.post('/orders', body);
   }
-  orderHistory(opts: PageParams = {}): Promise<Paginated<unknown>> {
-    return this.get(`/orders/history${pageQuery(opts)}`);
+  /** Shopkeeper: ring up an in-store POS (counter) cash sale. Shop-scoped via the
+   *  JWT (server ignores any shopId in the body). Idempotent — the same key
+   *  returns the already-created sale (safe for offline replay). */
+  posCreateSale(body: POSCreateSale): Promise<POSSaleResult> {
+    return this.post('/orders/pos', body);
+  }
+  orderHistory(opts: PageParams & { mode?: 'ongoing' | 'history' } = {}): Promise<Paginated<unknown>> {
+    const { mode, ...page } = opts;
+    const qs = pageQuery(page);
+    const sep = qs ? '&' : '?';
+    return this.get(`/orders/history${qs}${mode ? `${sep}mode=${mode}` : ''}`);
   }
   order(id: string): Promise<unknown> {
     return this.get(`/orders/${id}`);
@@ -999,7 +1175,7 @@ export class PasswaalaApiClient {
    */
   async uploadImage(
     file: Blob | { uri: string; name: string; type: string },
-    opts: { type?: 'shop' | 'product' | 'kyc'; scopeId?: string } = {},
+    opts: { type?: 'shop' | 'product' | 'kyc' | 'prescription'; scopeId?: string } = {},
   ): Promise<{ url: string; filename: string }> {
     const form = new FormData();
     // Both Blob (web) and the RN {uri,name,type} shape are accepted by FormData.

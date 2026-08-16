@@ -12,9 +12,11 @@ import {
   View,
 } from 'react-native';
 import { api } from '../api';
+import { getShopkeeperPrefetch } from '../shopkeeperPrefetch';
 import { formatRupees, placeholderImage, resolveImage, rupeeInputToPaise, theme } from '../theme';
 import { Badge, Button, Card, Chip, ErrorText, Field } from '../ui';
 import { ImagePicker } from '../components/ImagePicker';
+import { EditIcon, DeleteIcon } from '../EditDeleteIcons';
 import { useLang } from '../i18n/LanguageContext';
 import type { Strings } from '../i18n/strings';
 import type { MyProduct } from '../types';
@@ -34,9 +36,11 @@ interface Category {
  */
 export function ProductsScreen() {
   const { t } = useLang();
-  const [products, setProducts] = useState<MyProduct[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Seed from the app-open prefetch so the catalog renders instantly on tap.
+  const pf = getShopkeeperPrefetch();
+  const [products, setProducts] = useState<MyProduct[]>((pf?.products as MyProduct[] | null) ?? []);
+  const [categories, setCategories] = useState<Category[]>((pf?.categories as Category[] | null) ?? []);
+  const [loading, setLoading] = useState(!(pf?.products));
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
@@ -230,7 +234,12 @@ function ProductRow({
   const img = resolveImage(product.imageUrl, product.id || product.name, 160, 160);
   const showMrp = product.mrpPaise > product.pricePaise;
   return (
-    <View style={[styles.card, theme.shadow.sm]}>
+    <Pressable
+      onPress={onEdit}
+      disabled={deleting}
+      style={({ pressed }) => [styles.card, theme.shadow.sm, pressed && { opacity: 0.7 }]}
+      accessibilityLabel={t.products.edit}
+    >
       <Image source={{ uri: img }} style={styles.thumb} />
       <View style={styles.cardBody}>
         <Text style={styles.name} numberOfLines={1}>{product.name}</Text>
@@ -248,14 +257,14 @@ function ProductRow({
         </View>
       </View>
       <View style={styles.rowActions}>
-        <Pressable onPress={onEdit} disabled={deleting} style={styles.editBtn} hitSlop={8}>
-          <Text style={styles.edit}>{t.products.edit}</Text>
+        <Pressable onPress={onEdit} disabled={deleting} style={styles.editBtn} hitSlop={8} accessibilityLabel={t.products.edit}>
+          <EditIcon size={20} color={theme.color.accent} />
         </Pressable>
-        <Pressable onPress={onDelete} disabled={deleting} style={styles.deleteBtn} hitSlop={8}>
-          <Text style={styles.delete}>{t.products.delete}</Text>
+        <Pressable onPress={onDelete} disabled={deleting} style={styles.deleteBtn} hitSlop={8} accessibilityLabel={t.products.delete}>
+          <DeleteIcon size={20} color={theme.color.danger} />
         </Pressable>
       </View>
-    </View>
+    </Pressable>
   );
 }
 

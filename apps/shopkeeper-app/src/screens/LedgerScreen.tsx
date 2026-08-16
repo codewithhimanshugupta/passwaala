@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Linking, Platform, Pressable, RefreshControl, StyleSheet, Text, TextInput, View } from 'react-native';
-import { LedgerEntryStatus, buildUpiDeepLink } from '@passwaala/shared';
+import { ActivityIndicator, Linking, Modal, Platform, Pressable, RefreshControl, StyleSheet, Text, TextInput, View } from 'react-native';
+import { LedgerEntryStatus, buildUpiDeepLink, UPI_APPS, toIntentLink } from '@passwaala/shared';
 import { api } from '../api';
+import { getShopkeeperPrefetch } from '../shopkeeperPrefetch';
 import { formatRupees, theme } from '../theme';
 import { Badge, Banner, Button, Card, Screen, SectionTitle } from '../ui';
 import type { BadgeTone } from '../ui';
@@ -74,15 +75,18 @@ const PAGE_SIZE = 20;
 
 export function LedgerScreen() {
   const { t } = useLang();
-  const [ledger, setLedger] = useState<Ledger | null>(null);
-  const [entries, setEntries] = useState<LedgerEntry[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Seed from the app-open prefetch so the ledger renders instantly on tap.
+  const pf = getShopkeeperPrefetch();
+  const pfLedger = pf?.ledger as Ledger | null | undefined;
+  const [ledger, setLedger] = useState<Ledger | null>(pfLedger ?? null);
+  const [entries, setEntries] = useState<LedgerEntry[]>(pfLedger?.entries ?? []);
+  const [loading, setLoading] = useState(!pfLedger);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [nextCursor, setNextCursor] = useState<string | null>(pfLedger?.nextCursor ?? null);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [pnl, setPnl] = useState<Pnl | null>(null);
+  const [pnl, setPnl] = useState<Pnl | null>((pf?.pnl as Pnl | null) ?? null);
   const [pnlError, setPnlError] = useState<string | null>(null);
 
   // Load page 1 (summary + first entries). Replaces the accumulated list.
@@ -403,6 +407,7 @@ function PayDuesCard({
   const [amountRupees, setAmountRupees] = useState(exactDefault);
   const [paid, setPaid] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showUpiPicker, setShowUpiPicker] = useState(false);
 
   useEffect(() => {
     if (!paid) setAmountRupees(exactDefault);
@@ -414,24 +419,22 @@ function PayDuesCard({
   function openUpi() {
     if (!collectionUpi || !validAmount) return;
     setError(null);
-    const link = buildUpiDeepLink(
-      collectionUpi.vpa,
-      collectionUpi.name,
-      amountPaise,
-      'NearBaz dues',
-    );
-    try {
-      if (Platform.OS === 'web') window.open(link, '_blank');
-      else void Linking.openURL(link);
-      setPaid(true);
-      // Fire-and-forget claim — backend records it for admin to verify
-      void api.claimShopPayment(amountPaise).catch(() => undefined);
-    } catch {
-      setError(t.ledger.upiOpenError);
+    if (Platform.OS === 'web') {
+      setShowUpiPicker(true);
+    } else {
+      const link = buildUpiDeepLink(collectionUpi.vpa, collectionUpi.name, amountPaise, 'NearBaz dues');
+      try {
+        void Linking.openURL(link);
+        setPaid(true);
+        void api.claimShopPayment(amountPaise).catch(() => undefined);
+      } catch {
+        setError(t.ledger.upiOpenError);
+      }
     }
   }
 
   return (
+  <>
     <Card style={styles.payCard}>
       <SectionTitle>{t.ledger.payTitle}</SectionTitle>
 
@@ -486,6 +489,48 @@ function PayDuesCard({
         </>
       )}
     </Card>
+
+    {/* UPI app picker — web only */}
+    <Modal visible={showUpiPicker} transparent animationType="fade" onRequestClose={() => setShowUpiPicker(false)}>
+      <View style={styles.pickerBackdrop}>
+        <View style={styles.pickerCard}>
+          <Text style={styles.pickerTitle}>Pay with UPI</Text>
+          <Text style={styles.pickerSub}>{formatRupees(amountPaise)}</Text>
+          {UPI_APPS.map(({ label, pkg, iconBg, iconText }) => (
+            <Pressable
+              key={pkg}
+              style={styles.upiAppBtn}
+              onPress={() => {
+                setShowUpiPicker(false);
+                const link = buildUpiDeepLink(collectionUpi!.vpa, collectionUpi!.name, amountPaise, 'NearBaz dues');
+                window.location.href = toIntentLink(link, pkg);
+                setPaid(true);
+                void api.claimShopPayment(amountPaise).catch(() => undefined);
+              }}
+            >
+              <View style={[styles.upiAppIcon, { backgroundColor: iconBg }]}>
+                <Text style={styles.upiAppIconText}>{iconText}</Text>
+              </View>
+              <Text style={styles.upiAppBtnText}>{label}</Text>
+            </Pressable>
+          ))}
+          <Pressable
+            style={[styles.upiAppBtn, styles.upiAppBtnOutline]}
+            onPress={() => {
+              setShowUpiPicker(false);
+              const link = buildUpiDeepLink(collectionUpi!.vpa, collectionUpi!.name, amountPaise, 'NearBaz dues');
+              window.location.href = link;
+              setPaid(true);
+              void api.claimShopPayment(amountPaise).catch(() => undefined);
+            }}
+          >
+            <Text style={[styles.upiAppBtnText, styles.upiAppBtnOutlineText]}>Other UPI app</Text>
+          </Pressable>
+          <Button label={t.common.cancel} onPress={() => setShowUpiPicker(false)} variant="ghost" />
+        </View>
+      </View>
+    </Modal>
+  </>
   );
 }
 
@@ -694,4 +739,33 @@ const styles = StyleSheet.create({
   lineTotal: { fontWeight: '800', color: theme.color.text, fontSize: theme.font.small },
 
   empty: { color: theme.color.textMuted, textAlign: 'center', marginTop: theme.space.lg },
+
+  pickerBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center', padding: theme.space.xl },
+  pickerCard: {
+    backgroundColor: theme.color.bg,
+    borderRadius: theme.radius.lg,
+    padding: theme.space.xl,
+    gap: theme.space.sm,
+    width: '100%',
+    maxWidth: 360,
+    alignItems: 'stretch',
+  },
+  pickerTitle: { fontSize: theme.font.h2, fontWeight: '700', color: theme.color.text, textAlign: 'center' },
+  pickerSub: { fontSize: theme.font.body, color: theme.color.textMuted, textAlign: 'center', marginBottom: theme.space.xs },
+  upiAppBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.space.md,
+    backgroundColor: theme.color.surface,
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    borderColor: theme.color.border,
+    paddingVertical: theme.space.sm,
+    paddingHorizontal: theme.space.md,
+  },
+  upiAppIcon: { width: 36, height: 36, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+  upiAppIconText: { color: '#fff', fontWeight: '800', fontSize: theme.font.small },
+  upiAppBtnText: { color: theme.color.text, fontWeight: '700', fontSize: theme.font.body },
+  upiAppBtnOutline: { backgroundColor: 'transparent', borderWidth: 1.5, borderColor: theme.color.border },
+  upiAppBtnOutlineText: { color: theme.color.textMuted },
 });

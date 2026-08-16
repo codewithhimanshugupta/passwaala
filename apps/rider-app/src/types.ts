@@ -41,6 +41,10 @@ export interface RiderMe {
   collectionUpi: { vpa: string; name: string } | null;
   lifetimeEarnedPaise?: number;
   lifetimePaidOutPaise?: number;
+  /** The rider's service city (source of the delivery-fee tiers below). */
+  serviceCity?: string;
+  /** Admin-configured per-km delivery fee tiers for the rider's city. */
+  deliveryTiers?: Array<{ maxKm: number; feePaise: number }>;
   ledger?: RiderLedgerEntry[];
 }
 

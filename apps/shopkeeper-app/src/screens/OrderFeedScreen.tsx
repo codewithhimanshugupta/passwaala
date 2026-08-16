@@ -14,6 +14,7 @@ import {
 import { OrderStatus, PaymentMethod, DeliveryMode, nextStatuses } from '@passwaala/shared';
 import { api } from '../api';
 import { onSocket } from '../socket';
+import { getShopkeeperPrefetch } from '../shopkeeperPrefetch';
 import { formatRupees, theme } from '../theme';
 import { Badge, Button, ErrorText, OtpBoxes } from '../ui';
 import { DisputeModal } from '../components/DisputeModal';
@@ -25,8 +26,11 @@ import type { FeedOrder } from '../types';
 /** How often the open Orders tab refreshes its visible list (ms). */
 const POLL_MS = 60000;
 
-/** Orders fetched per page within a tab (initial load + each scroll-to-end). */
-const PAGE_SIZE = 20;
+/** Active queue is fetched in one shot (it's the live working set). */
+export const ACTIVE_LIMIT = 50;
+
+/** Completed/history is paginated 5-at-a-time with scroll-to-load-more. */
+const COMPLETED_PAGE = 5;
 
 /**
  * Filter the shared state machine's next-statuses for the SHOPKEEPER's buttons.
@@ -84,6 +88,10 @@ const TABS: { key: TabKey; statuses: OrderStatus[] }[] = [
   },
 ];
 
+/** The two tabs' status sets as the comma-separated filter the feed API expects. */
+export const ACTIVE_PARAM = TABS[0].statuses.join(',');
+const COMPLETED_PARAM = TABS[1].statuses.join(',');
+
 /** Localized label for a tab key. */
 function tabLabel(key: TabKey, t: Strings): string {
   switch (key) {
@@ -103,20 +111,33 @@ export function OrderFeedScreen({
   withShopToken?: (shopId: string, fn: () => Promise<void>) => Promise<void>;
 }) {
   const { t } = useLang();
-  const [orders, setOrders] = useState<FeedOrder[]>([]);
-  const [counts, setCounts] = useState<Record<string, number>>({});
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  // Seed from the app-open prefetch (matching the same all-shops view) so the
+  // Orders tab renders instantly on launch instead of showing a spinner.
+  const pf = getShopkeeperPrefetch();
+  const pfMatch = pf && pf.allShops === allShops ? pf : null;
+  const [counts, setCounts] = useState<Record<string, number>>((pfMatch?.counts as Record<string, number> | null) ?? {});
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<TabKey>('active');
   const [busyId, setBusyId] = useState<string | null>(null);
-  // Keyset pagination within the active tab.
-  const [nextCursor, setNextCursor] = useState<string | null>(null);
-  const [loadingMore, setLoadingMore] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const activeTab = TABS.find((t) => t.key === tab) ?? TABS[0];
-  // The active tab's statuses as the comma-separated filter the API expects.
-  const statusParam = activeTab.statuses.join(',');
+  // Active queue — one fast fetch, silently refreshed (no flicker).
+  const [activeOrders, setActiveOrders] = useState<FeedOrder[]>((pfMatch?.activeOrders?.items as FeedOrder[] | undefined) ?? []);
+  const [activeLoading, setActiveLoading] = useState(!pfMatch?.activeOrders);
+
+  // Completed/history — separate call, paginated 5, lazy-loaded on first open.
+  const [completedOrders, setCompletedOrders] = useState<FeedOrder[]>([]);
+  const [completedLoading, setCompletedLoading] = useState(false);
+  const [completedLoaded, setCompletedLoaded] = useState(false);
+  const [completedCursor, setCompletedCursor] = useState<string | null>(null);
+  const [completedLoadingMore, setCompletedLoadingMore] = useState(false);
+  const completedLoadedRef = useRef(false);
+  completedLoadedRef.current = completedLoaded;
+
+  // The visible list + setter track the current tab.
+  const orders = tab === 'active' ? activeOrders : completedOrders;
+  const setOrders = tab === 'active' ? setActiveOrders : setCompletedOrders;
+  const listLoading = tab === 'active' ? activeLoading : completedLoading;
 
   // Reject-reason modal state.
   const [rejectTarget, setRejectTarget] = useState<string | null>(null);
@@ -135,69 +156,110 @@ export function OrderFeedScreen({
   const [otpError, setOtpError] = useState<string | null>(null);
   const [otpBusy, setOtpBusy] = useState(false);
 
-  // Load page 1 of the active tab (+ refresh the tab-badge counts). Replaces
-  // the visible list — used on mount, tab switch, poll, and pull-to-refresh.
-  const load = useCallback(
-    async (isRefresh = false) => {
-      if (isRefresh) setRefreshing(true);
-      setError(null);
-      try {
-        const [page, freshCounts] = await Promise.all([
-          (allShops
-            ? api.orderFeedAll(statusParam, { limit: PAGE_SIZE })
-            : api.orderFeed(statusParam, { limit: PAGE_SIZE })) as Promise<{
-            items: FeedOrder[];
-            nextCursor: string | null;
-          }>,
-          (allShops
-            ? api.orderFeedAllCounts()
-            : api.orderFeedCounts()) as Promise<Record<string, number>>,
-        ]);
-        setOrders(page.items);
-        setNextCursor(page.nextCursor);
-        setCounts(freshCounts);
-      } catch (e) {
-        setError((e as Error).message);
-      } finally {
-        setLoading(false);
-        setRefreshing(false);
-      }
-    },
-    [statusParam, allShops],
-  );
+  // Refresh the per-status badge counts (independent of the visible list).
+  const refreshCounts = useCallback(async () => {
+    try {
+      const c = (await (allShops ? api.orderFeedAllCounts() : api.orderFeedCounts())) as Record<string, number>;
+      setCounts(c);
+    } catch { /* badges are best-effort */ }
+  }, [allShops]);
 
-  // Append the next (older) page within the active tab.
-  const loadMore = useCallback(async () => {
-    if (loadingMore || !nextCursor) return;
-    setLoadingMore(true);
+  // Active queue — one fetch of the live working set. `silent` skips the spinner
+  // so background refreshes (poll/socket/post-action) never flicker.
+  const loadActive = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
+    if (!silent) setActiveLoading(true);
+    setError(null);
     try {
       const page = (await (allShops
-        ? api.orderFeedAll(statusParam, { limit: PAGE_SIZE, cursor: nextCursor })
-        : api.orderFeed(statusParam, { limit: PAGE_SIZE, cursor: nextCursor }))) as { items: FeedOrder[]; nextCursor: string | null };
-      setOrders((prev) => [...prev, ...page.items]);
-      setNextCursor(page.nextCursor);
-    } catch {
-      // Keep what's loaded; the next scroll retries.
+        ? api.orderFeedAll(ACTIVE_PARAM, { limit: ACTIVE_LIMIT })
+        : api.orderFeed(ACTIVE_PARAM, { limit: ACTIVE_LIMIT }))) as { items: FeedOrder[]; nextCursor: string | null };
+      setActiveOrders(page.items);
+    } catch (e) {
+      setError((e as Error).message);
     } finally {
-      setLoadingMore(false);
+      setActiveLoading(false);
     }
-  }, [loadingMore, nextCursor, statusParam, allShops]);
+  }, [allShops]);
 
-  // Reload page 1 whenever the tab changes (load identity depends on statusParam).
-  useEffect(() => {
-    setLoading(true);
-    load();
-  }, [load]);
+  // Completed/history — separate call, page size 5.
+  const loadCompleted = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
+    if (!silent) setCompletedLoading(true);
+    setError(null);
+    try {
+      const page = (await (allShops
+        ? api.orderFeedAll(COMPLETED_PARAM, { limit: COMPLETED_PAGE })
+        : api.orderFeed(COMPLETED_PARAM, { limit: COMPLETED_PAGE }))) as { items: FeedOrder[]; nextCursor: string | null };
+      setCompletedOrders(page.items);
+      setCompletedCursor(page.nextCursor);
+      setCompletedLoaded(true);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setCompletedLoading(false);
+    }
+  }, [allShops]);
 
-  // Keep the visible page fresh. Socket events (order.created / order.shopUpdated)
-  // are the primary trigger; the interval is a slow fallback for when the socket
-  // is down.
+  // Append the next (older) page of completed orders — scroll-to-load-more.
+  const loadMoreCompleted = useCallback(async () => {
+    if (completedLoadingMore || !completedCursor) return;
+    setCompletedLoadingMore(true);
+    try {
+      const page = (await (allShops
+        ? api.orderFeedAll(COMPLETED_PARAM, { limit: COMPLETED_PAGE, cursor: completedCursor })
+        : api.orderFeed(COMPLETED_PARAM, { limit: COMPLETED_PAGE, cursor: completedCursor }))) as { items: FeedOrder[]; nextCursor: string | null };
+      setCompletedOrders((prev) => [...prev, ...page.items]);
+      setCompletedCursor(page.nextCursor);
+    } catch { /* keep what's loaded; next scroll retries */ }
+    finally { setCompletedLoadingMore(false); }
+  }, [completedLoadingMore, completedCursor, allShops]);
+
+  // Silent reload after a mutation — refresh the active queue + counts, and the
+  // completed list too if it's been opened (an order may have moved there).
+  const reload = useCallback(async () => {
+    await Promise.all([
+      loadActive({ silent: true }),
+      refreshCounts(),
+      completedLoadedRef.current ? loadCompleted({ silent: true }) : Promise.resolve(),
+    ]);
+  }, [loadActive, loadCompleted, refreshCounts]);
+
+  // Pull-to-refresh / manual refresh — silent (keeps content), shows the spinner
+  // only in the RefreshControl.
+  const onManualRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await Promise.all([
+      tab === 'active' ? loadActive({ silent: true }) : loadCompleted({ silent: true }),
+      refreshCounts(),
+    ]);
+    setRefreshing(false);
+  }, [tab, loadActive, loadCompleted, refreshCounts]);
+
+  // Preload the active queue + counts on mount (orders are ready on launch).
+  // When seeded from prefetch, refresh silently so the warm list never flickers.
   useEffect(() => {
-    const id = setInterval(() => load(), POLL_MS);
-    const off1 = onSocket('order.created', () => { void load(); });
-    const off2 = onSocket('order.shopUpdated', () => { void load(); });
+    void loadActive({ silent: !!pfMatch?.activeOrders });
+    void refreshCounts();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadActive, refreshCounts]);
+
+  // Lazy-load completed the first time that tab is opened.
+  useEffect(() => {
+    if (tab === 'completed' && !completedLoaded && !completedLoading) void loadCompleted();
+  }, [tab, completedLoaded, completedLoading, loadCompleted]);
+
+  // Keep the lists fresh in the background — socket-first, slow interval fallback.
+  // Always silent so nothing flickers.
+  useEffect(() => {
+    const refresh = () => {
+      void loadActive({ silent: true });
+      void refreshCounts();
+      if (completedLoadedRef.current) void loadCompleted({ silent: true });
+    };
+    const id = setInterval(refresh, POLL_MS);
+    const off1 = onSocket('order.created', refresh);
+    const off2 = onSocket('order.shopUpdated', refresh);
     return () => { clearInterval(id); off1(); off2(); };
-  }, [load]);
+  }, [loadActive, loadCompleted, refreshCounts]);
 
   // Per-tab badge counts derived from the server's per-status counts.
   const tabCounts = useMemo(() => {
@@ -222,7 +284,7 @@ export function OrderFeedScreen({
       } else {
         await api.advanceOrder(orderId, status, reason, otpCode);
       }
-      await load();
+      await reload();
     } catch (e) {
       setOrders(prevOrders); // rollback
       setError((e as Error).message);
@@ -285,7 +347,7 @@ export function OrderFeedScreen({
     try {
       const run = () => api.shopConfirmPayment(orderId).then(() => undefined);
       await (withShopToken ? withShopToken(shopId, run) : run());
-      await load();
+      await reload();
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -301,7 +363,7 @@ export function OrderFeedScreen({
     try {
       const run = () => api.shopRejectPayment(orderId).then(() => undefined);
       await (withShopToken ? withShopToken(shopId, run) : run());
-      await load();
+      await reload();
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -317,7 +379,7 @@ export function OrderFeedScreen({
     try {
       const run = () => api.shopConfirmCodUpi(orderId).then(() => undefined);
       await (withShopToken ? withShopToken(shopId, run) : run());
-      await load();
+      await reload();
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -333,7 +395,7 @@ export function OrderFeedScreen({
     try {
       const run = () => api.shopRejectCodUpi(orderId).then(() => undefined);
       await (withShopToken ? withShopToken(shopId, run) : run());
-      await load();
+      await reload();
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -348,7 +410,7 @@ export function OrderFeedScreen({
     try {
       const run = () => api.approveCancelRequest(orderId).then(() => undefined);
       await (withShopToken ? withShopToken(shopId, run) : run());
-      await load();
+      await reload();
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -363,7 +425,7 @@ export function OrderFeedScreen({
     try {
       const run = () => api.denyCancelRequest(orderId).then(() => undefined);
       await (withShopToken ? withShopToken(shopId, run) : run());
-      await load();
+      await reload();
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -396,20 +458,12 @@ export function OrderFeedScreen({
       setOtpTarget(null);
       setOtp('');
       otpRef.current = '';
-      await load();
+      await reload();
     } catch (e) {
       setOtpError((e as Error).message || t.orders.otpIncorrect);
     } finally {
       setOtpBusy(false);
     }
-  }
-
-  if (loading) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator color={theme.color.accent} />
-      </View>
-    );
   }
 
   return (
@@ -430,7 +484,7 @@ export function OrderFeedScreen({
             </Pressable>
           ))}
         </View>
-        <Pressable onPress={() => load(true)} style={styles.refreshBtn} disabled={refreshing}>
+        <Pressable onPress={onManualRefresh} style={styles.refreshBtn} disabled={refreshing}>
           <Text style={styles.refreshText}>{refreshing ? '…' : '↻'}</Text>
         </Pressable>
       </View>
@@ -442,13 +496,17 @@ export function OrderFeedScreen({
         data={orders}
         keyExtractor={(o) => o.id}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={() => load(true)} tintColor={theme.color.accent} />
+          <RefreshControl refreshing={refreshing} onRefresh={onManualRefresh} tintColor={theme.color.accent} />
         }
-        onEndReached={loadMore}
+        onEndReached={tab === 'completed' ? loadMoreCompleted : undefined}
         onEndReachedThreshold={0.4}
-        ListEmptyComponent={<Text style={styles.empty}>{t.orders.empty(tabLabel(activeTab.key, t))}</Text>}
+        ListEmptyComponent={
+          listLoading
+            ? <ActivityIndicator style={styles.footer} color={theme.color.accent} />
+            : <Text style={styles.empty}>{t.orders.empty(tabLabel(tab, t))}</Text>
+        }
         ListFooterComponent={
-          loadingMore ? <ActivityIndicator style={styles.footer} color={theme.color.accent} /> : null
+          completedLoadingMore ? <ActivityIndicator style={styles.footer} color={theme.color.accent} /> : null
         }
         renderItem={({ item }) => (
           <OrderCard
@@ -463,7 +521,7 @@ export function OrderFeedScreen({
             onApproveCancelReq={() => approveCancelReq(item.id)}
             onDenyCancelReq={() => denyCancelReq(item.id)}
             withShopToken={withShopToken}
-            onRefresh={() => load(true)}
+            onRefresh={() => reload()}
           />
         )}
       />

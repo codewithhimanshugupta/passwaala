@@ -78,7 +78,7 @@ describe('Rider delivery (e2e)', () => {
 
     // Rider sees their offer.
     const jobs = await request(app.getHttpServer()).get('/riders/jobs').set(...bearer(riderToken)).expect(200);
-    expect(jobs.body.map((o: { id: string }) => o.id)).toContain(order.id);
+    expect(jobs.body.orders.map((o: { id: string }) => o.id)).toContain(order.id);
 
     // Claim it → RIDER_ASSIGNED (not out for delivery yet), assigned to rider.
     await request(app.getHttpServer()).post(`/riders/jobs/${order.id}/accept`).set(...bearer(riderToken)).expect(201);
@@ -111,7 +111,7 @@ describe('Rider delivery (e2e)', () => {
     const riderToken = await jwt.signAsync({ sub: riderId, role: UserRole.RIDER });
 
     const jobs = await request(app.getHttpServer()).get('/riders/jobs').set(...bearer(riderToken)).expect(200);
-    expect(jobs.body).toHaveLength(0); // offline → no jobs
+    expect(jobs.body.orders).toHaveLength(0); // offline → no jobs
   });
 
   it('active-order cap: a rider holds up to 2 orders (any drop distance), the 3rd is blocked', async () => {
@@ -180,7 +180,7 @@ describe('Rider delivery (e2e)', () => {
     const first = await dispatch.startForOrder(order.id);
     expect(first).toBe(near.riderId);
     let farJobs = await request(app.getHttpServer()).get('/riders/jobs').set(...bearer(far.token)).expect(200);
-    expect(farJobs.body).toHaveLength(0);
+    expect(farJobs.body.orders).toHaveLength(0);
 
     // Near rider lets the offer lapse → the sweep re-offers. Next candidate in
     // the 2km ring is none, so it widens to reach the FAR rider.
@@ -191,7 +191,7 @@ describe('Rider delivery (e2e)', () => {
     expect(row?.dispatchRadiusMeters).toBe(10000);
     expect(row?.dispatchTriedRiderIds).toEqual(expect.arrayContaining([near.riderId, far.riderId]));
     farJobs = await request(app.getHttpServer()).get('/riders/jobs').set(...bearer(far.token)).expect(200);
-    expect(farJobs.body.map((o: { id: string }) => o.id)).toContain(order.id);
+    expect(farJobs.body.orders.map((o: { id: string }) => o.id)).toContain(order.id);
 
     // Far rider also lapses → no untried candidate in any ring → open board.
     await prisma.order.update({ where: { id: order.id }, data: { offerExpiresAt: new Date(Date.now() - 1000) } });

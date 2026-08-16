@@ -13,7 +13,7 @@ interface BulkOrderSummary {
   multiShopSurchargePaise: number;
   paymentMethod: string;
   createdAt: string;
-  orders: Array<{ id: string; shopId: string; shop?: { name: string } }>;
+  orders: Array<{ id: string; shortId?: string | null; shopId: string; shop?: { name: string } }>;
 }
 
 function fmt(paise: number) {
@@ -105,7 +105,9 @@ export function BulkOrdersScreen() {
               <Row label="Multi-shop surcharge" value={fmt(o.multiShopSurchargePaise)} />
               <Row label="Shops" value={String(o.orders.length)} />
               {o.orders.map((sub, idx) => (
-                <Text key={sub.id} style={styles.subOrder}>Stop {idx + 1}: {sub.shop?.name ?? sub.shopId}</Text>
+                <Text key={sub.id} style={styles.subOrder}>
+                  Stop {idx + 1}: #{sub.shortId ?? sub.id.slice(0, 8).toUpperCase()} · {sub.shop?.name ?? sub.shopId}
+                </Text>
               ))}
             </View>
           ) : null}

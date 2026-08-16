@@ -6,6 +6,19 @@
 
 import { paiseToRupees } from './money';
 
+export const UPI_APPS = [
+  { label: 'PhonePe', pkg: 'com.phonepe.app',                        iconBg: '#5F259F', iconText: 'Pe' },
+  { label: 'GPay',    pkg: 'com.google.android.apps.nbu.paisa.user', iconBg: '#1A73E8', iconText: 'G'  },
+  { label: 'Paytm',  pkg: 'net.one97.paytm',                        iconBg: '#00BAF2', iconText: 'P'  },
+] as const;
+
+/** Converts a generic upi://pay?… link into an Android Chrome intent:// link
+ *  that opens a specific UPI app directly, skipping the OS chooser. */
+export function toIntentLink(upiUrl: string, pkg: string): string {
+  const qs = upiUrl.replace(/^upi:\/\/pay\?/, '');
+  return `intent://pay?${qs}#Intent;scheme=upi;package=${pkg};end`;
+}
+
 /**
  * Build a UPI intent deep-link (upi://pay?...) targeting a shop's VPA for a
  * given amount (paise). Opens the customer's UPI app pre-filled.

@@ -263,7 +263,7 @@ export class CartService {
         : Promise.resolve([]),
       this.prisma.coupon.findMany({
         where: { shopIds: { has: cart.shop.id }, active: true, deletedAt: null },
-        select: { id: true, code: true, description: true, type: true, value: true, minOrderPaise: true },
+        select: { id: true, code: true, description: true, type: true, value: true, minOrderPaise: true, maxDiscountPaise: true },
       }),
     ]);
 
@@ -321,6 +321,7 @@ export class CartService {
       type: c.type,
       value: c.value,
       minOrderPaise: c.minOrderPaise,
+      maxDiscountPaise: c.maxDiscountPaise,
     }));
     const allOffers = [...cityOffers, ...couponOffers];
 
@@ -336,6 +337,7 @@ export class CartService {
       offerType: offer?.type as import('@passwaala/shared').OfferType | null ?? null,
       offerValue: offer?.value ?? null,
       offerMinOrderPaise: offer?.minOrderPaise ?? null,
+      offerMaxDiscountPaise: (offer as { maxDiscountPaise?: number | null } | null)?.maxDiscountPaise ?? null,
     });
 
     const minOrderValuePaise = cart.shop.minOrderValuePaise;

@@ -25,16 +25,16 @@ export class AdminController {
     private readonly ledger: LedgerService,
   ) {}
 
-  /** Shops awaiting review. */
+  /** Shops awaiting review. City-scoped to the calling admin. */
   @Get('shops/pending')
-  listPending() {
-    return this.admin.listPendingShops();
+  listPending(@CurrentUser() user: AuthPayload) {
+    return this.admin.listPendingShops(user.sub, String(user.role));
   }
 
-  /** All shops (optionally ?city=) with config — for the admin console list. */
+  /** All shops (city-scoped; OWNER may pass ?city=) with config — admin console list. */
   @Get('shops')
-  listAll(@Query('city') city?: string) {
-    return this.admin.listAllShops(city);
+  listAll(@CurrentUser() user: AuthPayload, @Query('city') city?: string) {
+    return this.admin.listAllShops(user.sub, String(user.role), city);
   }
 
   /** Full shop detail — config, KYC, products with stock, recent orders. */
@@ -130,8 +130,9 @@ export class AdminController {
 
   /** All orders across the platform — live + completed, with OTPs and payment state. */
   @Get('orders')
-  listAllOrders(@Query() page: PaginationQuery) {
-    return this.admin.listAllOrders(page, page.status, (page as Record<string, string>).shopId);
+  listAllOrders(@CurrentUser() user: AuthPayload, @Query() page: PaginationQuery) {
+    const query = page as Record<string, string>;
+    return this.admin.listAllOrders(page, page.status, query.shopId, query.q, user.sub, String(user.role));
   }
 
   /** Record that a rider has deposited their collected COD cash → clears dues. */
@@ -215,13 +216,14 @@ export class AdminController {
     return this.admin.updateOrderDeliveryFee(user.sub, orderId, newFeePaise);
   }
 
-  /** Admin: bulk orders list (keyset paginated). */
+  /** Admin: bulk orders list (keyset paginated). City-scoped. */
   @Get('bulk-orders')
   listBulkOrders(
+    @CurrentUser() user: AuthPayload,
     @Query('limit') limit?: string,
     @Query('cursor') cursor?: string,
   ) {
-    return this.admin.listBulkOrders(limit ? parseInt(limit) : 20, cursor);
+    return this.admin.listBulkOrders(limit ? parseInt(limit) : 20, cursor, user.sub, String(user.role));
   }
 
   /** Admin: full detail for one bulk order. */

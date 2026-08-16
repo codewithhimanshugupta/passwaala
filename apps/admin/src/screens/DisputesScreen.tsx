@@ -124,8 +124,11 @@ export function DisputesScreen() {
   const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<ScrollView | null>(null);
 
-  const loadLists = useCallback(async () => {
-    setLoading(true); setError(null); setForbidden(false);
+  // `silent` = a background poll refresh: update data in place WITHOUT flipping
+  // the full-screen loading spinner on (which blanks the list and causes the
+  // every-12s flicker) and without surfacing transient network blips as errors.
+  const loadLists = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) { setLoading(true); setError(null); setForbidden(false); }
     try {
       const role = roleTab === 'ALL' ? undefined : roleTab;
       const [q, m, c, r] = await Promise.all([
@@ -135,15 +138,16 @@ export function DisputesScreen() {
         api.adminResolvedDisputes(role) as Promise<DisputeSummary[]>,
       ]);
       setQueue(q); setMine(m); setCounts(c); setResolved(r);
+      setError(null); setForbidden(false);
     } catch (e) {
       if (e instanceof ApiError && e.status === 403) setForbidden(true);
-      else setError((e as Error).message);
-    } finally { setLoading(false); }
+      else if (!opts?.silent) setError((e as Error).message);
+    } finally { if (!opts?.silent) setLoading(false); }
   }, [roleTab]);
 
   useEffect(() => { void loadLists(); }, [loadLists]);
   useEffect(() => {
-    const id = setInterval(() => void loadLists(), 12000);
+    const id = setInterval(() => void loadLists({ silent: true }), 12000);
     return () => clearInterval(id);
   }, [loadLists]);
 
@@ -157,20 +161,22 @@ export function DisputesScreen() {
       .catch(() => undefined);
   }, [subTab]);
 
-  const loadThread = useCallback(async (id: string) => {
-    setThreadLoading(true);
+  const loadThread = useCallback(async (id: string, opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setThreadLoading(true);
     try {
       const t = (await api.adminDisputeThread(id)) as DisputeThread;
       setThread(t);
-      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: false }), 100);
+      // Only auto-scroll to the bottom on the initial open — a background poll
+      // must not yank the view down while the admin is scrolled up reading.
+      if (!opts?.silent) setTimeout(() => scrollRef.current?.scrollToEnd({ animated: false }), 100);
     } catch { /* keep previous */ }
-    finally { setThreadLoading(false); }
+    finally { if (!opts?.silent) setThreadLoading(false); }
   }, []);
 
   useEffect(() => {
     if (!selected) return;
     void loadThread(selected);
-    const id = setInterval(() => void loadThread(selected), 10000);
+    const id = setInterval(() => void loadThread(selected, { silent: true }), 10000);
     return () => clearInterval(id);
   }, [selected, loadThread]);
 

@@ -4,6 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import { AuthExpiredError } from '@passwaala/api-client';
 import { LoginScreen } from './src/screens/LoginScreen';
 import { SignupScreen } from './src/screens/SignupScreen';
+import { ForgotScreen } from './src/screens/ForgotScreen';
 import { RegisterRiderScreen } from './src/screens/RegisterRiderScreen';
 import { HomeScreen } from './src/screens/HomeScreen';
 import { JobsScreen } from './src/screens/JobsScreen';
@@ -13,7 +14,9 @@ import { DuesScreen } from './src/screens/DuesScreen';
 import { AlertsScreen } from './src/screens/AlertsScreen';
 import { api, hasSavedToken, logout, onAuthExpired } from './src/api';
 import { connectSocket, disconnectSocket } from './src/socket';
+import { clearRiderPrefetch, prefetchRider, seedRiderMe } from './src/riderPrefetch';
 import { formatRupees, theme } from './src/theme';
+import { Splash } from './src/Splash';
 import { useNewJobAlerts } from './src/useNewJobAlerts';
 import { useSystemAlerts } from './src/useSystemAlerts';
 import { unlockAudio } from './src/sound';
@@ -38,9 +41,11 @@ type Tab = 'home' | 'jobs' | 'deliveries' | 'earnings' | 'dues' | 'alerts';
 
 /** Root export — provides device-local language state to the whole tree. */
 export default function App() {
+  const [splashDone, setSplashDone] = useState(false);
   return (
     <LanguageProvider>
       <AppRoot />
+      {!splashDone && <Splash onDone={() => setSplashDone(true)} />}
     </LanguageProvider>
   );
 }
@@ -48,7 +53,7 @@ export default function App() {
 function AppRoot() {
   const { t } = useLang();
   const [stage, setStage] = useState<Stage>(hasSavedToken() ? 'resolving' : 'login');
-  const [authScreen, setAuthScreen] = useState<'login' | 'signup'>('login');
+  const [authScreen, setAuthScreen] = useState<'login' | 'signup' | 'forgot'>('login');
   const [tab, setTab] = useState<Tab>('home');
   const [online, setOnline] = useState(false);
   const [sessionExpired, setSessionExpired] = useState(false);
@@ -103,6 +108,10 @@ function AppRoot() {
       setTab('home');
       setStage('app');
       reachedAppRef.current = true;
+      // Seed the shared cache from this profile, then warm jobs + delivery
+      // history in the background so every tab renders instantly on first tap.
+      seedRiderMe(rider);
+      void prefetchRider().catch(() => undefined);
     } catch (err) {
       // A 401 / expired session must NOT be treated as "not a rider yet" — the
       // onUnauthorized listener already routes us to login. Only a 403/404
@@ -138,6 +147,7 @@ function AppRoot() {
   useEffect(() => {
     return onAuthExpired(() => {
       setOnline(false);
+      clearRiderPrefetch();
       setSessionExpired(reachedAppRef.current);
       reachedAppRef.current = false;
       setAuthScreen('login');
@@ -148,6 +158,7 @@ function AppRoot() {
   function doLogout() {
     void unregisterPushToken();
     logout();
+    clearRiderPrefetch();
     setOnline(false);
     setSessionExpired(false);
     setAuthScreen('login');
@@ -167,11 +178,17 @@ function AppRoot() {
               }}
               onBackToLogin={() => setAuthScreen('login')}
             />
+          ) : authScreen === 'forgot' ? (
+            <ForgotScreen
+              onDone={() => setAuthScreen('login')}
+              onBackToLogin={() => setAuthScreen('login')}
+            />
           ) : (
             <LoginScreen
               onLoggedIn={resolveRider}
               sessionExpired={sessionExpired}
               onSignUp={() => setAuthScreen('signup')}
+              onForgot={() => setAuthScreen('forgot')}
             />
           )
         )}

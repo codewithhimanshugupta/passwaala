@@ -7,6 +7,7 @@ import { AuthPayload } from '../auth/auth-payload';
 import { OrdersService } from './orders.service';
 import { AdvanceOrderDto } from './dto/advance-order.dto';
 import { PlaceOrderDto } from './dto/place-order.dto';
+import { POSCreateSaleDto } from './dto/pos-create-sale.dto';
 import { MarkUnavailableDto } from './dto/mark-unavailable.dto';
 import { FeedQuery } from './dto/feed-query.dto';
 import { AddOrderItemsDto } from './dto/add-order-items.dto';
@@ -30,10 +31,18 @@ export class OrdersController {
     return this.orders.place(user.sub, dto);
   }
 
+  /** Shopkeeper: ring up an in-store POS (counter) cash sale for their OWN shop.
+   *  Shop-scoped via @ShopId (JWT) — the shopId is never taken from the body. */
+  @Roles(UserRole.SHOPKEEPER)
+  @Post('pos')
+  placePos(@ShopId() shopId: string | undefined, @Body() dto: POSCreateSaleDto) {
+    return this.orders.placePos(shopId, dto);
+  }
+
   /** Their order history (newest first), keyset paginated (?limit=&cursor=). */
   @Get('history')
   history(@CurrentUser() user: AuthPayload, @Query() page: PaginationQuery) {
-    return this.orders.historyForCustomer(user.sub, page);
+    return this.orders.historyForCustomer(user.sub, page, (page as Record<string, string>).mode);
   }
 
   /**

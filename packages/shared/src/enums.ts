@@ -55,6 +55,10 @@ export enum VerificationStatus {
  */
 export enum OrderStatus {
   PLACED = 'PLACED',
+  // Medical/prescription flow: the shop is building the itemized bill from an
+  // uploaded prescription before the customer can pay. Set on a shop-quoted
+  // prescription order until it is quoted → AWAITING_PAYMENT.
+  QUOTE_PENDING = 'QUOTE_PENDING',
   ACCEPTED = 'ACCEPTED',
   AWAITING_PAYMENT = 'AWAITING_PAYMENT',
   PREPARING = 'PREPARING',
@@ -77,6 +81,9 @@ export enum OrderStatus {
 export enum PaymentMethod {
   UPI_DIRECT = 'UPI_DIRECT',
   COD = 'COD',
+  /** Cash tendered at the counter for an in-store POS sale (shopkeeper-created,
+   *  marked paid immediately). Never used in the delivery/rider flow. */
+  CASH = 'CASH',
 }
 
 /**
@@ -115,6 +122,8 @@ export enum LedgerEntryType {
   DISCOUNT_GIVEN = 'DISCOUNT_GIVEN',
   /** NearBaz pays a shop its negative balance — positive debit toward 0. */
   SHOP_PAYOUT = 'SHOP_PAYOUT',
+  /** Shop owes CPC ad spend for sponsored placement — positive debit, billed at day-end (+GST). */
+  AD_SPEND = 'AD_SPEND',
 }
 
 /** Rider ledger entry type — mirrors LedgerEntryType for the rider side. */
@@ -200,3 +209,41 @@ export enum BulkOrderStatus {
   DELIVERED        = 'DELIVERED',
   CANCELLED        = 'CANCELLED',
 }
+
+/**
+ * Sponsored-ad campaign lifecycle (append-only). Ads are OPT-IN — a shop enables
+ * promotion → ACTIVE. Auto-flips EXHAUSTED (budget spent) / EXPIRED (past end);
+ * admin/shop can PAUSE. Only ACTIVE campaigns pin a shop top of discovery + bill.
+ */
+export enum AdCampaignStatus {
+  ACTIVE    = 'ACTIVE',
+  PAUSED    = 'PAUSED',
+  EXHAUSTED = 'EXHAUSTED',
+  EXPIRED   = 'EXPIRED',
+}
+
+/** Ad interaction event (append-only). CLICK is CPC-billed once per customer per day. */
+export enum AdEventType {
+  IMPRESSION = 'IMPRESSION',
+  CLICK      = 'CLICK',
+}
+
+/**
+ * Prescription (medical-store-only) lifecycle (append-only). SUBMITTED (customer
+ * uploaded Rx) → QUOTED (shop built the itemized bill → an Order) → CONVERTED
+ * (customer paid). REJECTED if the shop can't fulfil / read it.
+ */
+export enum PrescriptionStatus {
+  SUBMITTED = 'SUBMITTED',
+  QUOTED    = 'QUOTED',
+  CONVERTED = 'CONVERTED',
+  REJECTED  = 'REJECTED',
+}
+
+/**
+ * The shop-category slug that unlocks the prescription order flow. Medical shops
+ * (pharmacies) can't be shopped from a catalog — customers upload a prescription
+ * and the shop builds the bill. Kept as a shared constant so customer/shopkeeper
+ * apps and the API all gate on the same slug.
+ */
+export const MEDICAL_CATEGORY = 'medical';

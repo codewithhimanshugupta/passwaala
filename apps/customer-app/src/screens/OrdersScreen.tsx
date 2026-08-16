@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { OrderStatus } from '@passwaala/shared';
 import { api } from '../api';
+import { getPrefetchedOrders } from '../ordersPrefetch';
 import { loadFromServer } from '../cart';
 import type { OrderHistoryItem, BulkOrderSummary } from '../types';
 import { formatRupees, shadow, theme } from '../theme';
@@ -19,8 +20,10 @@ import { useLang } from '../i18n/LanguageContext';
 import type { Strings } from '../i18n/strings';
 import { BulkOrderDetailScreen } from './BulkOrderDetailScreen';
 
-/** Orders fetched per page (initial load + each scroll-to-end). */
-const PAGE_SIZE = 20;
+/** Ongoing = one fast call (live orders are few). History/Bulk = 5-per-page. */
+const ONGOING_LIMIT = 50;
+const HISTORY_PAGE = 5;
+const BULK_PAGE = 5;
 
 const BULK_PURPLE = '#7C3AED';
 const BULK_PURPLE_LIGHT = '#EDE9FE';
@@ -37,69 +40,96 @@ export function OrdersScreen({
   onBrowse: () => void;
 }) {
   const { t } = useLang();
-  const [orders, setOrders] = useState<OrderHistoryItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [reordering, setReordering] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<ActiveTab>('ongoing');
+  const [reordering, setReordering] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
-  // Keyset pagination for regular orders
-  const [nextCursor, setNextCursor] = useState<string | null>(null);
-  const [loadingMore, setLoadingMore] = useState(false);
+  // Seed from the app-open prefetch so the screen renders instantly (no skeletons)
+  // when data is already warm. Null → cold open, fall back to on-mount fetch.
+  const prefetched = getPrefetchedOrders();
 
-  // Bulk orders state
-  const [bulkOrders, setBulkOrders] = useState<BulkOrderSummary[]>([]);
+  // Ongoing (live) orders — one fast dedicated call, auto-loaded on app open.
+  const [ongoing, setOngoing] = useState<OrderHistoryItem[]>(prefetched?.ongoing ?? []);
+  const [ongoingLoading, setOngoingLoading] = useState(!prefetched);
+  const [ongoingError, setOngoingError] = useState<string | null>(null);
+
+  // History (terminal) orders — 5-per-page, lazy on first tab open, scroll auto-load.
+  const [history, setHistory] = useState<OrderHistoryItem[]>(prefetched?.history ?? []);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyLoaded, setHistoryLoaded] = useState(!!prefetched);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [historyCursor, setHistoryCursor] = useState<string | null>(prefetched?.historyCursor ?? null);
+  const [historyLoadingMore, setHistoryLoadingMore] = useState(false);
+
+  // Bulk orders — 5-per-page, lazy on first tab open.
+  const [bulkOrders, setBulkOrders] = useState<BulkOrderSummary[]>(prefetched?.bulk ?? []);
   const [bulkLoading, setBulkLoading] = useState(false);
+  const [bulkLoaded, setBulkLoaded] = useState(!!prefetched);
   const [bulkError, setBulkError] = useState<string | null>(null);
-  const [bulkNextCursor, setBulkNextCursor] = useState<string | null>(null);
+  const [bulkNextCursor, setBulkNextCursor] = useState<string | null>(prefetched?.bulkCursor ?? null);
   const [bulkLoadingMore, setBulkLoadingMore] = useState(false);
 
   // Inline bulk detail navigation
   const [openBulkOrderId, setOpenBulkOrderId] = useState<string | null>(null);
 
-  // Load the first page of regular orders (fresh). Resets list + cursor.
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  // ── Ongoing ── single call, only live orders (fast). Silent refresh = no flicker.
+  const loadOngoing = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setOngoingLoading(true);
+    setOngoingError(null);
     try {
-      const page = (await api.orderHistory({ limit: PAGE_SIZE })) as {
+      const page = (await api.orderHistory({ limit: ONGOING_LIMIT, mode: 'ongoing' })) as {
         items: OrderHistoryItem[];
         nextCursor: string | null;
       };
-      setOrders(page.items);
-      setNextCursor(page.nextCursor);
+      setOngoing(page.items);
     } catch (e) {
-      setError((e as Error).message);
+      setOngoingError((e as Error).message);
     } finally {
-      setLoading(false);
+      if (!opts?.silent) setOngoingLoading(false);
     }
   }, []);
 
-  // Append the next page of regular orders when the user scrolls to the end.
-  const loadMore = useCallback(async () => {
-    if (loadingMore || !nextCursor) return;
-    setLoadingMore(true);
+  // ── History ── first page (terminal orders only), 5 per page.
+  const loadHistory = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setHistoryLoading(true);
+    setHistoryError(null);
     try {
-      const page = (await api.orderHistory({ limit: PAGE_SIZE, cursor: nextCursor })) as {
+      const page = (await api.orderHistory({ limit: HISTORY_PAGE, mode: 'history' })) as {
         items: OrderHistoryItem[];
         nextCursor: string | null;
       };
-      setOrders((prev) => [...prev, ...page.items]);
-      setNextCursor(page.nextCursor);
+      setHistory(page.items);
+      setHistoryCursor(page.nextCursor);
+    } catch (e) {
+      setHistoryError((e as Error).message);
+    } finally {
+      if (!opts?.silent) setHistoryLoading(false);
+    }
+  }, []);
+
+  const loadMoreHistory = useCallback(async () => {
+    if (historyLoadingMore || !historyCursor) return;
+    setHistoryLoadingMore(true);
+    try {
+      const page = (await api.orderHistory({ limit: HISTORY_PAGE, cursor: historyCursor, mode: 'history' })) as {
+        items: OrderHistoryItem[];
+        nextCursor: string | null;
+      };
+      setHistory((prev) => [...prev, ...page.items]);
+      setHistoryCursor(page.nextCursor);
     } catch {
       // Keep what's loaded; the next scroll retries.
     } finally {
-      setLoadingMore(false);
+      setHistoryLoadingMore(false);
     }
-  }, [loadingMore, nextCursor]);
+  }, [historyLoadingMore, historyCursor]);
 
-  // Load the first page of bulk orders.
-  const loadBulk = useCallback(async () => {
-    setBulkLoading(true);
+  // ── Bulk ── first page, 5 per page.
+  const loadBulk = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setBulkLoading(true);
     setBulkError(null);
     try {
-      const page = (await api.bulkOrderHistory({ limit: PAGE_SIZE })) as {
+      const page = (await api.bulkOrderHistory({ limit: BULK_PAGE })) as {
         items: BulkOrderSummary[];
         nextCursor: string | null;
       };
@@ -108,16 +138,15 @@ export function OrdersScreen({
     } catch (e) {
       setBulkError((e as Error).message);
     } finally {
-      setBulkLoading(false);
+      if (!opts?.silent) setBulkLoading(false);
     }
   }, []);
 
-  // Append the next page of bulk orders.
   const loadMoreBulk = useCallback(async () => {
     if (bulkLoadingMore || !bulkNextCursor) return;
     setBulkLoadingMore(true);
     try {
-      const page = (await api.bulkOrderHistory({ limit: PAGE_SIZE, cursor: bulkNextCursor })) as {
+      const page = (await api.bulkOrderHistory({ limit: BULK_PAGE, cursor: bulkNextCursor })) as {
         items: BulkOrderSummary[];
         nextCursor: string | null;
       };
@@ -130,32 +159,35 @@ export function OrdersScreen({
     }
   }, [bulkLoadingMore, bulkNextCursor]);
 
+  // Auto-load ongoing the moment the screen opens. When prefetched, refresh
+  // silently so the warm list stays on screen (no skeleton flash).
   useEffect(() => {
-    void load();
-  }, [load]);
+    void loadOngoing({ silent: !!prefetched });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadOngoing]);
 
-  // Load bulk orders lazily — only when the tab is first activated.
-  const [bulkLoaded, setBulkLoaded] = useState(false);
+  // Lazy-load history / bulk only when their tab is first activated.
   useEffect(() => {
+    if (activeTab === 'history' && !historyLoaded) {
+      setHistoryLoaded(true);
+      void loadHistory();
+    }
     if (activeTab === 'bulk' && !bulkLoaded) {
       setBulkLoaded(true);
       void loadBulk();
     }
-  }, [activeTab, bulkLoaded, loadBulk]);
+  }, [activeTab, historyLoaded, bulkLoaded, loadHistory, loadBulk]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      if (activeTab === 'bulk') {
-        setBulkLoaded(true);
-        await loadBulk();
-      } else {
-        await load();
-      }
+      if (activeTab === 'ongoing') await loadOngoing({ silent: true });
+      else if (activeTab === 'history') { setHistoryLoaded(true); await loadHistory({ silent: true }); }
+      else { setBulkLoaded(true); await loadBulk({ silent: true }); }
     } finally {
       setRefreshing(false);
     }
-  }, [activeTab, load, loadBulk]);
+  }, [activeTab, loadOngoing, loadHistory, loadBulk]);
 
   async function reorder(orderId: string) {
     setReordering(orderId);
@@ -171,7 +203,7 @@ export function OrdersScreen({
   }
 
   function handleRated(orderId: string, rating: number) {
-    setOrders((prev) =>
+    setHistory((prev) =>
       prev.map((o) =>
         o.orderId === orderId ? { ...o, review: { rating } } : o,
       ),
@@ -188,28 +220,84 @@ export function OrdersScreen({
     );
   }
 
-  if (loading) {
-    return (
-      <View style={styles.root}>
-        <ScreenHeader />
-        <OrdersSkeleton />
-      </View>
-    );
-  }
-  if (error) return <ErrorState message={error} onRetry={load} />;
+  return (
+    <View style={styles.root}>
+      <ScreenHeader />
+      <TabRow activeTab={activeTab} onTab={setActiveTab} />
 
-  // Bulk tab rendering
-  if (activeTab === 'bulk') {
-    return (
-      <View style={styles.root}>
-        <ScreenHeader />
-        <TabRow activeTab={activeTab} onTab={setActiveTab} />
-        {bulkLoading ? (
+      {activeTab === 'ongoing' ? (
+        ongoingLoading && ongoing.length === 0 ? (
+          <OrdersSkeleton />
+        ) : ongoingError && ongoing.length === 0 ? (
+          <ErrorState message={ongoingError} onRetry={() => loadOngoing()} />
+        ) : (
+          <FlatList
+            data={ongoing}
+            keyExtractor={(o) => o.orderId}
+            contentContainerStyle={styles.list}
+            showsVerticalScrollIndicator={false}
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+            ListEmptyComponent={
+              <EmptyState
+                title="No ongoing orders"
+                subtitle="Start shopping to place your first order!"
+                action={<Button label={t.orders.startShopping} onPress={onBrowse} fullWidth={false} />}
+              />
+            }
+            renderItem={({ item: o }) => (
+              <OrderCard
+                order={o}
+                reordering={reordering === o.orderId}
+                onOpen={() => onOpenOrder(o.orderId)}
+                onReorder={() => reorder(o.orderId)}
+                onRated={(rating) => handleRated(o.orderId, rating)}
+              />
+            )}
+          />
+        )
+      ) : activeTab === 'history' ? (
+        historyLoading && history.length === 0 ? (
+          <OrdersSkeleton />
+        ) : historyError && history.length === 0 ? (
+          <ErrorState message={historyError} onRetry={() => loadHistory()} />
+        ) : (
+          <FlatList
+            data={history}
+            keyExtractor={(o) => o.orderId}
+            contentContainerStyle={styles.list}
+            showsVerticalScrollIndicator={false}
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+            onEndReached={loadMoreHistory}
+            onEndReachedThreshold={0.4}
+            ListEmptyComponent={
+              <EmptyState
+                title="No order history"
+                subtitle="Your completed and cancelled orders will appear here."
+              />
+            }
+            ListFooterComponent={
+              historyLoadingMore ? (
+                <ActivityIndicator style={styles.footer} color={theme.color.primary} />
+              ) : null
+            }
+            renderItem={({ item: o }) => (
+              <OrderCard
+                order={o}
+                reordering={reordering === o.orderId}
+                onOpen={() => onOpenOrder(o.orderId)}
+                onReorder={() => reorder(o.orderId)}
+                onRated={(rating) => handleRated(o.orderId, rating)}
+              />
+            )}
+          />
+        )
+      ) : (
+        bulkLoading && bulkOrders.length === 0 ? (
           <View style={styles.bulkLoadingWrap}>
             <ActivityIndicator color={BULK_PURPLE} />
           </View>
-        ) : bulkError ? (
-          <ErrorState message={bulkError} onRetry={loadBulk} />
+        ) : bulkError && bulkOrders.length === 0 ? (
+          <ErrorState message={bulkError} onRetry={() => loadBulk()} />
         ) : (
           <FlatList
             data={bulkOrders}
@@ -234,64 +322,8 @@ export function OrdersScreen({
               <BulkOrderCard order={item} onOpen={() => setOpenBulkOrderId(item.id)} />
             )}
           />
-        )}
-      </View>
-    );
-  }
-
-  // Regular orders (ongoing / history) — same as before but with the extra tab
-  if (orders.length === 0) {
-    return (
-      <View style={styles.root}>
-        <ScreenHeader />
-        <TabRow activeTab={activeTab} onTab={setActiveTab} />
-        <EmptyState
-          title={t.orders.noOrdersTitle}
-          subtitle={t.orders.noOrdersSubtitle}
-          action={<Button label={t.orders.startShopping} onPress={onBrowse} fullWidth={false} />}
-        />
-      </View>
-    );
-  }
-
-  return (
-    <View style={styles.root}>
-      <ScreenHeader />
-      <TabRow activeTab={activeTab} onTab={setActiveTab} />
-
-      <FlatList
-        data={orders.filter(o => {
-          const terminal = [OrderStatus.DELIVERED, OrderStatus.CANCELLED, OrderStatus.REJECTED, OrderStatus.REFUND_PENDING, OrderStatus.REFUNDED].includes(o.status as OrderStatus);
-          return activeTab === 'ongoing' ? !terminal : terminal;
-        })}
-        keyExtractor={(o) => o.orderId}
-        contentContainerStyle={styles.list}
-        showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-        onEndReached={loadMore}
-        onEndReachedThreshold={0.4}
-        ListEmptyComponent={
-          <EmptyState
-            title={activeTab === 'ongoing' ? 'No ongoing orders' : 'No order history'}
-            subtitle={activeTab === 'ongoing' ? 'Start shopping to place your first order!' : 'Your completed and cancelled orders will appear here.'}
-            action={activeTab === 'ongoing' ? <Button label={t.orders.startShopping} onPress={onBrowse} fullWidth={false} /> : undefined}
-          />
-        }
-        ListFooterComponent={
-          loadingMore ? (
-            <ActivityIndicator style={styles.footer} color={theme.color.primary} />
-          ) : null
-        }
-        renderItem={({ item: o }) => (
-          <OrderCard
-            order={o}
-            reordering={reordering === o.orderId}
-            onOpen={() => onOpenOrder(o.orderId)}
-            onReorder={() => reorder(o.orderId)}
-            onRated={(rating) => handleRated(o.orderId, rating)}
-          />
-        )}
-      />
+        )
+      )}
     </View>
   );
 }

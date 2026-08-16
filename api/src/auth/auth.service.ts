@@ -39,6 +39,29 @@ export class AuthService {
 
   private static readonly OTP_TTL_MS = 5 * 60 * 1000;
 
+  /** Strip country code and non-digits — always stores exactly 10 digits. */
+  static normalizePhone(phone: string): string {
+    return phone.replace(/\D/g, '').slice(-10);
+  }
+
+  /** Verify a MSG91 widget access token server-side. Returns true on success. */
+  private async verifyMsg91Token(token: string): Promise<boolean> {
+    try {
+      const res = await fetch('https://control.msg91.com/api/v5/widget/verifyAccessToken', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          authkey: process.env.MSG91_AUTH_KEY,
+          'access-token': token,
+        }),
+      });
+      const data = (await res.json()) as { type?: string };
+      return data?.type === 'success';
+    } catch {
+      return false;
+    }
+  }
+
   constructor(
     private readonly jwt: JwtService,
     private readonly prisma: PrismaService,
@@ -67,17 +90,12 @@ export class AuthService {
   }
 
   requestOtp(phone: string, appType = 'CUSTOMER'): { sent: true } {
-    const normalized = phone.startsWith('+91') ? phone : `+91${phone}`;
+    const normalized = AuthService.normalizePhone(phone);
     const code = this.generateOtp();
-    // Key includes appType so rider + customer OTPs for same phone don't interfere
     this.otpStore.set(`${normalized}:${appType}`, {
       code,
       expiresAt: Date.now() + AuthService.OTP_TTL_MS,
     });
-
-    // OTP delivery: no SMS provider wired yet, so we log the code. In production
-    // this is a TEMPORARY testing measure — replace with a real SMS/WhatsApp
-    // sender (MSG91/Twilio) before public launch, and drop this log.
     this.logger.log(`OTP for ${normalized} [${appType}]: ${code}`);
     return { sent: true };
   }
@@ -91,22 +109,26 @@ export class AuthService {
    */
   async verifyOtp(
     phone: string,
-    code: string,
     appType = 'CUSTOMER',
+    msg91Token?: string,
+    code?: string,
   ): Promise<{ accessToken: string; role: UserRole }> {
-    const normalized = phone.startsWith('+91') ? phone : `+91${phone}`;
+    const normalized = AuthService.normalizePhone(phone);
     const otpKey = `${normalized}:${appType}`;
-    const devBypass = process.env.NODE_ENV !== 'production';
 
-    if (!devBypass) {
-      const entry = this.otpStore.get(otpKey);
-      if (!entry) throw new UnauthorizedException('No OTP requested for this number');
-      if (Date.now() > entry.expiresAt) {
-        this.otpStore.delete(otpKey);
-        throw new UnauthorizedException('OTP expired');
+    if (process.env.NODE_ENV === 'production') {
+      if (!msg91Token) throw new UnauthorizedException('Phone verification token required.');
+      const ok = await this.verifyMsg91Token(msg91Token);
+      if (!ok) throw new UnauthorizedException('Phone verification failed or expired.');
+    } else {
+      // Dev: accept any code against the in-memory store, or bypass entirely
+      if (code) {
+        const entry = this.otpStore.get(otpKey);
+        if (entry && entry.code === code && Date.now() <= entry.expiresAt) {
+          this.otpStore.delete(otpKey);
+        }
+        // else: dev bypass — proceed anyway
       }
-      if (entry.code !== code) throw new UnauthorizedException('Invalid OTP');
-      this.otpStore.delete(otpKey);
     }
 
     const roleForCreate = AuthService.appTypeToRole(appType);
@@ -158,10 +180,6 @@ export class AuthService {
     };
   }
 
-  /**
-   * Resolve the effective appType, honouring the OWNER-in-admin-app rule: an
-   * OWNER signing in via the ADMIN app stays OWNER (never minted as a new admin).
-   */
   private async resolveAppType(normalized: string, appType: string): Promise<string> {
     if (appType === 'ADMIN') {
       const owner = await this.prisma.user.findUnique({
@@ -202,8 +220,20 @@ export class AuthService {
     password: string,
     pin: string | undefined,
     appType = 'CUSTOMER',
+    msg91Token?: string,
   ): Promise<{ accessToken: string; role: UserRole }> {
-    const normalized = phone.startsWith('+91') ? phone : `+91${phone}`;
+    const normalized = AuthService.normalizePhone(phone);
+
+    // In production, every signup must prove phone ownership via MSG91 widget token.
+    if (process.env.NODE_ENV === 'production') {
+      if (!msg91Token) {
+        throw new UnauthorizedException('Phone verification required before registration.');
+      }
+      const verified = await this.verifyMsg91Token(msg91Token);
+      if (!verified) {
+        throw new UnauthorizedException('Phone verification failed or expired. Please verify your number again.');
+      }
+    }
     const displayName = titleCaseName(name);
     const effectiveAppType = await this.resolveAppType(normalized, appType);
     const roleForCreate = AuthService.appTypeToRole(effectiveAppType);
@@ -260,7 +290,7 @@ export class AuthService {
     appType = 'CUSTOMER',
     method?: 'pin' | 'password',
   ): Promise<{ accessToken: string; role: UserRole }> {
-    const normalized = phone.startsWith('+91') ? phone : `+91${phone}`;
+    const normalized = AuthService.normalizePhone(phone);
     const effectiveAppType = await this.resolveAppType(normalized, appType);
 
     const user = await this.prisma.user.findUnique({
@@ -300,6 +330,44 @@ export class AuthService {
       select: { loginOtpEnc: true },
     });
     return decryptOtp(user?.loginOtpEnc);
+  }
+
+  /**
+   * Reset password and/or PIN after MSG91 OTP verification.
+   * User must already exist — this does not create accounts.
+   */
+  async resetCredentials(
+    phone: string,
+    appType = 'CUSTOMER',
+    msg91Token: string,
+    newPassword?: string,
+    newPin?: string,
+  ): Promise<{ ok: true }> {
+    const normalized = AuthService.normalizePhone(phone);
+
+    if (process.env.NODE_ENV === 'production') {
+      const ok = await this.verifyMsg91Token(msg91Token);
+      if (!ok) throw new UnauthorizedException('Phone verification failed or expired.');
+    }
+
+    const effectiveAppType = await this.resolveAppType(normalized, appType);
+    const user = await this.prisma.user.findUnique({
+      where: { phone_appType: { phone: normalized, appType: effectiveAppType } },
+    });
+    if (!user) throw new UnauthorizedException('No account found for this number.');
+
+    const updates: Record<string, unknown> = {};
+    if (newPassword) updates.passwordHash = hashPassword(newPassword);
+    if (newPin) {
+      updates.pinHash = hashPassword(newPin);
+      updates.loginPinEnc = encryptOtp(newPin);
+    }
+    if (Object.keys(updates).length === 0) {
+      throw new UnauthorizedException('Provide a new password or PIN to reset.');
+    }
+
+    await this.prisma.user.update({ where: { id: user.id }, data: updates });
+    return { ok: true };
   }
 
   /**

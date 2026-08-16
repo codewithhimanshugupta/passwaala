@@ -58,6 +58,7 @@ interface GstSummary {
   perShop?: Array<{
     shopId: string;
     shopName?: string | null;
+    shopGstin?: string | null;
     taxableValuePaise: number;
     cgstPaise: number;
     sgstPaise: number;
@@ -96,6 +97,53 @@ function readTotals(s: GstSummary | null): GstSummary['totals'] | null {
       (raw.cgstPaise ?? 0) + (raw.sgstPaise ?? 0) + (raw.igstPaise ?? 0),
     invoiceCount: raw.invoiceCount ?? 0,
   };
+}
+
+/** GSTR-1 export shape returned by the API (B2B rows + no-GSTIN bucket). */
+interface Gstr1Export {
+  periodStart: string;
+  periodEnd: string;
+  b2b: Array<{
+    gstin: string; invoiceNumber: string; invoiceDate: string;
+    taxableValuePaise: number; rate: number;
+    cgstPaise: number; sgstPaise: number; igstPaise: number; totalPaise: number;
+  }>;
+  b2cUnregistered?: Array<{
+    shopId: string; invoiceNumber: string; invoiceDate: string;
+    taxableValuePaise: number; rate: number;
+    cgstPaise: number; sgstPaise: number; igstPaise: number; totalPaise: number;
+  }>;
+  missingGstinCount?: number;
+  totals: {
+    invoiceCount: number; taxableValuePaise: number;
+    cgstPaise: number; sgstPaise: number; igstPaise: number; totalPaise: number;
+  };
+}
+
+const rupees = (paise: number) => (paise / 100).toFixed(2);
+
+/** Serialize rows to a CSV string; escapes commas/quotes/newlines per RFC 4180. */
+function toCsv(headers: string[], rows: (string | number)[][]): string {
+  const esc = (v: string | number) => {
+    const s = String(v);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  return [headers, ...rows].map((r) => r.map(esc).join(',')).join('\r\n');
+}
+
+/** Trigger a browser download of `csv` as `filename` (web only; no-op elsewhere). */
+function downloadCsv(filename: string, csv: string) {
+  if (typeof document === 'undefined') return;
+  // Prepend a BOM so Excel opens UTF-8 CSV with rupee symbols correctly.
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 export function GstScreen() {
@@ -238,6 +286,41 @@ export function GstScreen() {
     } finally {
       setReportBusy(null);
     }
+  }
+
+  // Export the fetched summary (per-shop + totals) as a CSV that opens in Excel.
+  function exportSummaryCsv() {
+    const t = readTotals(summary);
+    if (!t) { flash('Fetch summary first.'); return; }
+    const headers = ['Shop', 'GSTIN', 'Invoices', 'Taxable ₹', 'CGST ₹', 'SGST ₹', 'IGST ₹', 'Total GST ₹'];
+    const rows: (string | number)[][] = (summary?.perShop ?? []).map((r) => [
+      r.shopName ?? r.shopId,
+      (r as { shopGstin?: string | null }).shopGstin ?? '—',
+      r.invoiceCount,
+      rupees(r.taxableValuePaise), rupees(r.cgstPaise), rupees(r.sgstPaise), rupees(r.igstPaise), rupees(r.totalGstPaise),
+    ]);
+    rows.push([
+      'TOTAL', '', t.invoiceCount,
+      rupees(t.taxableValuePaise), rupees(t.cgstPaise), rupees(t.sgstPaise), rupees(t.igstPaise), rupees(t.totalGstPaise),
+    ]);
+    downloadCsv(`gst-summary_${periodStart}_${periodEnd}.csv`, toCsv(headers, rows));
+  }
+
+  // Export the fetched GSTR-1 (B2B rows + no-GSTIN rows) as an Excel-openable CSV.
+  function exportGstr1Csv() {
+    const g = gstr1 as Gstr1Export | null;
+    if (!g) { flash('Fetch GSTR-1 export first.'); return; }
+    const headers = ['Section', 'GSTIN', 'Invoice No', 'Invoice Date', 'Rate %', 'Taxable ₹', 'CGST ₹', 'SGST ₹', 'IGST ₹', 'Total ₹'];
+    const rows: (string | number)[][] = [];
+    for (const r of g.b2b ?? []) {
+      rows.push(['B2B', r.gstin, r.invoiceNumber, r.invoiceDate.slice(0, 10), r.rate,
+        rupees(r.taxableValuePaise), rupees(r.cgstPaise), rupees(r.sgstPaise), rupees(r.igstPaise), rupees(r.totalPaise)]);
+    }
+    for (const r of g.b2cUnregistered ?? []) {
+      rows.push(['B2C (no GSTIN)', '—', r.invoiceNumber, r.invoiceDate.slice(0, 10), r.rate,
+        rupees(r.taxableValuePaise), rupees(r.cgstPaise), rupees(r.sgstPaise), rupees(r.igstPaise), rupees(r.totalPaise)]);
+    }
+    downloadCsv(`gstr1_${periodStart}_${periodEnd}.csv`, toCsv(headers, rows));
   }
 
   if (loading) {
@@ -427,6 +510,16 @@ export function GstScreen() {
                 <Text style={styles.secondaryBtnText}>Fetch GSTR-1 export</Text>
               )}
             </Pressable>
+            {summary ? (
+              <Pressable style={styles.secondaryBtn} onPress={exportSummaryCsv}>
+                <Text style={styles.secondaryBtnText}>⬇ Summary Excel (CSV)</Text>
+              </Pressable>
+            ) : null}
+            {gstr1 !== null ? (
+              <Pressable style={styles.secondaryBtn} onPress={exportGstr1Csv}>
+                <Text style={styles.secondaryBtnText}>⬇ GSTR-1 Excel (CSV)</Text>
+              </Pressable>
+            ) : null}
           </View>
 
           {totals ? (
@@ -461,6 +554,12 @@ export function GstScreen() {
           {gstr1 !== null ? (
             <View style={styles.jsonBox}>
               <Text style={styles.jsonTitle}>GSTR-1 B2B export (portal-uploadable)</Text>
+              {(gstr1 as Gstr1Export).missingGstinCount ? (
+                <Text style={styles.gstinWarn}>
+                  ⚠ {(gstr1 as Gstr1Export).missingGstinCount} invoice(s) from shops without a GSTIN are listed
+                  separately as B2C (unregistered) — they are NOT included in the B2B upload.
+                </Text>
+              ) : null}
               <ScrollView style={styles.jsonScroll} horizontal={false}>
                 <TextInput
                   style={styles.jsonText}
@@ -589,6 +688,7 @@ const styles = StyleSheet.create({
 
   jsonBox: { gap: theme.space.sm, marginTop: theme.space.sm },
   jsonTitle: { fontSize: theme.font.small, fontWeight: '700', color: theme.color.textMuted, textTransform: 'uppercase', letterSpacing: 0.4 },
+  gstinWarn: { fontSize: theme.font.small, color: '#B45309', backgroundColor: '#FEF3C7', borderRadius: theme.radius.sm, padding: theme.space.sm, marginTop: theme.space.sm, lineHeight: 18 },
   jsonScroll: { maxHeight: 320, borderWidth: 1, borderColor: theme.color.border, borderRadius: theme.radius.md, backgroundColor: theme.color.primaryDark },
   jsonText: {
     fontSize: theme.font.small, color: '#E2E8F0', padding: theme.space.md,

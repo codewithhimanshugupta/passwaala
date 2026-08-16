@@ -10,6 +10,7 @@ export interface CreateCouponDto {
   value?: number;
   description?: string;
   minOrderPaise?: number;
+  maxDiscountPaise?: number | null;
   maxUses?: number | null;
   maxUsesPerUser?: number | null;
   validFrom?: string | null;
@@ -46,6 +47,7 @@ export class CouponsService {
         value: dto.value ?? 0,
         description: dto.description?.trim() || null,
         minOrderPaise: dto.minOrderPaise ?? 0,
+        maxDiscountPaise: dto.maxDiscountPaise ?? null,
         maxUses: dto.maxUses ?? null,
         maxUsesPerUser: dto.maxUsesPerUser ?? null,
         validFrom: dto.validFrom ? new Date(dto.validFrom) : null,
@@ -88,6 +90,7 @@ export class CouponsService {
     if (dto.value !== undefined) data.value = dto.value;
     if (dto.description !== undefined) data.description = dto.description?.trim() || null;
     if (dto.minOrderPaise !== undefined) data.minOrderPaise = dto.minOrderPaise;
+    if (dto.maxDiscountPaise !== undefined) data.maxDiscountPaise = dto.maxDiscountPaise;
     if (dto.maxUses !== undefined) data.maxUses = dto.maxUses;
     if (dto.maxUsesPerUser !== undefined) data.maxUsesPerUser = dto.maxUsesPerUser;
     if (dto.validFrom !== undefined) data.validFrom = dto.validFrom ? new Date(dto.validFrom) : null;
@@ -152,7 +155,7 @@ export class CouponsService {
           { OR: [{ expiresAt: null }, { expiresAt: { gte: now } }] },
         ],
       },
-      select: { id: true, code: true, type: true, value: true, description: true, minOrderPaise: true, expiresAt: true },
+      select: { id: true, code: true, type: true, value: true, description: true, minOrderPaise: true, maxDiscountPaise: true, expiresAt: true },
       orderBy: { createdAt: 'desc' },
       take: 20,
     });

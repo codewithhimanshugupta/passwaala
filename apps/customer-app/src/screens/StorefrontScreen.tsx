@@ -15,6 +15,7 @@ import {
   View,
 } from 'react-native';
 import type { ProductPublic, ProductDetailPublic } from '@passwaala/shared';
+import { MEDICAL_CATEGORY } from '@passwaala/shared';
 import { api } from '../api';
 import {
   addOne,
@@ -38,6 +39,7 @@ import { ImageOrInitial } from '../ImageOrInitial';
 import { prefetchCheckout } from '../checkoutPrefetch';
 import { bulkCartAddOne, bulkCartSetQty, useBulkCart } from '../bulkCart';
 import { useLang } from '../i18n/LanguageContext';
+import { openMapsDirections } from '../geo';
 
 /** Products rendered per page (client-side pagination; grows on scroll). */
 const PRODUCT_PAGE = 5;
@@ -66,11 +68,14 @@ export function StorefrontScreen({
   shopId,
   onBack,
   onOpenCart,
+  onOpenPrescription,
   fromBulk = false,
 }: {
   shopId: string;
   onBack: () => void;
   onOpenCart: () => void;
+  /** Navigate to the prescription upload flow (medical shops only). */
+  onOpenPrescription: (shopId: string) => void;
   fromBulk?: boolean;
 }) {
   const { t } = useLang();
@@ -283,16 +288,20 @@ export function StorefrontScreen({
   if (error) return <ErrorState message={error} onRetry={load} />;
 
   const cartIsThisShop = cartShopId === shopId;
+  // Medical shops (pharmacies) can't be shopped from a catalog — the customer
+  // uploads a prescription instead. Replace the product list + cart bar with an
+  // "Upload prescription" CTA (header + reviews are kept intact).
+  const isMedical = shop?.shopCategory === MEDICAL_CATEGORY;
   // In bulk mode: show the bulk cart for this specific shop
   const bulkShopLines = fromBulk ? (bulkCart.find(s => s.shopId === shopId)?.lines ?? []) : [];
   const bulkItemCount = bulkShopLines.reduce((s, l) => s + l.qty, 0);
   const bulkTotal = bulkShopLines.reduce((s, l) => s + l.unitPricePaise * l.qty, 0);
-  const showCartBar = fromBulk ? bulkItemCount > 0 : itemCount > 0;
+  const showCartBar = isMedical ? false : (fromBulk ? bulkItemCount > 0 : itemCount > 0);
 
   return (
     <View style={styles.root}>
       <FlatList
-        data={products.slice(0, visibleCount)}
+        data={isMedical ? [] : products.slice(0, visibleCount)}
         keyExtractor={(p) => p.id}
         numColumns={1}
         key="list-1"
@@ -315,14 +324,18 @@ export function StorefrontScreen({
             activeCategory={activeCategory}
             onSelectCategory={setActiveCategory}
             searching={searching}
+            isMedical={isMedical}
+            onUploadPrescription={() => onOpenPrescription(shopId)}
           />
         }
         ListEmptyComponent={
-          <Text style={styles.empty}>
-            {query.trim() || activeCategory
-              ? t.storefront.noProductsMatch
-              : t.storefront.noProductsYet}
-          </Text>
+          isMedical ? null : (
+            <Text style={styles.empty}>
+              {query.trim() || activeCategory
+                ? t.storefront.noProductsMatch
+                : t.storefront.noProductsYet}
+            </Text>
+          )
         }
         renderItem={({ item }) => (
           <ProductRow
@@ -387,6 +400,8 @@ function StoreHeader({
   activeCategory,
   onSelectCategory,
   searching,
+  isMedical,
+  onUploadPrescription,
 }: {
   shop: ShopView | null;
   onBack: () => void;
@@ -400,6 +415,8 @@ function StoreHeader({
   activeCategory: string | null;
   onSelectCategory: (id: string | null) => void;
   searching: boolean;
+  isMedical: boolean;
+  onUploadPrescription: () => void;
 }) {
   const { t } = useLang();
   if (!shop) return null;
@@ -411,7 +428,7 @@ function StoreHeader({
     const destination = hasCoords
       ? `${shop.latitude},${shop.longitude}`
       : encodeURIComponent(addressText);
-    void Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${destination}`);
+    openMapsDirections(destination);
   };
   const callShop = () => {
     if (shop.contactPhone) void Linking.openURL(`tel:${shop.contactPhone}`);
@@ -478,71 +495,81 @@ function StoreHeader({
         </View>
       ) : null}
 
-      <View style={styles.infoStrip}>
-        {(shop as { activeOffer?: { title?: string } | null }).activeOffer?.title ? (
-          <Badge label={(shop as { activeOffer: { title: string } }).activeOffer.title} tone="success" />
-        ) : null}
-      </View>
-
-      {conflict ? (
-        <View style={styles.conflictBox}>
-          <Text style={styles.conflictTitle}>{t.storefront.conflictTitle}</Text>
-          <Text style={styles.conflictMsg}>{conflict.message}</Text>
-          <View style={styles.conflictActions}>
-            <Button label={t.storefront.clearCartAdd} onPress={onClearAndAdd} variant="danger" size="sm" fullWidth={false} />
-            <Button label={t.storefront.keepCurrentCart} onPress={onDismissConflict} variant="ghost" size="sm" fullWidth={false} />
+      {isMedical ? (
+        <View style={styles.rxCta}>
+          <Text style={styles.rxCtaTitle}>{t.rx.storefrontTitle}</Text>
+          <Text style={styles.rxCtaSub}>{t.rx.storefrontSubtitle}</Text>
+          <Button label={t.rx.uploadCta} onPress={onUploadPrescription} />
+        </View>
+      ) : (
+        <>
+          <View style={styles.infoStrip}>
+            {(shop as { activeOffer?: { title?: string } | null }).activeOffer?.title ? (
+              <Badge label={(shop as { activeOffer: { title: string } }).activeOffer.title} tone="success" />
+            ) : null}
           </View>
-        </View>
-      ) : null}
 
-      {notice ? <Text style={styles.notice}>{notice}</Text> : null}
-
-      {/* Search bar */}
-      <View style={styles.searchWrap}>
-        <View style={[styles.searchBar, query.length > 0 && styles.searchBarActive]}>
-          <TextInput
-            style={styles.searchInput}
-            placeholder={t.storefront.searchPlaceholder}
-            placeholderTextColor={theme.color.textFaint}
-            value={query}
-            onChangeText={onQueryChange}
-            returnKeyType="search"
-            autoCorrect={false}
-          />
-          {searching ? (
-            <ActivityIndicator size="small" color={theme.color.primary} />
-          ) : query.length > 0 ? (
-            <Pressable onPress={() => onQueryChange('')} hitSlop={12} style={styles.searchClearBtn}>
-              <Text style={styles.searchClearText}>✕</Text>
-            </Pressable>
+          {conflict ? (
+            <View style={styles.conflictBox}>
+              <Text style={styles.conflictTitle}>{t.storefront.conflictTitle}</Text>
+              <Text style={styles.conflictMsg}>{conflict.message}</Text>
+              <View style={styles.conflictActions}>
+                <Button label={t.storefront.clearCartAdd} onPress={onClearAndAdd} variant="danger" size="sm" fullWidth={false} />
+                <Button label={t.storefront.keepCurrentCart} onPress={onDismissConflict} variant="ghost" size="sm" fullWidth={false} />
+              </View>
+            </View>
           ) : null}
-        </View>
-      </View>
 
-      {/* Category chips */}
-      {categories.length > 0 ? (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.catRow}
-        >
-          <CategoryChip
-            label={t.storefront.categoryAll}
-            active={activeCategory === null}
-            onPress={() => onSelectCategory(null)}
-          />
-          {categories.map((c) => (
-            <CategoryChip
-              key={c.id}
-              label={c.name}
-              active={activeCategory === c.id}
-              onPress={() => onSelectCategory(c.id)}
-            />
-          ))}
-        </ScrollView>
-      ) : null}
+          {notice ? <Text style={styles.notice}>{notice}</Text> : null}
 
-      <Text style={styles.sectionTitle}>{t.storefront.products}</Text>
+          {/* Search bar */}
+          <View style={styles.searchWrap}>
+            <View style={[styles.searchBar, query.length > 0 && styles.searchBarActive]}>
+              <TextInput
+                style={styles.searchInput}
+                placeholder={t.storefront.searchPlaceholder}
+                placeholderTextColor={theme.color.textFaint}
+                value={query}
+                onChangeText={onQueryChange}
+                returnKeyType="search"
+                autoCorrect={false}
+              />
+              {searching ? (
+                <ActivityIndicator size="small" color={theme.color.primary} />
+              ) : query.length > 0 ? (
+                <Pressable onPress={() => onQueryChange('')} hitSlop={12} style={styles.searchClearBtn}>
+                  <Text style={styles.searchClearText}>✕</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          </View>
+
+          {/* Category chips */}
+          {categories.length > 0 ? (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.catRow}
+            >
+              <CategoryChip
+                label={t.storefront.categoryAll}
+                active={activeCategory === null}
+                onPress={() => onSelectCategory(null)}
+              />
+              {categories.map((c) => (
+                <CategoryChip
+                  key={c.id}
+                  label={c.name}
+                  active={activeCategory === c.id}
+                  onPress={() => onSelectCategory(c.id)}
+                />
+              ))}
+            </ScrollView>
+          ) : null}
+
+          <Text style={styles.sectionTitle}>{t.storefront.products}</Text>
+        </>
+      )}
     </View>
   );
 }
@@ -886,6 +913,20 @@ const styles = StyleSheet.create({
     paddingVertical: theme.space.md,
     backgroundColor: theme.color.bg,
   },
+
+  rxCta: {
+    backgroundColor: theme.color.card,
+    marginHorizontal: theme.space.lg,
+    marginTop: theme.space.lg,
+    borderRadius: theme.radius.lg,
+    padding: theme.space.lg,
+    gap: theme.space.sm,
+    borderWidth: 1.5,
+    borderColor: theme.color.primary,
+    ...shadow.sm,
+  },
+  rxCtaTitle: { fontSize: theme.font.h2, fontWeight: '800', color: theme.color.text },
+  rxCtaSub: { fontSize: theme.font.body, color: theme.color.textMuted, lineHeight: 21, marginBottom: theme.space.sm },
 
   conflictBox: {
     margin: theme.space.lg,
