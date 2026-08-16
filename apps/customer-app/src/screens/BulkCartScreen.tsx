@@ -59,6 +59,11 @@ export function BulkCartScreen({
   const [nearbyOffset, setNearbyOffset] = useState(0);
   const [nearbyLoading, setNearbyLoading] = useState(false);
   const [addingShop, setAddingShop] = useState<string | null>(null);
+  // NOTE: every hook must run before the `bulkCart.length === 0` early return
+  // below. Removing the last shop flips length →0; if a hook lived after that
+  // return, this render would call fewer hooks than the previous one and React
+  // would crash to a blank white screen ("rendered fewer hooks than expected").
+  const [placingCancelHandle, setPlacingCancelHandle] = useState<{ cancel: () => void } | null>(null);
 
   // Lock anchor to the FIRST shop added — don't shift when more shops are added
   const anchorShopId = bulkCart[0]?.shopId ?? null;
@@ -156,8 +161,6 @@ export function BulkCartScreen({
   const surchargeEach = MULTI_SHOP_SURCHARGE_PAISE;
   const multiShopSurchargePaise = (shopCount - 1) * surchargeEach;
   const totalPaise = subtotalPaise + baseDeliveryFeePaise + multiShopSurchargePaise + platformFeePaise;
-
-  const [placingCancelHandle, setPlacingCancelHandle] = useState<{ cancel: () => void } | null>(null);
 
   async function place() {
     if (!selectedAddress) { setError('Please select a delivery address'); return; }
