@@ -18,6 +18,7 @@ import type { Address, ShopView } from '../types';
 import { AddressForm } from '../components/AddressForm';
 import { CouponScreen } from './CouponScreen';
 import { estimateOrderMinutes, formatDistance, formatMinutesBand, formatRupees, haversineMeters, productImage, shadow, theme } from '../theme';
+import { EditIcon } from '../EditDeleteIcons';
 import { Badge, Button, CoinChip, Divider, EmptyState, Loading } from '../ui';
 import { ImageOrInitial } from '../ImageOrInitial';
 import { getPrefetchedCheckout, clearCheckoutPrefetch } from '../checkoutPrefetch';
@@ -845,8 +846,8 @@ export function CartScreen({
                     {addr.landmark ? <Text style={styles.addrLandmark}>{t.common.near} {addr.landmark}</Text> : null}
                   </View>
                   {addresses.length > 1 ? (
-                    <Pressable onPress={() => setShowAddrPicker(true)} hitSlop={8} style={styles.addrEditBtn}>
-                      <Text style={styles.addrEditIcon}>{t.common.change}</Text>
+                    <Pressable onPress={() => setShowAddrPicker(true)} hitSlop={8} style={styles.addrEditBtn} accessibilityLabel={t.common.change}>
+                      <EditIcon size={18} color={theme.color.primary} />
                     </Pressable>
                   ) : null}
                 </View>

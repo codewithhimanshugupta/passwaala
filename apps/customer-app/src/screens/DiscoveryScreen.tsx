@@ -34,16 +34,6 @@ const PAGE_SIZE = 5;
 /** Cross-shop product-search hits fetched per page — a few shown first. */
 const PRODUCT_PAGE = 5;
 
-/** Emoji shown on each category chip, keyed by slug (universal, not localized). */
-const CATEGORY_EMOJI: Record<string, string> = {
-  '': '🛍️',
-  kirana: '🛒',
-  dairy: '🥛',
-  medical: '💊',
-  'fruits-veg': '🥬',
-  electronics: '🔌',
-};
-
 /** Ad campaign impressions already reported this session (dedupe per campaign). */
 const _reportedImpressions = new Set<string>();
 
@@ -524,7 +514,7 @@ export function DiscoveryScreen({
       <View style={styles.header}>
         <View style={styles.headerTop}>
           <View style={styles.logoMini}>
-            <Text style={styles.logoMiniText}>प</Text>
+            <Text style={styles.logoMiniText}>N</Text>
           </View>
           <View style={styles.flex}>
             <Text style={styles.deliverLabel}>{t.discovery.deliveringTo}</Text>
@@ -595,12 +585,13 @@ export function DiscoveryScreen({
                 style={[styles.chip, active && styles.chipActive]}
               >
                 <Text style={[styles.chipText, active && styles.chipTextActive]}>
-                  {CATEGORY_EMOJI[c.slug] ? `${CATEGORY_EMOJI[c.slug]}  ${c.label}` : c.label}
+                  {c.label}
                 </Text>
               </Pressable>
             );
           })}
         </ScrollView>
+        <View style={styles.filterDivider} />
         <View style={styles.filterActions}>
           <Pressable
             onPress={() => setOpenNow((v) => !v)}
@@ -615,7 +606,7 @@ export function DiscoveryScreen({
             style={[styles.filterPill, hasOffers && styles.filterPillActive]}
           >
             <Text style={[styles.filterPillText, hasOffers && styles.filterPillTextActive]}>
-              🏷️ {t.discovery.greatOffers}
+              {t.discovery.greatOffers}
             </Text>
           </Pressable>
           <Pressable
@@ -1207,16 +1198,15 @@ const styles = StyleSheet.create({
   chip: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingHorizontal: 13,
+    paddingVertical: 7,
     borderRadius: theme.radius.pill,
     backgroundColor: theme.color.surfaceAlt,
     borderWidth: 1,
     borderColor: 'transparent',
   },
   chipActive: { backgroundColor: theme.color.primaryLight, borderColor: theme.color.primary },
-  chipText: { fontSize: 11, fontWeight: "600", color: theme.color.textMuted },
+  chipText: { fontSize: 12.5, fontWeight: "600", color: theme.color.textMuted },
   chipTextActive: { color: theme.color.primaryDark },
 
   filterBar: {
@@ -1236,17 +1226,18 @@ const styles = StyleSheet.create({
     paddingVertical: theme.space.sm,
   },
   resultCount: { fontSize: theme.font.small, color: theme.color.textMuted, fontWeight: "500" },
-  filterActions: { flexDirection: 'row', gap: 6, flexShrink: 0 },
+  filterActions: { flexDirection: 'row', gap: 6, flexShrink: 0, alignItems: 'center' },
+  filterDivider: { width: 1, height: 22, backgroundColor: theme.color.border, marginHorizontal: 2 },
   filterPill: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingHorizontal: 13,
+    paddingVertical: 7,
     borderRadius: theme.radius.pill,
     backgroundColor: theme.color.bg,
     borderWidth: 1,
     borderColor: theme.color.border,
   },
   filterPillActive: { backgroundColor: theme.color.primary, borderColor: theme.color.primary },
-  filterPillText: { fontSize: 11, fontWeight: "600", color: theme.color.text },
+  filterPillText: { fontSize: 12.5, fontWeight: "600", color: theme.color.text },
   filterPillTextActive: { color: theme.color.onPrimary },
 
   list: { padding: theme.space.md, paddingBottom: theme.space.xxl, gap: theme.space.md },

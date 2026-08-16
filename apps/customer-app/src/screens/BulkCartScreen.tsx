@@ -15,6 +15,7 @@ import { prefetchShop } from './StorefrontScreen';
 import type { Address } from '../types';
 import { AddressForm } from '../components/AddressForm';
 import { formatRupees, shadow, theme, haversineMeters } from '../theme';
+import { EditIcon } from '../EditDeleteIcons';
 import { Button, Divider, EmptyState, Loading } from '../ui';
 import { getPrefetchedCheckout, clearCheckoutPrefetch } from '../checkoutPrefetch';
 import { StripedProgressBar } from '../StripedProgressBar';
@@ -315,8 +316,8 @@ export function BulkCartScreen({
                   {a.landmark ? <Text style={styles.addrLandmark}>Near {a.landmark}</Text> : null}
                 </View>
                 {addresses.length > 1 ? (
-                  <Pressable onPress={() => setShowAddrPicker(true)}>
-                    <Text style={styles.link}>Change</Text>
+                  <Pressable onPress={() => setShowAddrPicker(true)} hitSlop={8} accessibilityLabel="Change">
+                    <EditIcon size={18} color={theme.color.primary} />
                   </Pressable>
                 ) : null}
               </View>

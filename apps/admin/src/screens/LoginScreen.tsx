@@ -66,7 +66,7 @@ export function LoginScreen({
     <View style={s.screen}>
       <View style={s.card}>
         <View style={s.brandRow}>
-          <View style={s.logoMark}><Text style={s.logoText}>PW</Text></View>
+          <View style={s.logoMark}><Text style={s.logoText}>N</Text></View>
           <View>
             <Text style={s.title}>{t.login.title}</Text>
             <Text style={s.subtitle}>{t.login.subtitle}</Text>

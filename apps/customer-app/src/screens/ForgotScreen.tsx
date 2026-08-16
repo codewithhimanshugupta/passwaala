@@ -100,7 +100,7 @@ export function ForgotScreen({ onDone, onBackToLogin }: { onDone: () => void; on
     <KeyboardAvoidingView style={styles.root} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <View style={styles.hero}>
         <View style={styles.logoWrap}>
-          <Text style={styles.logoMark}>प</Text>
+          <Text style={styles.logoMark}>N</Text>
         </View>
         <Text style={styles.brand}>NearBaz</Text>
         <Text style={styles.tagline}>{t.login.tagline}</Text>

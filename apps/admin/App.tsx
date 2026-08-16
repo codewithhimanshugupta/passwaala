@@ -150,7 +150,7 @@ function Sidebar({
     <View style={styles.sidebar}>
       <View style={styles.brandRow}>
         <View style={styles.logoMark}>
-          <Text style={styles.logoText}>PW</Text>
+          <Text style={styles.logoText}>N</Text>
         </View>
         <View>
           <Text style={styles.brand}>{t.app.brand}</Text>

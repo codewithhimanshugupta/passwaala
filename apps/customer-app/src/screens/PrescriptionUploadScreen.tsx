@@ -19,6 +19,7 @@ import type { Address, ShopView } from '../types';
 import { AddressForm } from '../components/AddressForm';
 import { _shopDataCache2 } from './StorefrontScreen';
 import { shadow, theme } from '../theme';
+import { EditIcon } from '../EditDeleteIcons';
 import { Badge, Button, Loading } from '../ui';
 import { useLang } from '../i18n/LanguageContext';
 
@@ -311,8 +312,8 @@ export function PrescriptionUploadScreen({
                   ) : null}
                 </View>
                 {addresses.length > 1 ? (
-                  <Pressable onPress={() => setShowAddrPicker(true)} hitSlop={8} style={styles.addrEditBtn}>
-                    <Text style={styles.addrEditIcon}>{t.common.change}</Text>
+                  <Pressable onPress={() => setShowAddrPicker(true)} hitSlop={8} style={styles.addrEditBtn} accessibilityLabel={t.common.change}>
+                    <EditIcon size={18} color={theme.color.primary} />
                   </Pressable>
                 ) : null}
               </View>
