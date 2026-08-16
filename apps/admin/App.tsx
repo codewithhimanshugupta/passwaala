@@ -18,6 +18,7 @@ import { GstScreen } from './src/screens/GstScreen';
 import { BulkOrdersScreen } from './src/screens/BulkOrdersScreen';
 import { AdsScreen } from './src/screens/AdsScreen';
 import { hasSavedToken, logout, me, onAuthExpired } from './src/api';
+import { ToastHost } from './src/toast';
 import { theme } from './src/theme';
 import { Splash } from './src/Splash';
 import { LanguageProvider, useLang } from './src/i18n/LanguageContext';
@@ -41,6 +42,7 @@ export default function App() {
   return (
     <LanguageProvider>
       <AppRoot />
+      <ToastHost />
       {!splashDone && <Splash onDone={() => setSplashDone(true)} />}
     </LanguageProvider>
   );

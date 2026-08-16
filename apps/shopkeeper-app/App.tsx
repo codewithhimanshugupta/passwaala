@@ -17,6 +17,7 @@ import { PrescriptionsScreen } from './src/screens/PrescriptionsScreen';
 import { AdsScreen } from './src/screens/AdsScreen';
 import { PosScreen } from './src/screens/PosScreen';
 import { api, hasSavedToken, logout, onAuthExpired, flushPosOutbox } from './src/api';
+import { ToastHost } from './src/toast';
 import { connectSocket, disconnectSocket, reconnectSocket, onSocket } from './src/socket';
 import { clearShopkeeperPrefetch, prefetchShopkeeper } from './src/shopkeeperPrefetch';
 import { formatRupees, theme } from './src/theme';
@@ -66,6 +67,7 @@ export default function App() {
   return (
     <LanguageProvider>
       <AppRoot />
+      <ToastHost />
       {!splashDone && <Splash onDone={() => setSplashDone(true)} />}
     </LanguageProvider>
   );

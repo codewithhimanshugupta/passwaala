@@ -17,6 +17,7 @@ import { OrderTrackingScreen } from './src/screens/OrderTrackingScreen';
 import { OrdersScreen } from './src/screens/OrdersScreen';
 import { ProfileScreen } from './src/screens/ProfileScreen';
 import { api, hasSavedToken, logout, onAuthExpired } from './src/api';
+import { ToastHost } from './src/toast';
 import { connectSocket, disconnectSocket } from './src/socket';
 import { registerPushToken, unregisterPushToken } from './src/push';
 import type { Account } from './src/types';
@@ -190,6 +191,7 @@ export default function App() {
   return (
     <LanguageProvider>
       <AppRoot />
+      <ToastHost />
       {!splashDone && <Splash onDone={() => setSplashDone(true)} />}
     </LanguageProvider>
   );

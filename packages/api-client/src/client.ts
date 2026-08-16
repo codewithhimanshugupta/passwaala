@@ -64,6 +64,13 @@ export interface ApiClientOptions {
    * clears the token first, then invokes this so the app can route to login.
    */
   onUnauthorized?: () => void;
+  /**
+   * Called on any failed request (non-2xx) EXCEPT an expired-session 401 (which
+   * goes through onUnauthorized instead). Apps wire this to a global toast so
+   * every failure surfaces a short, friendly popup. `ctx.method`/`ctx.path` let
+   * the app suppress noise (e.g. only pop for user-initiated writes, not polls).
+   */
+  onError?: (err: ApiError, ctx: { method: string; path: string }) => void;
 }
 
 /** Error thrown on a non-2xx API response. */
@@ -91,6 +98,38 @@ export class AuthExpiredError extends ApiError {
 }
 
 /**
+ * Turn any thrown error into ONE short, user-friendly line safe to show in a
+ * popup. Never leaks status codes, stack traces, SQL/Prisma internals, or the
+ * generic "Internal server error" — those all collapse to a calm retry prompt.
+ * Meaningful validation/auth messages from the API (4xx) are passed through as
+ * they're already written for humans ("No account found. Please sign up first.",
+ * "Incorrect PIN.", "This item is out of stock.").
+ */
+export function friendlyMessage(err: unknown): string {
+  const GENERIC = 'Something went wrong. Please try again.';
+  if (err instanceof AuthExpiredError) return err.message;
+  if (err instanceof ApiError) {
+    // Server-side faults and rate limits: never show the raw body or a code.
+    if (err.status >= 500) return GENERIC;
+    if (err.status === 429) return 'Too many attempts. Please wait a moment, then try again.';
+    const m = (err.message || '').trim();
+    // Drop empty, placeholder, or technical-looking messages.
+    const technical =
+      !m ||
+      m === 'Request failed' ||
+      /internal server error|\bprisma\b|\bsql\b|econn|\bundefined\b|cannot read|\bnull\b|stack|illegal invocation|\b50\d\b|\b40\d\b/i.test(m);
+    if (technical) return GENERIC;
+    return m.length > 160 ? `${m.slice(0, 157)}…` : m;
+  }
+  // fetch() itself rejected → no network / server unreachable.
+  const raw = err instanceof Error ? err.message : '';
+  if (/network|failed to fetch|load failed|timeout|timed out|abort/i.test(raw)) {
+    return 'No internet connection. Please check your network and try again.';
+  }
+  return GENERIC;
+}
+
+/**
  * PasswaalaApiClient — a single typed client for the NearBaz API, shared by the
  * customer + shopkeeper Expo apps (and any web/admin surface). Pure fetch, no
  * framework deps, so it runs on React Native, RN Web, and Node alike.
@@ -104,12 +143,14 @@ export class PasswaalaApiClient {
   private fetchImpl: typeof fetch;
   private onTokenChange?: (token?: string) => void;
   private onUnauthorized?: () => void;
+  private onError?: (err: ApiError, ctx: { method: string; path: string }) => void;
 
   constructor(opts: ApiClientOptions) {
     this.baseUrl = opts.baseUrl.replace(/\/$/, '');
     this.token = opts.token;
     this.onTokenChange = opts.onTokenChange;
     this.onUnauthorized = opts.onUnauthorized;
+    this.onError = opts.onError;
     // Bind to the global object: a bare `fetch` reference called as a method
     // (this.fetchImpl(...)) detaches it from window and browsers throw
     // "Illegal invocation". Binding preserves the correct receiver.
@@ -1195,7 +1236,14 @@ export class PasswaalaApiClient {
     const text = await res.text();
     const parsed = text ? JSON.parse(text) : undefined;
     if (!res.ok) {
-      throw new ApiError(res.status, (parsed?.message as string) ?? 'Upload failed', parsed);
+      if (res.status === 401) {
+        this.setToken(undefined);
+        this.onUnauthorized?.();
+        throw new AuthExpiredError();
+      }
+      const err = new ApiError(res.status, (parsed?.message as string) ?? 'Upload failed', parsed);
+      this.onError?.(err, { method: 'POST', path: '/uploads/image' });
+      throw err;
     }
     return parsed as { url: string; filename: string };
   }
@@ -1242,7 +1290,11 @@ export class PasswaalaApiClient {
         this.onUnauthorized?.();
         throw new AuthExpiredError();
       }
-      throw new ApiError(res.status, message, parsed);
+      const err = new ApiError(res.status, message, parsed);
+      // Fan every non-session-expiry failure out to the app's global error
+      // handler (toast). Session-expiry (above) is handled via onUnauthorized.
+      this.onError?.(err, { method, path });
+      throw err;
     }
     return parsed as T;
   }

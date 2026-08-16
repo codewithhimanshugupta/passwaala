@@ -1,4 +1,5 @@
-import { PasswaalaApiClient } from '@passwaala/api-client';
+import { PasswaalaApiClient, friendlyMessage } from '@passwaala/api-client';
+import { notifyError } from './toast';
 
 /**
  * Shared API client for the customer app, with token persistence so a page
@@ -76,6 +77,13 @@ export const api = new PasswaalaApiClient({
     if (wasLoggedIn) {
       fireAuthExpired();
     }
+  },
+  onError: (err, { method }) => {
+    // Show a short, friendly popup for user-initiated actions (writes). Background
+    // GET polls surface through each screen's own load/empty state, so we don't
+    // spam toasts for those. Auth-expiry (401 on a protected route) is handled by
+    // onUnauthorized above and never reaches here.
+    if (method !== 'GET') notifyError(friendlyMessage(err));
   },
 });
 

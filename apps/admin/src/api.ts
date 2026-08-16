@@ -1,4 +1,5 @@
-import { ApiError, AuthExpiredError, PasswaalaApiClient } from '@passwaala/api-client';
+import { ApiError, AuthExpiredError, PasswaalaApiClient, friendlyMessage } from '@passwaala/api-client';
+import { notifyError } from './toast';
 
 /**
  * Shared API client for the NearBaz admin app, with token persistence so a
@@ -61,6 +62,9 @@ export const api = new PasswaalaApiClient({
   token: loadToken(),
   onTokenChange: saveToken,
   onUnauthorized: emitAuthExpired,
+  onError: (err, { method }) => {
+    if (method !== 'GET') notifyError(friendlyMessage(err));
+  },
 });
 
 export function hasSavedToken(): boolean {

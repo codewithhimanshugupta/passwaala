@@ -1,4 +1,5 @@
-import { PasswaalaApiClient } from '@passwaala/api-client';
+import { PasswaalaApiClient, friendlyMessage } from '@passwaala/api-client';
+import { notifyError } from './toast';
 import type { POSCreateSale, POSSaleResult } from '@passwaala/shared';
 import { enqueueOutbox, flushOutbox, PosOfflineError, type FlushResult } from './posOutbox';
 
@@ -51,6 +52,11 @@ export const api = new PasswaalaApiClient({
   onTokenChange: saveToken,
   onUnauthorized: () => {
     for (const fn of authExpiredListeners) fn();
+  },
+  onError: (err, { method }) => {
+    // User-initiated actions (writes) surface a short friendly popup. Background
+    // GET polls have their own screen-level load/empty states.
+    if (method !== 'GET') notifyError(friendlyMessage(err));
   },
 });
 

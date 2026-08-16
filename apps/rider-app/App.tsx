@@ -13,6 +13,7 @@ import { EarningsScreen } from './src/screens/EarningsScreen';
 import { DuesScreen } from './src/screens/DuesScreen';
 import { AlertsScreen } from './src/screens/AlertsScreen';
 import { api, hasSavedToken, logout, onAuthExpired } from './src/api';
+import { ToastHost } from './src/toast';
 import { connectSocket, disconnectSocket } from './src/socket';
 import { clearRiderPrefetch, prefetchRider, seedRiderMe } from './src/riderPrefetch';
 import { formatRupees, theme } from './src/theme';
@@ -45,6 +46,7 @@ export default function App() {
   return (
     <LanguageProvider>
       <AppRoot />
+      <ToastHost />
       {!splashDone && <Splash onDone={() => setSplashDone(true)} />}
     </LanguageProvider>
   );

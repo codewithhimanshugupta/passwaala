@@ -1,4 +1,5 @@
-import { PasswaalaApiClient } from '@passwaala/api-client';
+import { PasswaalaApiClient, friendlyMessage } from '@passwaala/api-client';
+import { notifyError } from './toast';
 import * as SecureStore from 'expo-secure-store';
 
 /**
@@ -63,6 +64,9 @@ export const api = new PasswaalaApiClient({
     if (wasLoggedIn) {
       fireAuthExpired();
     }
+  },
+  onError: (err, { method }) => {
+    if (method !== 'GET') notifyError(friendlyMessage(err));
   },
 });
 

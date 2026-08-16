@@ -1,4 +1,5 @@
-import { PasswaalaApiClient } from '@passwaala/api-client';
+import { PasswaalaApiClient, friendlyMessage } from '@passwaala/api-client';
+import { notifyError } from './toast';
 
 /**
  * Shared API client for the rider app, with token persistence so a refresh
@@ -50,6 +51,9 @@ export const api = new PasswaalaApiClient({
   onTokenChange: saveToken,
   onUnauthorized: () => {
     for (const fn of authExpiredListeners) fn();
+  },
+  onError: (err, { method }) => {
+    if (method !== 'GET') notifyError(friendlyMessage(err));
   },
 });
 

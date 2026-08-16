@@ -7,6 +7,7 @@ import { AuthPayload } from '../auth/auth-payload';
 import { OrdersService } from './orders.service';
 import { AdvanceOrderDto } from './dto/advance-order.dto';
 import { PlaceOrderDto } from './dto/place-order.dto';
+import { OrderHistoryQuery } from './dto/order-history-query.dto';
 import { POSCreateSaleDto } from './dto/pos-create-sale.dto';
 import { MarkUnavailableDto } from './dto/mark-unavailable.dto';
 import { FeedQuery } from './dto/feed-query.dto';
@@ -39,10 +40,10 @@ export class OrdersController {
     return this.orders.placePos(shopId, dto);
   }
 
-  /** Their order history (newest first), keyset paginated (?limit=&cursor=). */
+  /** Their order history (newest first), keyset paginated (?limit=&cursor=&mode=). */
   @Get('history')
-  history(@CurrentUser() user: AuthPayload, @Query() page: PaginationQuery) {
-    return this.orders.historyForCustomer(user.sub, page, (page as Record<string, string>).mode);
+  history(@CurrentUser() user: AuthPayload, @Query() query: OrderHistoryQuery) {
+    return this.orders.historyForCustomer(user.sub, query, query.mode);
   }
 
   /**
