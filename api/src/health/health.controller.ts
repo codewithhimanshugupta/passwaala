@@ -34,10 +34,19 @@ export class HealthController {
     } catch {
       /* DB unreachable — still report liveness so the app isn't marked down */
     }
-    // TEMP: expose DB host ref so we can verify which Supabase project is connected.
-    // Remove after confirming correct DB. Never exposes password.
+    // TEMP debug block — remove after DB issue confirmed.
     const url = process.env.DATABASE_URL ?? '';
     const dbRef = url.match(/postgres\.([^:@]+)/)?.[1] ?? url.match(/@([^:/@]+\.supabase\.com)/)?.[1] ?? 'unknown';
-    return { status: 'ok', sampleTransitionOk, db, dbRef, userCount };
+    let ownerFound: string | null = null;
+    try {
+      const u = await this.prisma.user.findUnique({
+        where: { phone_appType: { phone: '+919000000001', appType: 'OWNER' } },
+        select: { id: true },
+      });
+      ownerFound = u ? u.id : 'NULL';
+    } catch (e: any) {
+      ownerFound = 'ERR:' + e.message?.slice(0, 80);
+    }
+    return { status: 'ok', sampleTransitionOk, db, dbRef, userCount, ownerFound };
   }
 }
