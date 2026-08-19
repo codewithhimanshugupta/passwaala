@@ -15,7 +15,7 @@
     "shared:build": "npm run build --workspace @nearbaz/shared",
     "api:dev": "npm run start:dev --workspace @nearbaz/api",
     "api:test": "npm run test --workspace @nearbaz/api",
-    "render:build": "npm install && npm run build --workspace @nearbaz/shared && npm run build --workspace @nearbaz/api-client && npx prisma generate --schema api/prisma/schema.prisma && npm run build --workspace @nearbaz/api",
+    "render:build": "npm install && npx prisma generate --schema api/prisma/schema.prisma && npm run build --workspace @nearbaz/shared && npm run build --workspace @nearbaz/api-client && npm run build --workspace @nearbaz/api",
     "render:start": "node api/dist/main.js",
     "eas-build-post-install": "npm run build --workspace @nearbaz/shared && npm run build --workspace @nearbaz/api-client"
   },
