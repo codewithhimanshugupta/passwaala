@@ -20,7 +20,7 @@ export class HealthController {
 
   @Public()
   @Get()
-  async check(): Promise<{ status: string; sampleTransitionOk: boolean; db: boolean; dbRef?: string; userCount?: number }> {
+  async check(): Promise<{ status: string; sampleTransitionOk: boolean; db: boolean; dbRef?: string; userCount?: number; ownerFound?: string | null }> {
     const sampleTransitionOk = canTransition(
       OrderStatus.PLACED,
       OrderStatus.ACCEPTED,
