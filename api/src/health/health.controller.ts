@@ -20,18 +20,24 @@ export class HealthController {
 
   @Public()
   @Get()
-  async check(): Promise<{ status: string; sampleTransitionOk: boolean; db: boolean }> {
+  async check(): Promise<{ status: string; sampleTransitionOk: boolean; db: boolean; dbRef?: string; userCount?: number }> {
     const sampleTransitionOk = canTransition(
       OrderStatus.PLACED,
       OrderStatus.ACCEPTED,
     );
     let db = false;
+    let userCount: number | undefined;
     try {
       await this.prisma.$queryRawUnsafe('SELECT 1');
       db = true;
+      userCount = await this.prisma.user.count();
     } catch {
       /* DB unreachable — still report liveness so the app isn't marked down */
     }
-    return { status: 'ok', sampleTransitionOk, db };
+    // TEMP: expose DB host ref so we can verify which Supabase project is connected.
+    // Remove after confirming correct DB. Never exposes password.
+    const url = process.env.DATABASE_URL ?? '';
+    const dbRef = url.match(/postgres\.([^:@]+)/)?.[1] ?? url.match(/@([^:/@]+\.supabase\.com)/)?.[1] ?? 'unknown';
+    return { status: 'ok', sampleTransitionOk, db, dbRef, userCount };
   }
 }
